@@ -70,57 +70,32 @@
 // }
 
 #include <Arduino.h>
-#include "../.pio/libdeps/esp32dev/mjs/mjs.h"
+#include <mjs3.h>
 
-// Redirect printf to Serial
-extern "C"
+// Delay function for JS
+extern void myDelay(int x)
 {
-    int _write(int fd, const void *buf, size_t count)
-    {
-        for (size_t i = 0; i < count; i++)
-        {
-            Serial.write(((char *)buf)[i]);
-        }
-        return count;
-    }
+    delay(x);
 }
 
-void foo(int x)
+// Updated print function that accepts strings
+extern void myPrint(const char *s)
 {
-    printf("C Function: Hello from C! You passed int: %d\n", x);
-    float f = 3.14;
-    const char *s = "example";
-    bool b = true;
-
-    printf("Float: %.2f\n", f);
-    printf("String: %s\n", s);
-    printf("Bool: %s\n", b ? "true" : "false");
-    printf("Hex: 0x%X\n", x);
-    printf("Char: %c\n", (char)x);
-}
-
-void *my_dlsym(void *handle, const char *name)
-{
-    if (strcmp(name, "foo") == 0)
-        return (void *)foo;
-    return NULL;
+    Serial.println(s);
 }
 
 void setup()
 {
     Serial.begin(115200);
-    while (!Serial)
-        delay(10); // Wait for Serial to be ready
 
-    printf("Setting up MJS...\n");
+    struct mjs *vm = mjs_create();              // Create JS instance
+    mjs_ffi(vm, "delay", (cfn_t)myDelay, "vi"); // Import delay(int)
+    mjs_ffi(vm, "print", (cfn_t)myPrint, "vs"); // Import print(string)
 
-    struct mjs *mjs = mjs_create();
-    mjs_set_ffi_resolver(mjs, my_dlsym);
-
-    mjs_exec(mjs, "let f = ffi('void foo(int)'); f(65);", NULL);
+    // Test: this now prints a string to Serial every 500ms
+    mjs_eval(vm, "while (1) { delay(500); print('Hello MJS!'); }", -1);
 }
 
 void loop()
 {
-    // No need to loop anything
 }
