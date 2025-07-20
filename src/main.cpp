@@ -70,44 +70,29 @@
 // }
 
 #include <Arduino.h>
-#include "../libs/mjs/mjs.h" // Stelle sicher, dass dieser Pfad korrekt ist
+#include <mjs3.h>
 
-// Die Funktion, die von JS aus aufgerufen wird
-extern "C" int add(int x1, int x2)
+extern void myDelay(int x)
 {
-    return x1 + x2;
+    delay(x);
 }
 
-// FFI-Resolver
-extern "C" void *my_dlsym(void *handle, const char *name)
+extern void myPrint(int s)
 {
-    if (strcmp(name, "add") == 0)
-        return (void *)add;
-    return nullptr;
+    Serial.println(s);
 }
 
 void setup()
 {
     Serial.begin(115200);
-    delay(1000);
 
-    struct mjs *js = mjs_create();
-    mjs_set_ffi_resolver(js, my_dlsym);
+    struct mjs *vm = mjs_create();              // Create JS instance
+    mjs_ffi(vm, "delay", (cfn_t)myDelay, "vi"); // Import delay()
+    mjs_ffi(vm, "print", (cfn_t)myPrint, "vi"); // Import write()
 
-    const char *script =
-        "let add = ffi('int add(int, int)');\n"
-        "let result = add(2, 3);\n"
-        "print('Result:', result);";
-
-    mjs_val_t res;
-    mjs_err_t ret = mjs_exec(js, script, &res);
-
-    if (ret != MJS_OK)
-    {
-        Serial.println(mjs_strerror(js, ret));
-    }
-
-    mjs_destroy(js);
+    mjs_eval(vm, "while (1) { delay(500); print(277); }", -1);
 }
 
-void loop() {}
+void loop()
+{
+}
