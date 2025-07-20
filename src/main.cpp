@@ -72,12 +72,14 @@
 #include <Arduino.h>
 #include <mjs3.h>
 
+// Delay function for JS
 extern void myDelay(int x)
 {
     delay(x);
 }
 
-extern void myPrint(int s)
+// Updated print function that accepts strings
+extern void myPrint(const char *s)
 {
     Serial.println(s);
 }
@@ -87,10 +89,11 @@ void setup()
     Serial.begin(115200);
 
     struct mjs *vm = mjs_create();              // Create JS instance
-    mjs_ffi(vm, "delay", (cfn_t)myDelay, "vi"); // Import delay()
-    mjs_ffi(vm, "print", (cfn_t)myPrint, "vi"); // Import write()
+    mjs_ffi(vm, "delay", (cfn_t)myDelay, "vi"); // Import delay(int)
+    mjs_ffi(vm, "print", (cfn_t)myPrint, "vs"); // Import print(string)
 
-    mjs_eval(vm, "while (1) { delay(500); print(277); }", -1);
+    // Test: this now prints a string to Serial every 500ms
+    mjs_eval(vm, "while (1) { delay(500); print('Hello MJS!'); }", -1);
 }
 
 void loop()
