@@ -49,7 +49,9 @@ void setup()
         return;
     }
 
+    Serial.println("Running Lua...");
     run_lua_file("/test.lua");
+    Serial.println("Running Screen...");
 
     tft.begin();
     tft.setRotation(1); // Querformat
