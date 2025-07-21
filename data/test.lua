@@ -53,34 +53,38 @@ else
     print("WLAN-Verbindung fehlgeschlagen!")
 end
 
+print("HTTP")
+
 local res = httpReq({
     method = "GET",
-    url = "http://manuelwestermeier.github.io/test.txt"
+    url = "http://www.http2demo.io/z"
 })
 
 print("Status:", res.status)
 print("Body:", res.body)
 
--- msg = httpsReq({
---     method = "GET",
---     url = "https://manuelwestermeier.github.io/test.txt",
---     headers = {
---         ["Content-Type"] = "application/json",
---         ["Authorization"] = "Bearer xyz123"
---     },
---     body = '{"key":"value"}'
--- }).body
+print("HTTPS")
 
--- print("Morse: " .. msg)
+msg = httpsReq({
+    method = "GET",
+    url = "https://manuelwestermeier.github.io/test.txt",
+    headers = {
+        ["Content-Type"] = "application/json",
+        ["Authorization"] = "Bearer xyz123"
+    },
+    body = '{"key":"value"}'
+}).body
 
--- for c in msg:gmatch(".") do
---     c = c:upper()
---     code = morse[c]
---     if code then
---         print(c .. ": " .. code)
---         for i = 1, #code do
---             flash(code:sub(i, i))
---         end
---         delay(300) -- pause between letters
---     end
--- end
+print(msg)
+
+for c in msg:gmatch(".") do
+    c = c:upper()
+    code = morse[c]
+    if code then
+        print(c .. ": " .. code)
+        for i = 1, #code do
+            flash(code:sub(i, i))
+        end
+        delay(300) -- pause between letters
+    end
+end
