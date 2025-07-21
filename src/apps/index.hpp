@@ -124,12 +124,28 @@ namespace LuaApps
             lua_State *L = LuaApps::Sandbox::createRestrictedLuaState();
             lua_register(L, "exitApp", lua_exitApp);
 
+            // Push a new Lua table onto the stack
+            lua_newtable(L); // this will be the 'args' table
+
+            // Fill the table with arguments
+            for (size_t i = 0; i < args.size(); ++i)
+            {
+                lua_pushnumber(L, i + 1); // Lua arrays are 1-based
+                lua_pushstring(L, args[i].c_str());
+                lua_settable(L, -3);
+            }
+
+            // Set the table as a global variable called "args"
+            lua_setglobal(L, "args");
+
+            // Load Lua file content
             File file = SPIFFS.open(path);
             if (!file)
                 return -1;
             String content = file.readString();
             file.close();
 
+            // Run the Lua script
             if (luaL_dostring(L, content.c_str()) != LUA_OK)
             {
                 Serial.printf("Lua Error: %s\n", lua_tostring(L, -1));
@@ -140,6 +156,7 @@ namespace LuaApps
             lua_close(L);
             return lastExitCode;
         }
+
     }
 
     // -------- LuaApp --------

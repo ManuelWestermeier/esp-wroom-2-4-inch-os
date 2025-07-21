@@ -1,3 +1,7 @@
+for i, arg in ipairs(args) do
+    print("Arg", i, arg)
+end
+
 -- Morse map
 morse = {
     ["A"] = ".-",
@@ -55,5 +59,3 @@ for c in msg:gmatch(".") do
         delay(300) -- pause between letters
     end
 end
-
-exitApp(277)
