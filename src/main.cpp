@@ -1,23 +1,20 @@
 #include <Arduino.h>
 
 // #include "./screen.hpp"
-#include "./apps/lua.hpp"
+#include "./apps/index.hpp"
 
 void setup()
 {
     Serial.begin(115200);
     Serial.println("Booting...");
 
-    if (!SPIFFS.begin(true))
-    {
-        Serial.println("SPIFFS init failed");
-        return;
-    }
+    LuaApps::initialize();  // Initialisiere Serial + SPIFFS
 
-    Serial.println("Running Lua...");
-    LuaSandbox::init();
-    LuaSandbox::runFile("/test.lua");
-    LuaSandbox::cleanup();
+    Serial.println("Running Lua app...");
+
+    // Führt /test.lua im Sandbox-Modus aus
+    int result = LuaApps::runApp("/test.lua");
+    Serial.printf("Lua App exited with code: %d\n", result);
 
     // Serial.println("Running Screen...");
     // screenInitTest();
