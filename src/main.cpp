@@ -1,7 +1,7 @@
 #include <Arduino.h>
 
 // #include "./screen.hpp"
-#include "./lua.hpp"
+#include "./apps/lua.hpp"
 
 void setup()
 {
