@@ -53,7 +53,15 @@ else
     print("WLAN-Verbindung fehlgeschlagen!")
 end
 
-msg = httpReq({
+local res = httpReq({
+    method = "GET",
+    url = "http://manuelwestermeier.github.io/BingSiteAuth.xml"
+})
+
+print("Status:", res.status)
+print("Body:", res.body)
+
+msg = httpsReq({
     method = "GET",
     url = "http://manuelwestermeier.github.io/BingSiteAuth.xml",
     -- headers = {

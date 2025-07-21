@@ -52,7 +52,6 @@ namespace LuaApps
         {
             if (WiFi.status() != WL_CONNECTED)
             {
-                Serial.println("WLAN nicht verbunden!");
                 lua_pushstring(L, "Not connected to WiFi");
                 return lua_error(L);
             }
@@ -64,7 +63,7 @@ namespace LuaApps
             String body = "";
             std::map<String, String> headers;
 
-            // --- Extract fields from Lua table ---
+            // Felder aus Lua-Tabelle auslesen
             lua_getfield(L, 1, "method");
             if (!lua_isnil(L, -1))
                 method = luaL_checkstring(L, -1);
@@ -85,52 +84,39 @@ namespace LuaApps
                 body = luaL_checkstring(L, -1);
             lua_pop(L, 1);
 
-            // headers: table<string, string>
+            // Header aus Lua-Tabelle lesen
             lua_getfield(L, 1, "headers");
             if (lua_istable(L, -1))
             {
-                lua_pushnil(L); // Start iteration
+                lua_pushnil(L);
                 while (lua_next(L, -2))
                 {
                     String key = luaL_checkstring(L, -2);
                     String value = luaL_checkstring(L, -1);
                     headers[key] = value;
-                    lua_pop(L, 1); // Pop value, keep key
+                    lua_pop(L, 1);
                 }
             }
             lua_pop(L, 1);
 
-            // --- HTTP request ---
-            WiFiClientSecure client;
-            client.setInsecure(); // Warnung: Nur für Tests!
-
+            WiFiClient client;
             HTTPClient http;
             http.begin(client, url);
 
             for (auto &pair : headers)
-            {
                 http.addHeader(pair.first, pair.second);
-            }
 
             int code = -1;
             String response;
 
             if (strcmp(method, "GET") == 0)
-            {
                 code = http.GET();
-            }
             else if (strcmp(method, "POST") == 0)
-            {
                 code = http.POST(body);
-            }
             else if (strcmp(method, "PUT") == 0)
-            {
                 code = http.PUT(body);
-            }
             else if (strcmp(method, "DELETE") == 0)
-            {
                 code = http.sendRequest("DELETE", body);
-            }
             else
             {
                 http.end();
@@ -139,20 +125,104 @@ namespace LuaApps
             }
 
             if (code > 0)
-            {
                 response = http.getString();
-            }
             else
-            {
                 response = String("Request failed: ") + http.errorToString(code);
-            }
 
-            // Build Lua response table
             lua_newtable(L);
-
             lua_pushinteger(L, code);
             lua_setfield(L, -2, "status");
+            lua_pushstring(L, response.c_str());
+            lua_setfield(L, -2, "body");
 
+            http.end();
+            return 1;
+        }
+
+        int luaHttpsRequest(lua_State *L)
+        {
+            if (WiFi.status() != WL_CONNECTED)
+            {
+                lua_pushstring(L, "Not connected to WiFi");
+                return lua_error(L);
+            }
+
+            luaL_checktype(L, 1, LUA_TTABLE);
+
+            const char *method = "GET";
+            const char *url = nullptr;
+            String body = "";
+            std::map<String, String> headers;
+
+            lua_getfield(L, 1, "method");
+            if (!lua_isnil(L, -1))
+                method = luaL_checkstring(L, -1);
+            lua_pop(L, 1);
+
+            lua_getfield(L, 1, "url");
+            if (!lua_isnil(L, -1))
+                url = luaL_checkstring(L, -1);
+            else
+            {
+                lua_pushstring(L, "Missing 'url' field");
+                return lua_error(L);
+            }
+            lua_pop(L, 1);
+
+            lua_getfield(L, 1, "body");
+            if (!lua_isnil(L, -1))
+                body = luaL_checkstring(L, -1);
+            lua_pop(L, 1);
+
+            lua_getfield(L, 1, "headers");
+            if (lua_istable(L, -1))
+            {
+                lua_pushnil(L);
+                while (lua_next(L, -2))
+                {
+                    String key = luaL_checkstring(L, -2);
+                    String value = luaL_checkstring(L, -1);
+                    headers[key] = value;
+                    lua_pop(L, 1);
+                }
+            }
+            lua_pop(L, 1);
+
+            WiFiClientSecure client;
+            client.setInsecure(); // Nur für Test, besser mit Zertifikat arbeiten!
+
+            HTTPClient http;
+            http.begin(client, url);
+
+            for (auto &pair : headers)
+                http.addHeader(pair.first, pair.second);
+
+            int code = -1;
+            String response;
+
+            if (strcmp(method, "GET") == 0)
+                code = http.GET();
+            else if (strcmp(method, "POST") == 0)
+                code = http.POST(body);
+            else if (strcmp(method, "PUT") == 0)
+                code = http.PUT(body);
+            else if (strcmp(method, "DELETE") == 0)
+                code = http.sendRequest("DELETE", body);
+            else
+            {
+                http.end();
+                lua_pushstring(L, "Unsupported HTTP method");
+                return lua_error(L);
+            }
+
+            if (code > 0)
+                response = http.getString();
+            else
+                response = String("Request failed: ") + http.errorToString(code);
+
+            lua_newtable(L);
+            lua_pushinteger(L, code);
+            lua_setfield(L, -2, "status");
             lua_pushstring(L, response.c_str());
             lua_setfield(L, -2, "body");
 
@@ -196,6 +266,7 @@ namespace LuaApps
             lua_register(L, "setLED", setLED);
             lua_register(L, "delay", luaDelay);
             lua_register(L, "httpReq", luaHttpRequest);
+            lua_register(L, "httpsReq", luaHttpsRequest);
             lua_register(L, "ConnectToWifi", connectToWofi);
         }
 
