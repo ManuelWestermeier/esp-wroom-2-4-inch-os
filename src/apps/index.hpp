@@ -189,7 +189,7 @@ namespace LuaApps
             lua_pop(L, 1);
 
             WiFiClientSecure client;
-            client.setInsecure(); // Nur für Test, besser mit Zertifikat arbeiten!
+            // client.setInsecure(); // Nur für Test, besser mit Zertifikat arbeiten!
 
             HTTPClient http;
             http.begin(client, url);

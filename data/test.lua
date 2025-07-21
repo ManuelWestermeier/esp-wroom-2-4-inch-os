@@ -55,32 +55,32 @@ end
 
 local res = httpReq({
     method = "GET",
-    url = "http://manuelwestermeier.github.io/BingSiteAuth.xml"
+    url = "http://manuelwestermeier.github.io/test.txt"
 })
 
 print("Status:", res.status)
 print("Body:", res.body)
 
-msg = httpsReq({
-    method = "GET",
-    url = "http://manuelwestermeier.github.io/BingSiteAuth.xml",
-    -- headers = {
-    --     ["Content-Type"] = "application/json",
-    --     ["Authorization"] = "Bearer xyz123"
-    -- },
-    -- body = '{"key":"value"}'
-}).body
+-- msg = httpsReq({
+--     method = "GET",
+--     url = "https://manuelwestermeier.github.io/test.txt",
+--     headers = {
+--         ["Content-Type"] = "application/json",
+--         ["Authorization"] = "Bearer xyz123"
+--     },
+--     body = '{"key":"value"}'
+-- }).body
 
-print("Morse: " .. msg)
+-- print("Morse: " .. msg)
 
-for c in msg:gmatch(".") do
-    c = c:upper()
-    code = morse[c]
-    if code then
-        print(c .. ": " .. code)
-        for i = 1, #code do
-            flash(code:sub(i, i))
-        end
-        delay(300) -- pause between letters
-    end
-end
+-- for c in msg:gmatch(".") do
+--     c = c:upper()
+--     code = morse[c]
+--     if code then
+--         print(c .. ": " .. code)
+--         for i = 1, #code do
+--             flash(code:sub(i, i))
+--         end
+--         delay(300) -- pause between letters
+--     end
+-- end
