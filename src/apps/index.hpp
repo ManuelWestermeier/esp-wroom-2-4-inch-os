@@ -149,7 +149,10 @@ namespace LuaApps
             if (luaL_dostring(L, content.c_str()) != LUA_OK)
             {
                 Serial.printf("Lua Error: %s\n", lua_tostring(L, -1));
+                lua_pop(L, 1); // remove error message
                 lua_close(L);
+                if (lastExitCode == 0)
+                    lastExitCode = -1; // default error code
                 return lastExitCode;
             }
 
