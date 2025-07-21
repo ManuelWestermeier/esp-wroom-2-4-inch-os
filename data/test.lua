@@ -1,34 +1,36 @@
 -- Morse map
 morse = {
-  A = ".-", B = "-...", C = "-.-.", D = "-..", E = ".", F = "..-.",
-  G = "--.", H = "....", I = "..", J = ".---", K = "-.-", L = ".-..",
-  M = "--", N = "-.", O = "---", P = ".--.", Q = "--.-", R = ".-.",
-  S = "...", T = "-", U = "..-", V = "...-", W = ".--", X = "-..-",
-  Y = "-.--", Z = "--.."
+  ["A"] = ".-", ["B"] = "-...", ["C"] = "-.-.", ["D"] = "-..", ["E"] = ".", ["F"] = "..-.",
+  ["G"] = "--.", ["H"] = "....", ["I"] = "..", ["J"] = ".---", ["K"] = "-.-", ["L"] = ".-..",
+  ["M"] = "--", ["N"] = "-.", ["O"] = "---", ["P"] = ".--.", ["Q"] = "--.-", ["R"] = ".-.",
+  ["S"] = "...", ["T"] = "-", ["U"] = "..-", ["V"] = "...-", ["W"] = ".--", ["X"] = "-..-",
+  ["Y"] = "-.--", ["Z"] = "--.."
 }
 
 function flash(symbol)
   if symbol == "." then
-    toggle_led(2)
-    for _ = 1, 100000 do end
-    toggle_led(2)
+    setLED(1)
+    delay(200)
+    setLED(0)
   elseif symbol == "-" then
-    toggle_led(2)
-    for _ = 1, 300000 do end
-    toggle_led(2)
+    setLED(1)
+    delay(600)
+    setLED(0)
   end
-  for _ = 1, 100000 do end
+  delay(200) -- pause between symbols
 end
 
 msg = "HELLO"
-print_serial("Morse: " .. msg)
+print("Morse: " .. msg)
 
 for c in msg:gmatch(".") do
+  c = c:upper()
   code = morse[c]
   if code then
-    print_serial(c .. ": " .. code)
+    print(c .. ": " .. code)
     for i = 1, #code do
       flash(code:sub(i,i))
     end
+    delay(600) -- pause between letters
   end
 end

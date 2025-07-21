@@ -1,6 +1,6 @@
 #include <Arduino.h>
 
-#include "./screen.hpp"
+// #include "./screen.hpp"
 #include "./lua.hpp"
 
 void setup()
@@ -15,13 +15,15 @@ void setup()
     }
 
     Serial.println("Running Lua...");
-    run_lua_file("/test.lua");
-    Serial.println("Running Screen...");
-
-    screenInitTest();
+    LuaSandbox::init();
+    LuaSandbox::runFile("/test.lua");
+    LuaSandbox::cleanup();
+    
+    // Serial.println("Running Screen...");
+    // screenInitTest();
 }
 
 void loop()
 {
-    loopScreenTest();
+    // loopScreenTest();
 }
