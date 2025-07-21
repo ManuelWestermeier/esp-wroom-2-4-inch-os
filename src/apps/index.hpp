@@ -63,7 +63,6 @@ namespace LuaApps
             String body = "";
             std::map<String, String> headers;
 
-            // Felder aus Lua-Tabelle auslesen
             lua_getfield(L, 1, "method");
             if (!lua_isnil(L, -1))
                 method = luaL_checkstring(L, -1);
@@ -84,7 +83,6 @@ namespace LuaApps
                 body = luaL_checkstring(L, -1);
             lua_pop(L, 1);
 
-            // Header aus Lua-Tabelle lesen
             lua_getfield(L, 1, "headers");
             if (lua_istable(L, -1))
             {
@@ -99,9 +97,18 @@ namespace LuaApps
             }
             lua_pop(L, 1);
 
+            Serial.printf("HTTP Request: Method=%s, URL=%s\n", method, url);
+            for (auto &pair : headers)
+                Serial.printf("Header: %s: %s\n", pair.first.c_str(), pair.second.c_str());
+
             WiFiClient client;
             HTTPClient http;
-            http.begin(client, url);
+
+            if (!http.begin(client, url))
+            {
+                lua_pushstring(L, "Failed to begin HTTP connection");
+                return lua_error(L);
+            }
 
             for (auto &pair : headers)
                 http.addHeader(pair.first, pair.second);
@@ -124,10 +131,13 @@ namespace LuaApps
                 return lua_error(L);
             }
 
+            Serial.printf("HTTP Response code: %d\n", code);
             if (code > 0)
                 response = http.getString();
             else
                 response = String("Request failed: ") + http.errorToString(code);
+
+            Serial.printf("Response: %s\n", response.c_str());
 
             lua_newtable(L);
             lua_pushinteger(L, code);
