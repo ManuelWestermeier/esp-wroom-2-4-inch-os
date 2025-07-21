@@ -2,10 +2,14 @@
 
 #include <Arduino.h>
 #include <vector>
+#include <map>
+
 #include <FS.h>
 #include <SPIFFS.h>
+
 #include <WiFi.h>
-#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 
 extern "C"
 {
@@ -44,11 +48,155 @@ namespace LuaApps
             return 0;
         }
 
+        int luaHttpRequest(lua_State *L)
+        {
+            if (WiFi.status() != WL_CONNECTED)
+            {
+                Serial.println("WLAN nicht verbunden!");
+                lua_pushstring(L, "Not connected to WiFi");
+                return lua_error(L);
+            }
+
+            luaL_checktype(L, 1, LUA_TTABLE);
+
+            const char *method = "GET";
+            const char *url = nullptr;
+            String body = "";
+            std::map<String, String> headers;
+
+            // --- Extract fields from Lua table ---
+            lua_getfield(L, 1, "method");
+            if (!lua_isnil(L, -1))
+                method = luaL_checkstring(L, -1);
+            lua_pop(L, 1);
+
+            lua_getfield(L, 1, "url");
+            if (!lua_isnil(L, -1))
+                url = luaL_checkstring(L, -1);
+            else
+            {
+                lua_pushstring(L, "Missing 'url' field");
+                return lua_error(L);
+            }
+            lua_pop(L, 1);
+
+            lua_getfield(L, 1, "body");
+            if (!lua_isnil(L, -1))
+                body = luaL_checkstring(L, -1);
+            lua_pop(L, 1);
+
+            // headers: table<string, string>
+            lua_getfield(L, 1, "headers");
+            if (lua_istable(L, -1))
+            {
+                lua_pushnil(L); // Start iteration
+                while (lua_next(L, -2))
+                {
+                    String key = luaL_checkstring(L, -2);
+                    String value = luaL_checkstring(L, -1);
+                    headers[key] = value;
+                    lua_pop(L, 1); // Pop value, keep key
+                }
+            }
+            lua_pop(L, 1);
+
+            // --- HTTP request ---
+            WiFiClientSecure client;
+            client.setInsecure(); // Warnung: Nur für Tests!
+
+            HTTPClient http;
+            http.begin(client, url);
+
+            for (auto &pair : headers)
+            {
+                http.addHeader(pair.first, pair.second);
+            }
+
+            int code = -1;
+            String response;
+
+            if (strcmp(method, "GET") == 0)
+            {
+                code = http.GET();
+            }
+            else if (strcmp(method, "POST") == 0)
+            {
+                code = http.POST(body);
+            }
+            else if (strcmp(method, "PUT") == 0)
+            {
+                code = http.PUT(body);
+            }
+            else if (strcmp(method, "DELETE") == 0)
+            {
+                code = http.sendRequest("DELETE", body);
+            }
+            else
+            {
+                http.end();
+                lua_pushstring(L, "Unsupported HTTP method");
+                return lua_error(L);
+            }
+
+            if (code > 0)
+            {
+                response = http.getString();
+            }
+            else
+            {
+                response = String("Request failed: ") + http.errorToString(code);
+            }
+
+            // Build Lua response table
+            lua_newtable(L);
+
+            lua_pushinteger(L, code);
+            lua_setfield(L, -2, "status");
+
+            lua_pushstring(L, response.c_str());
+            lua_setfield(L, -2, "body");
+
+            http.end();
+            return 1;
+        }
+
+        int connectToWofi(lua_State *L)
+        {
+            const char *ssid = luaL_checkstring(L, 1);
+            const char *password = luaL_checkstring(L, 2);
+            unsigned long timeoutMs = 15000; // optional: Timeout festlegen
+
+            Serial.printf("Verbinde mit WLAN: %s\n", ssid);
+            WiFi.begin(ssid, password);
+
+            unsigned long start = millis();
+            while (WiFi.status() != WL_CONNECTED)
+            {
+                if (millis() - start > timeoutMs)
+                {
+                    Serial.println("WLAN-Verbindung fehlgeschlagen: Timeout");
+                    lua_pushboolean(L, false);
+                    return 1; // Rückgabe false (Verbindung fehlgeschlagen)
+                }
+                delay(500);
+                Serial.print(".");
+            }
+
+            Serial.println("");
+            Serial.print("WLAN verbunden, IP: ");
+            Serial.println(WiFi.localIP());
+
+            lua_pushboolean(L, true); // Rückgabe true (erfolgreich verbunden)
+            return 1;
+        }
+
         void register_default_functions(lua_State *L)
         {
             lua_register(L, "print", luaPrintSerial);
             lua_register(L, "setLED", setLED);
             lua_register(L, "delay", luaDelay);
+            lua_register(L, "httpReq", luaHttpRequest);
+            lua_register(L, "ConnectToWifi", connectToWofi);
         }
 
     } // namespace LuaFunctions

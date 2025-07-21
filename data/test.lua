@@ -47,7 +47,22 @@ function flash(symbol)
     delay(100) -- pause between symbols
 end
 
-msg = "HELLO"
+if ConnectToWifi("io", "hhhhhh90") then
+    print("WLAN verbunden!")
+else
+    print("WLAN-Verbindung fehlgeschlagen!")
+end
+
+msg = httpReq({
+    method = "GET",
+    url = "http://manuelwestermeier.github.io/BingSiteAuth.xml",
+    -- headers = {
+    --     ["Content-Type"] = "application/json",
+    --     ["Authorization"] = "Bearer xyz123"
+    -- },
+    -- body = '{"key":"value"}'
+}).body
+
 print("Morse: " .. msg)
 
 for c in msg:gmatch(".") do
