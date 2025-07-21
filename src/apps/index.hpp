@@ -23,8 +23,9 @@ namespace LuaApps
 
         int luaPrintSerial(lua_State *L)
         {
-            const char *msg = luaL_checkstring(L, 1);
+            const char *msg = luaL_tolstring(L, 1, NULL);
             Serial.println(msg);
+            lua_pop(L, 1); // remove the string result from the stack
             return 0;
         }
 
