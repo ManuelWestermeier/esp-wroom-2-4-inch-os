@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <Arduino.h>
@@ -18,6 +17,41 @@ extern "C"
 namespace LuaApps
 {
 
+    // --- C++ Funktionen für Lua ---
+    namespace LuaFunctions
+    {
+
+        int luaPrintSerial(lua_State *L)
+        {
+            const char *msg = luaL_checkstring(L, 1);
+            Serial.println(msg);
+            return 0;
+        }
+
+        int setLED(lua_State *L)
+        {
+            int state = luaL_checkinteger(L, 1) == 1 ? HIGH : LOW;
+            pinMode(2, OUTPUT);
+            digitalWrite(2, state);
+            return 0;
+        }
+
+        int luaDelay(lua_State *L)
+        {
+            int time = luaL_checkinteger(L, 1);
+            delay(time);
+            return 0;
+        }
+
+        void register_default_functions(lua_State *L)
+        {
+            lua_register(L, "print", luaPrintSerial);
+            lua_register(L, "setLED", setLED);
+            lua_register(L, "delay", luaDelay);
+        }
+
+    } // namespace LuaFunctions
+
     // -------- LuaSandbox --------
     namespace Sandbox
     {
@@ -33,13 +67,18 @@ namespace LuaApps
         {
             lua_State *L = luaL_newstate();
             luaL_openlibs(L);
+
+            // Entferne gefährliche libs
             lua_pushnil(L);
             lua_setglobal(L, "io");
             lua_pushnil(L);
             lua_setglobal(L, "os");
             lua_pushnil(L);
             lua_setglobal(L, "package");
-            lua_register(L, "print", luaPrint);
+
+            // Registriere sichere Funktionen
+            LuaFunctions::register_default_functions(L);
+
             return L;
         }
     }
@@ -147,4 +186,5 @@ namespace LuaApps
         App app(path, "/system", args);
         return app.run();
     }
+
 }
