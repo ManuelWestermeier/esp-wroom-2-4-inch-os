@@ -31,14 +31,14 @@ morse = {
 function flash(symbol)
     if symbol == "." then
         setLED(1)
-        delay(200)
+        delay(100)
         setLED(0)
     elseif symbol == "-" then
         setLED(1)
-        delay(600)
+        delay(300)
         setLED(0)
     end
-    delay(200) -- pause between symbols
+    delay(100) -- pause between symbols
 end
 
 msg = "HELLO"
@@ -52,6 +52,6 @@ for c in msg:gmatch(".") do
         for i = 1, #code do
             flash(code:sub(i, i))
         end
-        delay(600) -- pause between letters
+        delay(300) -- pause between letters
     end
 end
