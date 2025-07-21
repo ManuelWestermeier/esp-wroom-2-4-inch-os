@@ -115,7 +115,7 @@ namespace LuaApps
         {
             int code = luaL_checkinteger(L, 1);
             lastExitCode = code;
-            lua_pushstring(L, "exit");
+            lua_pushstring(L, (String("exit with code: ") + code).c_str());
             return lua_error(L);
         }
 
@@ -134,7 +134,7 @@ namespace LuaApps
             {
                 Serial.printf("Lua Error: %s\n", lua_tostring(L, -1));
                 lua_close(L);
-                return -2;
+                return lastExitCode;
             }
 
             lua_close(L);
@@ -180,5 +180,4 @@ namespace LuaApps
         App app(path, "/system", args);
         return app.run();
     }
-
 }

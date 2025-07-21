@@ -55,3 +55,5 @@ for c in msg:gmatch(".") do
         delay(300) -- pause between letters
     end
 end
+
+exitApp(277)
