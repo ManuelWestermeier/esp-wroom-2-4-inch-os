@@ -56,13 +56,6 @@ namespace LuaApps
     namespace Sandbox
     {
 
-        int luaPrint(lua_State *L)
-        {
-            const char *msg = luaL_checkstring(L, 1);
-            Serial.println(msg);
-            return 0;
-        }
-
         lua_State *createRestrictedLuaState()
         {
             lua_State *L = luaL_newstate();
