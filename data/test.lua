@@ -2,7 +2,7 @@ print("X", "Y", "Z")
 
 if args then
     for i, arg in ipairs(args) do
-        print("Arg ", i, ": ", arg)
+        print("Arg " .. i .. ": " .. arg)
     end
 end
 
@@ -62,8 +62,8 @@ local res = httpReq({
     url = "http://www.http2demo.io/z"
 })
 
-print("Status: ", res.status)
-print("Body: ", res.body)
+print("Status", res.status)
+print("Body", res.body)
 
 print("HTTPS")
 
@@ -83,7 +83,7 @@ for c in msg:gmatch(".") do
     c = c:upper()
     code = morse[c]
     if code then
-        print(c, ": ", code)
+        print(c .. ": " .. code)
         for i = 1, #code do
             flash(code:sub(i, i))
         end
