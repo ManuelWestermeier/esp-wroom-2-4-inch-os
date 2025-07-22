@@ -27,29 +27,43 @@ namespace LuaApps
 
         int luaPrintSerial(lua_State *L)
         {
-            int nargs = lua_gettop(L); // Number of arguments passed to the function
+            int nargs = lua_gettop(L); // Anzahl der Argumente
 
             for (int i = 1; i <= nargs; ++i)
             {
-                // Indentation based on argument index
+                const char *msg = luaL_tolstring(L, i, NULL);
+
+                // Einrückung vorbereiten (i - 1 Tabs)
+                String indent = "";
                 for (int tab = 1; tab < i; ++tab)
                 {
-                    Serial.print("\t");
+                    indent += "\t";
                 }
 
-                // Convert any Lua value to a string
-                const char *msg = luaL_tolstring(L, i, NULL);
-                Serial.print(msg);
+                // Zeilenweise splitten und jede Zeile ausgeben
+                const char *start = msg;
+                while (*start)
+                {
+                    const char *newline = strchr(start, '\n');
+                    if (newline)
+                    {
+                        Serial.print(indent);
+                        Serial.write(start, newline - start);
+                        Serial.println();
+                        start = newline + 1;
+                    }
+                    else
+                    {
+                        Serial.print(indent);
+                        Serial.println(start);
+                        break;
+                    }
+                }
 
-                if (i < nargs)
-                    Serial.print(" =>\n");
-
-                lua_pop(L, 1); // remove the result of luaL_tolstring
+                lua_pop(L, 1); // luaL_tolstring Ergebnis vom Stack entfernen
             }
 
-            Serial.println();
-
-            return 0; // No return values to Lua
+            return 0;
         }
 
         int setLED(lua_State *L)
@@ -217,7 +231,7 @@ namespace LuaApps
 
             WiFiClientSecure client;
             client.setInsecure(); // Nur für Test, besser mit Zertifikat arbeiten!
-            
+
             HTTPClient http;
             http.begin(client, url);
 
