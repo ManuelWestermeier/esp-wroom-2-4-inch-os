@@ -217,7 +217,7 @@ namespace LuaApps
 
             WiFiClientSecure client;
             client.setInsecure(); // Nur für Test, besser mit Zertifikat arbeiten!
-
+            
             HTTPClient http;
             http.begin(client, url);
 
@@ -282,6 +282,14 @@ namespace LuaApps
             Serial.println("");
             Serial.print("WLAN verbunden, IP: ");
             Serial.println(WiFi.localIP());
+
+            // try
+            // {
+            //     configTime(0, 0, "pool.ntp.org", "time.nist.gov"); // NTP-Zeit setzen
+            // }
+            // catch (...)
+            // {
+            // }
 
             lua_pushboolean(L, true); // Rückgabe true (erfolgreich verbunden)
             return 1;

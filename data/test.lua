@@ -2,7 +2,7 @@ print("X", "Y", "Z")
 
 if args then
     for i, arg in ipairs(args) do
-        print("Arg " .. i .. ": " .. arg)
+        print("Arg ", i, ": ", arg)
     end
 end
 
@@ -62,14 +62,14 @@ local res = httpReq({
     url = "http://www.http2demo.io/z"
 })
 
-print("Status: " .. res.status)
-print("Body: " .. res.body)
+print("Status: ", res.status)
+print("Body: ", res.body)
 
 print("HTTPS")
 
 msg = httpsReq({
     method = "GET",
-    url = "https://manuelwestermeier.github.io/test.txt",
+    url = "https://manuelwestermeier.github.io/test.txt"
     -- headers = {
     --     ["Content-Type"] = "application/json",
     --     ["Authorization"] = "Bearer xyz123"
@@ -77,13 +77,13 @@ msg = httpsReq({
     -- body = '{"key":"value"}'
 }).body
 
-print("Body: " .. msg)
+print("Body: ", msg)
 
 for c in msg:gmatch(".") do
     c = c:upper()
     code = morse[c]
     if code then
-        print(c .. ": " .. code)
+        print(c, ": ", code)
         for i = 1, #code do
             flash(code:sub(i, i))
         end
