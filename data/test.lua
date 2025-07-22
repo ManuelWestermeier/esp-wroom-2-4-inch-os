@@ -62,19 +62,19 @@ local res = httpReq({
     url = "http://www.http2demo.io/z"
 })
 
-print("Status:" .. res.status)
-print("Body:" .. res.body)
+print("Status: " .. res.status)
+print("Body: " .. res.body)
 
 print("HTTPS")
 
 msg = httpsReq({
     method = "GET",
     url = "https://manuelwestermeier.github.io/test.txt",
-    headers = {
-        ["Content-Type"] = "application/json",
-        ["Authorization"] = "Bearer xyz123"
-    },
-    body = '{"key":"value"}'
+    -- headers = {
+    --     ["Content-Type"] = "application/json",
+    --     ["Authorization"] = "Bearer xyz123"
+    -- },
+    -- body = '{"key":"value"}'
 }).body
 
 print(msg)

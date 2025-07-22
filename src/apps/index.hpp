@@ -154,8 +154,6 @@ namespace LuaApps
             else
                 response = String("Request failed: ") + http.errorToString(code);
 
-            Serial.printf("Response: %s\n", response.c_str());
-
             lua_newtable(L);
             lua_pushinteger(L, code);
             lua_setfield(L, -2, "status");
