@@ -27,10 +27,27 @@ namespace LuaApps
 
         int luaPrintSerial(lua_State *L)
         {
-            const char *msg = luaL_tolstring(L, 1, NULL);
-            Serial.println(msg);
-            lua_pop(L, 1); // remove the string result from the stack
-            return 0;
+            int nargs = lua_gettop(L); // Number of arguments passed to the function
+
+            for (int i = 1; i <= nargs; ++i)
+            {
+                // Indentation based on argument index
+                for (int tab = 1; tab < i; ++tab)
+                {
+                    Serial.print("\t");
+                }
+
+                // Convert any Lua value to a string
+                const char *msg = luaL_tolstring(L, i, NULL);
+                Serial.println(msg);
+
+                if (i < nargs - 1)
+                    Serial.println(" =>");
+
+                lua_pop(L, 1); // remove the result of luaL_tolstring
+            }
+
+            return 0; // No return values to Lua
         }
 
         int setLED(lua_State *L)
@@ -44,7 +61,7 @@ namespace LuaApps
         int luaDelay(lua_State *L)
         {
             int time = luaL_checkinteger(L, 1);
-            delay(time);
+            delayMicroseconds(time * 1000);
             return 0;
         }
 

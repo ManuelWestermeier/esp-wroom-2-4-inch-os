@@ -1,3 +1,5 @@
+print("X", "Y", "Z")
+
 if args then
     for i, arg in ipairs(args) do
         print("Arg " .. i .. ": " .. arg)
@@ -60,8 +62,8 @@ local res = httpReq({
     url = "http://www.http2demo.io/z"
 })
 
-print("Status:", res.status)
-print("Body:", res.body)
+print("Status:" .. res.status)
+print("Body:" .. res.body)
 
 print("HTTPS")
 
