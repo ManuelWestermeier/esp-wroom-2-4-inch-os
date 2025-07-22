@@ -39,10 +39,10 @@ namespace LuaApps
 
                 // Convert any Lua value to a string
                 const char *msg = luaL_tolstring(L, i, NULL);
-                Serial.println(msg);
+                Serial.print(msg);
 
-                if (i < nargs - 1)
-                    Serial.println(" =>");
+                if (i < nargs)
+                    Serial.print(" =>\n");
 
                 lua_pop(L, 1); // remove the result of luaL_tolstring
             }

@@ -77,7 +77,7 @@ msg = httpsReq({
     -- body = '{"key":"value"}'
 }).body
 
-print(msg)
+print("Body: " .. msg)
 
 for c in msg:gmatch(".") do
     c = c:upper()
