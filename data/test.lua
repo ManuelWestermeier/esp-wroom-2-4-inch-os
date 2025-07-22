@@ -1,5 +1,3 @@
-print("X", "Y", "Z")
-
 if args then
     for i, arg in ipairs(args) do
         print("Arg " .. i .. ": " .. arg)
@@ -55,29 +53,12 @@ else
     print("WLAN-Verbindung fehlgeschlagen!")
 end
 
-print("HTTP")
-
-local res = httpReq({
-    method = "GET",
-    url = "http://www.http2demo.io/z"
-})
-
-print("Status", res.status)
-print("Body", res.body)
-
-print("HTTPS")
-
 msg = httpsReq({
     method = "GET",
-    url = "https://manuelwestermeier.github.io/test.txt"
-    -- headers = {
-    --     ["Content-Type"] = "application/json",
-    --     ["Authorization"] = "Bearer xyz123"
-    -- },
-    -- body = '{"key":"value"}'
+    url = "https://manuelwestermeier.github.io/test.txt",
 }).body
 
-print("Body: ", msg)
+print("Body", msg)
 
 for c in msg:gmatch(".") do
     c = c:upper()
