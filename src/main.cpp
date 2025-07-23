@@ -39,6 +39,8 @@ void setup()
     tft.setCursor(20, 20);
     tft.println("Hello, World!!");
 
+    Serial.printf("Screen width: %d height: %d\n", tft.width(), tft.height());
+
 #ifdef TOUCH_CS
     tft.begin();
 #endif
