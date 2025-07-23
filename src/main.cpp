@@ -1,6 +1,5 @@
 // #include <Arduino.h>
 
-// // #include "./screen.hpp"
 // #include "./apps/index.hpp"
 
 // void setup()
@@ -9,21 +8,12 @@
 //     Serial.println("Booting...");
 
 //     LuaApps::initialize(); // Initialisiere Serial + SPIFFS
-
 //     Serial.println("Running Lua app...");
-
 //     // Führt /test.lua im Sandbox-Modus aus
 //     int result = LuaApps::runApp("/test.lua", {"Arg1", "Hi"});
 //     Serial.printf("Lua App exited with code: %d\n", result);
-
-//     // Serial.println("Running Screen...");
-//     // screenInitTest();
 // }
 
-// void loop()
-// {
-//     // loopScreenTest();
-// }
 #include "./screen/config.h"
 
 #include <TFT_eSPI.h> // Bodmer's TFT library
@@ -38,7 +28,6 @@ void setup()
     pinMode(27, OUTPUT);
     digitalWrite(27, HIGH);
 
-    delay(5000);
     Serial.begin(115200);
 
     tft.init();
