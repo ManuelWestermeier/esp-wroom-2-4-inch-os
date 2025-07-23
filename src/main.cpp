@@ -29,11 +29,9 @@
 #include <TFT_eSPI.h> // Bodmer's TFT library
 #include <SPI.h>
 
-TFT_eSPI tft = TFT_eSPI();   // TFT instance
-TFT_eSPI_Button touchButton; // Optional: Für Buttons
+TFT_eSPI tft = TFT_eSPI(); // TFT instance
 
-uint16_t touchX = 0, touchY = 0; // Touch-Koordinaten
-bool touched = false;
+uint16_t touchX = 0, touchY = 0;
 
 void setup()
 {
@@ -44,7 +42,7 @@ void setup()
     Serial.begin(115200);
 
     tft.init();
-    tft.setRotation(1); // Querformat
+    tft.setRotation(2);
     tft.fillScreen(TFT_BLACK);
 
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -52,13 +50,11 @@ void setup()
     tft.setCursor(20, 100);
     tft.println("Hello, World!!");
 
-// Touch kalibrieren, wenn nötig
 #ifdef TOUCH_CS
     tft.begin();
 #endif
 }
 
-// Funktion zum Zeichnen einer Box an der Touch-Stelle
 void drawBoxAt(uint16_t x, uint16_t y)
 {
     const int boxSize = 20;
@@ -69,8 +65,13 @@ void loop()
 {
     if (tft.getTouch(&touchX, &touchY))
     {
-        Serial.printf("Touch at: %d, %d\n", touchX, touchY);
-        drawBoxAt(touchX, touchY);
-        delay(300); // Entprellung
+        // Touch-Mapping für setRotation(3)
+        uint16_t correctedX = map(touchY, 0, 240, tft.width(), 0);  // invertiert
+        uint16_t correctedY = map(touchX, 0, 320, tft.height(), 0); // invertiert
+
+        Serial.printf("Touch raw: %d,%d -> mapped: %d,%d\n", touchX, touchY, correctedX, correctedY);
+
+        drawBoxAt(correctedY, correctedX);
+        delay(300);
     }
 }
