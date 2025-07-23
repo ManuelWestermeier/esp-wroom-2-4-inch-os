@@ -31,7 +31,7 @@
 
 TFT_eSPI tft = TFT_eSPI(); // TFT instance
 
-uint16_t touchX = 0, touchY = 0;
+uint16_t touchY = 0, touchX = 0;
 
 void setup()
 {
@@ -43,11 +43,11 @@ void setup()
 
     tft.init();
     tft.setRotation(2);
-    tft.fillScreen(TFT_BLACK);
+    tft.fillScreen(TFT_WHITE);
 
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextColor(TFT_BLACK);
     tft.setTextSize(2);
-    tft.setCursor(20, 100);
+    tft.setCursor(20, 20);
     tft.println("Hello, World!!");
 
 #ifdef TOUCH_CS
@@ -57,21 +57,16 @@ void setup()
 
 void drawBoxAt(uint16_t x, uint16_t y)
 {
-    const int boxSize = 20;
-    tft.drawRect(x - boxSize / 2, y - boxSize / 2, boxSize, boxSize, TFT_RED);
+    const int boxSize = 2;
+    tft.drawRect(x - boxSize / 2, y - boxSize / 2, boxSize, boxSize, TFT_BLUE);
 }
 
 void loop()
 {
-    if (tft.getTouch(&touchX, &touchY))
+    if (tft.getTouch(&touchY, &touchX))
     {
-        // Touch-Mapping für setRotation(3)
-        uint16_t correctedX = map(touchY, 0, 240, tft.width(), 0);  // invertiert
-        uint16_t correctedY = map(touchX, 0, 320, tft.height(), 0); // invertiert
+        Serial.printf("Touch raw: %d,%d\n", touchY, touchX);
 
-        Serial.printf("Touch raw: %d,%d -> mapped: %d,%d\n", touchX, touchY, correctedX, correctedY);
-
-        drawBoxAt(correctedY, correctedX);
-        delay(300);
+        drawBoxAt(touchX, 240 - touchY);
     }
 }
