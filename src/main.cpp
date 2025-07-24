@@ -8,7 +8,7 @@ void setup()
 {
     Serial.begin(115200);
     Screen::init();
-    win.init();
+    win.init("Hello World Test");
 }
 
 void loop()
