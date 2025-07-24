@@ -60,6 +60,10 @@ struct Window
         vScreen.pushSprite(off.x, off.y);
     }
 
+    void exit()
+    {
+    }
+
     void loop()
     {
         auto pos = Screen::getTouchPos();
@@ -71,7 +75,7 @@ struct Window
             // Schließen?
             if (closeBtn.isIn(pos))
             {
-                // z.B. Fenster verstecken oder löschen
+                exit();
                 return;
             }
 
