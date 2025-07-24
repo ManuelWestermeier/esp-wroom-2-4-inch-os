@@ -1,5 +1,3 @@
-// #include <Arduino.h>
-
 // #include "./apps/index.hpp"
 
 // void setup()
@@ -14,56 +12,15 @@
 //     Serial.printf("Lua App exited with code: %d\n", result);
 // }
 
-#include "./screen/config.h"
-
-#include <TFT_eSPI.h> // Bodmer's TFT library
-#include <SPI.h>
-
-TFT_eSPI tft = TFT_eSPI(320, 240); // TFT instance
-
-uint16_t touchY = 0, touchX = 0;
+#include <Arduino.h>
+#include "screen/index.hpp"
 
 void setup()
 {
-    // set backlight
-    pinMode(TFT_BL, OUTPUT);
-    digitalWrite(TFT_BL, HIGH);
-
     Serial.begin(115200);
-
-    tft.init(RGB(25, 25, 25));
-    tft.setRotation(2);
-    tft.fillScreen(TFT_WHITE);
-
-    tft.setTextColor(TFT_BLACK);
-    tft.setTextSize(2);
-    tft.setCursor(20, 20);
-    tft.println("Hello, World!!");
-
-    Serial.printf("Screen width: %d height: %d\n", tft.width(), tft.height());
-
-#ifdef TOUCH_CS
-    tft.begin();
-#endif
-}
-
-void drawBoxAt(uint16_t x, uint16_t y)
-{
-    const int boxSize = 3;
-    tft.fillRect(x - boxSize / 2, y - boxSize / 2, boxSize, boxSize, RGB(x, y, x));
+    Screen::init();
 }
 
 void loop()
 {
-    if (tft.getTouch(&touchY, &touchX))
-    {
-
-        int x = touchX * 32 / 24;
-        int y = (320 - touchY) * 24 / 32;
-
-        // Serial.printf("Touch raw: %d,%d\n", touchY, touchX);
-        Serial.printf("Touch: %d,%d\n", x, y);
-
-        drawBoxAt(x, y);
-    }
 }

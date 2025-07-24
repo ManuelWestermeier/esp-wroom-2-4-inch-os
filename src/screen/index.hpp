@@ -1,70 +1,58 @@
-// #include <Arduino.h>
-// #include <Adafruit_GFX.h>
-// #include <Adafruit_ILI9341.h>
-// #include <TouchScreen.h>
+#pragma once
 
-// // -------- Pin Definitionen --------
+#include "./config.h"
+#include "../utils/vec.hpp"
 
-// // TFT SPI Pins
-// #define TFT_CS 15
-// #define TFT_DC 2
-// #define TFT_RST 4 // Reset Pin (kann -1 sein, falls nicht angeschlossen)
+#include <TFT_eSPI.h> // Bodmer's TFT library
+#include <SPI.h>
 
-// #define TFT_MOSI 13
-// #define TFT_SCLK 14
-// #define TFT_MISO 12 // Meist nicht gebraucht
+namespace Screen
+{
+    TFT_eSPI tft = TFT_eSPI(320, 240); // TFT instance
 
-// #define TFT_LED 21 // Hintergrundbeleuchtung (optional)
+    void setBrightness(int x)
+    {
+        // set backlight
+        pinMode(TFT_BL, OUTPUT);
+        analogWrite(TFT_BL, x);
+    }
 
-// // Resistiver Touchscreen Pins (4-Draht)
-// #define YP 32 // Analog pin für Y+
-// #define XM 33 // Analog pin für X-
-// #define YM 25 // Digital pin für Y-
-// #define XP 26 // Digital pin für X+
+    void init()
+    {
+        setBrightness(900);
+        tft.init(RGB(25, 25, 25));
+        tft.setRotation(2);
+        tft.fillScreen(TFT_WHITE);
 
-// // Kalibrierwerte (kann man anpassen, wenn nötig)
-// #define TS_MINX 150
-// #define TS_MAXX 3800
-// #define TS_MINY 130
-// #define TS_MAXY 4000
+        tft.setTextColor(TFT_BLACK);
+        tft.setTextSize(2);
+        tft.setCursor(0, 0);
 
-// // Touch-Schwelle (wie stark gedrückt werden muss)
-// #define MINPRESSURE 10
-// #define MAXPRESSURE 1000
+#ifdef TOUCH_CS
+        tft.begin();
+#endif
+    }
 
-// // Initialisierung TFT Display und Touchscreen
-// Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
-// TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
+    struct TouchPos : Vec
+    {
+        bool clicked;
+    };
 
-// void screenInitTest()
-// {
-//     tft.begin();
-//     tft.setRotation(1); // Querformat
-//     tft.fillScreen(ILI9341_BLACK);
-//     pinMode(TFT_LED, OUTPUT);
-//     analogWrite(TFT_LED, 255); // Voll an
-// }
+    uint16_t touchY = 0, touchX = 0;
+    uint16_t lastTouchY = 0, lastTouchX = 0;
 
-// void loopScreenTest()
-// {
-//     // Touchpunkt auslesen
-//     TSPoint p = ts.getPoint();
+    TouchPos getTouchPos()
+    {
+        TouchPos pos = {};
 
-//     // Pins wieder als OUTPUT setzen, damit Display funktioniert
-//     pinMode(XM, OUTPUT);
-//     pinMode(YP, OUTPUT);
+        pos.clicked = tft.getTouch(&touchY, &touchX);
 
-//     // Prüfen ob Touch erkannt und im Druckbereich ist
-//     if (p.z > MINPRESSURE && p.z < MAXPRESSURE)
-//     {
-//         // Koordinaten kalibrieren auf Displaygröße
-//         int x = map(p.x, TS_MINX, TS_MAXX, 0, tft.width());
-//         int y = map(p.y, TS_MINY, TS_MAXY, 0, tft.height());
+        if (pos.clicked)
+        {
+            pos.x = touchX * 32 / 24;
+            pos.y = (320 - touchY) * 24 / 32;
+        }
 
-//         // Punkt zeichnen
-//         tft.fillCircle(x, y, 3, ILI9341_RED);
-
-//         Serial.printf("Touch: x=%d y=%d z=%d\n", x, y, p.z);
-//         delay(50); // kleine Pause, damit nicht zu viele Punkte entstehen
-//     }
-// }
+        return pos;
+    }
+}
