@@ -31,7 +31,7 @@ void setup()
 
     Serial.begin(115200);
 
-    tft.init();
+    tft.init(RGB(25, 25, 25));
     tft.setRotation(2);
     tft.fillScreen(TFT_WHITE);
 
@@ -45,7 +45,6 @@ void setup()
 #ifdef TOUCH_CS
     tft.begin();
 #endif
-    Serial.println(tft.width());
 }
 
 void drawBoxAt(uint16_t x, uint16_t y)
@@ -58,8 +57,13 @@ void loop()
 {
     if (tft.getTouch(&touchY, &touchX))
     {
-        Serial.printf("Touch raw: %d,%d\n", touchY, touchX);
 
-        drawBoxAt(touchX, 240 - touchY);
+        int x = touchX * 32 / 24;
+        int y = (320 - touchY) * 24 / 32;
+
+        // Serial.printf("Touch raw: %d,%d\n", touchY, touchX);
+        Serial.printf("Touch: %d,%d\n", x, y);
+
+        drawBoxAt(x, y);
     }
 }
