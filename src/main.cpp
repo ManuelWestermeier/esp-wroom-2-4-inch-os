@@ -52,11 +52,16 @@ struct Window
         dragArea.pos += {0, -12};
 
         // on top left of the window
-        Screen::tft.fillRect(dragArea.pos.x, dragArea.pos.y, dragArea.dimensions.x, dragArea.dimensions.y, RGB(220, 220, 250));
+        Screen::tft.fillRect(dragArea.pos.x, dragArea.pos.y, dragArea.dimensions.x - 12, dragArea.dimensions.y, RGB(220, 220, 250));
 
         Screen::tft.setTextSize(1);
         Screen::tft.setCursor(dragArea.pos.x + 2, dragArea.pos.y + 2);
         Screen::tft.print(name);
+
+        // on top left of the window
+        Screen::tft.fillRect(dragArea.pos.x + 160 - 12, dragArea.pos.y, 12, 12, RGB(255, 180, 180));
+        Screen::tft.setCursor(dragArea.pos.x + 160 - 12 + 3, dragArea.pos.y + 2);
+        Screen::tft.print("X");
         Screen::tft.setTextSize(2);
 
         // Clear virtual screen
