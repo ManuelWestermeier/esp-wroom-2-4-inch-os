@@ -9,6 +9,7 @@
 namespace Screen
 {
     TFT_eSPI tft = TFT_eSPI(320, 240); // TFT instance
+    int MOVEMENT_TIME_TRESHHOLD = 200;
 
     void setBrightness(int x)
     {
@@ -63,7 +64,7 @@ namespace Screen
 
             auto delta = now - lastTime;
 
-            if (delta < 200)
+            if (delta < MOVEMENT_TIME_TRESHHOLD)
             {
                 pos.move.x = pos.x - lastTouchX;
                 pos.move.y = pos.y - lastTouchY;
