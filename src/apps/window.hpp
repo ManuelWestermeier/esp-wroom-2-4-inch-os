@@ -10,6 +10,7 @@ struct Window
 
     Vec off;       // Fensterposition
     Rect dragArea; // Bereich zum Ziehen
+    Rect closeBtn; // Bereich für Schließen-Button
     String name;   // Fenstertitel
 
     static constexpr Vec windowSize = {160, 90};
@@ -27,30 +28,26 @@ struct Window
 
     void drawTitleBar()
     {
-        // Fensterrahmen
-        Screen::tft.drawRect(
-            off.x - 1, off.y - titleBarHeight - 1,
-            windowSize.x + 2, windowSize.y + 2 + titleBarHeight,
-            TFT_BLACK);
+        Rect frame = {off - Vec{1, titleBarHeight + 1},
+                      windowSize + Vec{2, titleBarHeight + 2}};
+        Screen::tft.drawRect(frame.pos.x, frame.pos.y, frame.dimensions.x, frame.dimensions.y, TFT_BLACK);
 
-        // Drag-Area
-        dragArea = {off + Vec{0, -titleBarHeight}, {windowSize.x, titleBarHeight}};
-        Screen::tft.fillRect(
-            dragArea.pos.x, dragArea.pos.y,
-            dragArea.dimensions.x - closeBtnSize, dragArea.dimensions.y,
-            RGB(220, 220, 250));
+        // Drag-Area: alles außer Close-Button
+        dragArea = {off - Vec{0, titleBarHeight}, {windowSize.x, titleBarHeight}};
+        Rect dragFill = dragArea;
+        dragFill.dimensions.x -= closeBtnSize;
+        Screen::tft.fillRect(dragFill.pos.x, dragFill.pos.y, dragFill.dimensions.x, dragFill.dimensions.y, RGB(220, 220, 250));
 
         // Fenstertitel
         Screen::tft.setTextSize(1);
         Screen::tft.setCursor(dragArea.pos.x + 2, dragArea.pos.y + 2);
         Screen::tft.print(name);
 
-        // Schließen-Button
-        Screen::tft.fillRect(
-            dragArea.pos.x + windowSize.x - closeBtnSize, dragArea.pos.y,
-            closeBtnSize, closeBtnSize,
-            RGB(255, 180, 180));
-        Screen::tft.setCursor(dragArea.pos.x + windowSize.x - closeBtnSize + 4, dragArea.pos.y + 2);
+        // Close-Button
+        closeBtn = {Vec{dragArea.pos.x + windowSize.x - closeBtnSize, dragArea.pos.y},
+                    Vec{closeBtnSize, closeBtnSize}};
+        Screen::tft.fillRect(closeBtn.pos.x, closeBtn.pos.y, closeBtn.dimensions.x, closeBtn.dimensions.y, RGB(255, 180, 180));
+        Screen::tft.setCursor(closeBtn.pos.x + 4, closeBtn.pos.y + 2);
         Screen::tft.print("X");
 
         Screen::tft.setTextSize(2); // Wieder Standardgröße
@@ -67,16 +64,22 @@ struct Window
     {
         auto pos = Screen::getTouchPos();
 
-        // Dragging
-        if (pos.clicked && dragArea.isIn(pos))
-        {
-            off += pos.move;
-        }
-
-        // Beispiel: Bildschirm löschen bei Klick
         if (pos.clicked)
         {
             Screen::tft.fillScreen(TFT_WHITE);
+
+            // Schließen?
+            if (closeBtn.isIn(pos))
+            {
+                // z.B. Fenster verstecken oder löschen
+                return;
+            }
+
+            // Draggen
+            if (dragArea.isIn(pos))
+            {
+                off += pos.move;
+            }
         }
 
         drawTitleBar();
