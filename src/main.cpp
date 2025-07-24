@@ -50,7 +50,7 @@ void setup()
 void drawBoxAt(uint16_t x, uint16_t y)
 {
     const int boxSize = 3;
-    tft.fillRect(x - boxSize / 2, y - boxSize / 2, boxSize, boxSize, TFT_RED);
+    tft.fillRect(x - boxSize / 2, y - boxSize / 2, boxSize, boxSize, RGB(x, y, x));
 }
 
 void loop()
