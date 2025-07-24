@@ -25,8 +25,9 @@ uint16_t touchY = 0, touchX = 0;
 
 void setup()
 {
-    pinMode(27, OUTPUT);
-    digitalWrite(27, HIGH);
+    // set backlight
+    pinMode(TFT_BL, OUTPUT);
+    digitalWrite(TFT_BL, HIGH);
 
     Serial.begin(115200);
 
