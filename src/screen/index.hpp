@@ -63,7 +63,7 @@ namespace Screen
 
             auto delta = now - lastTime;
 
-            if (delta < 100)
+            if (delta < 200)
             {
                 pos.move.x = pos.x - lastTouchX;
                 pos.move.y = pos.y - lastTouchY;
