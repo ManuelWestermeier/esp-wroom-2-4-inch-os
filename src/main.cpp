@@ -19,7 +19,7 @@
 #include <TFT_eSPI.h> // Bodmer's TFT library
 #include <SPI.h>
 
-TFT_eSPI tft = TFT_eSPI(); // TFT instance
+TFT_eSPI tft = TFT_eSPI(320, 240); // TFT instance
 
 uint16_t touchY = 0, touchX = 0;
 
@@ -45,12 +45,13 @@ void setup()
 #ifdef TOUCH_CS
     tft.begin();
 #endif
+    Serial.println(tft.width());
 }
 
 void drawBoxAt(uint16_t x, uint16_t y)
 {
     const int boxSize = 3;
-    tft.fillRect(x - boxSize / 2, y - boxSize / 2, boxSize, boxSize, TFT_BLUE);
+    tft.fillRect(x - boxSize / 2, y - boxSize / 2, boxSize, boxSize, TFT_RED);
 }
 
 void loop()
