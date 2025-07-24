@@ -21,6 +21,21 @@ void setup()
     Screen::init();
 }
 
+Vec off = {};
+
 void loop()
 {
+    auto pos = Screen::getTouchPos();
+    
+    if (pos.clicked)
+    {
+        off.x += pos.move.x;
+        off.y += pos.move.y;
+    }
+    
+    off.print();
+    
+    Screen::tft.fillScreen(TFT_WHITE);
+    Screen::tft.setCursor(off.x, off.y);
+    Screen::tft.println("HELLO");
 }
