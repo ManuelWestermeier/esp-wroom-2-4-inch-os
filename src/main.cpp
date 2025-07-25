@@ -8,7 +8,10 @@ Window win;
 void setup()
 {
     Serial.begin(115200);
-    delay(500);
+    delay(1000);
+
+    // Screen::init();
+    // win.init("Hello World Test");
 
     while (!SD_FS::init())
     {
@@ -27,9 +30,6 @@ void setup()
     Serial.printf("Letzte Änderung: %lu\n", SD_FS::getModifiedTime("/demo.txt"));
 
     SD_FS::getUsageSummary();
-
-    // Screen::init();
-    // win.init("Hello World Test");
 }
 
 void loop()
