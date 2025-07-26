@@ -1,38 +1,33 @@
 #include <Arduino.h>
+#include "screen/index.hpp"
+#include "apps/windows.hpp"
 
-#include "FS/index.hpp"
-#include "apps/window.hpp"
-
-Window win;
+using namespace Windows;
 
 void setup()
 {
     Serial.begin(115200);
     delay(1000);
 
+    // Initialize the display & touch
     Screen::init();
-    win.init("Hello World Test");
 
-    // while (!SD_FS::init(5))
-    // {
-    //     Serial.println("!NO SD! use an SD card (format=fat32)");
-    //     delay(1000);
-    // }
+    // Create + initialize a Window on the heap
+    WindowPtr win(new Window());
+    win->init("Hello World Test", Vec{30, 30});
 
-    // SD_FS::writeFile("/test.txt", "Hallo von ESP32!\n");
-    // String inhalt = SD_FS::readFile("/test.txt");
-    // Serial.println("📖 Inhalt:\n" + inhalt);
+    // Add it into our window manager
+    add(std::move(win));
 
-    // SD_FS::writeFile("/demo.txt", "Testinhalt\n");
-    // SD_FS::getFileInfo("/demo.txt");
+    // Create + initialize a Window on the heap
+    WindowPtr win2(new Window());
+    win2->init("Helllo 2", Vec{130, 130});
 
-    // Serial.printf("Größe: %zu Bytes\n", SD_FS::fileSize("/demo.txt"));
-    // Serial.printf("Letzte Änderung: %lu\n", SD_FS::getModifiedTime("/demo.txt"));
-
-    // SD_FS::getUsageSummary();
+    // Add it into our window manager
+    add(std::move(win2));
 }
 
 void loop()
 {
-    win.loop();
+    Windows::loop();
 }
