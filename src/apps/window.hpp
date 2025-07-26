@@ -24,6 +24,7 @@ struct Window
     Vec size = {160, 90};
     String name;
     TFT_eSprite sprite{&Screen::tft};
+    TFT_eSprite rightSprite{&Screen::tft};
     MouseEvent lastEvent{MouseState::Up, {0, 0}, {0, 0}};
 
     static constexpr Vec minSize = {40, 30};
@@ -41,10 +42,14 @@ struct Window
         name = windowName;
         off = position;
         sprite.createSprite(size.x, size.y);
+        rightSprite.createSprite(12, size.y);
     }
+
     void resizeSprite()
     {
         sprite.deleteSprite();
         sprite.createSprite(size.x, size.y);
+        rightSprite.deleteSprite();
+        rightSprite.createSprite(12, size.y);
     }
 };
