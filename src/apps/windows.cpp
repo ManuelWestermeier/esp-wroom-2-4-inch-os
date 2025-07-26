@@ -66,8 +66,30 @@ namespace Windows
             // drag
             if (state == MouseState::Held && w.dragArea().isIn(pos))
             {
-                w.off += move;
+                Vec proposedOff = w.off + move;
+
+                // Collision detection
+                bool collides = false;
+                constexpr int margin = 3;
+
+                Rect nextRect = Rect{Vec{-1, -13} + proposedOff, w.size + Vec{12 + 2, 13}};
+
+                for (size_t i = 0; i < apps.size() - 1; ++i)
+                {
+                    const Window &otherWin = *apps[i];
+                    Rect otherRect = Rect{otherWin.off + Vec{-1, -13}, otherWin.size + Vec{12 + 2, 13}};
+
+                    if (nextRect.intersects(otherRect))
+                    {
+                        collides = true;
+                        break;
+                    }
+                }
+
+                if (!collides)
+                    w.off = proposedOff;
             }
+
             // resize
             if (state == MouseState::Held && w.resizeArea().isIn(pos))
             {
@@ -75,6 +97,7 @@ namespace Windows
                 w.size.y = constrain(w.size.y + move.y, Window::minSize.y, Window::maxSize.y);
                 w.resizeSprite();
             }
+
             // close
             if (state == MouseState::Down && w.closeBtn().isIn(pos))
             {
@@ -130,7 +153,8 @@ namespace Windows
 
     void drawContent(Window &w)
     {
-        w.sprite.fillSprite(TFT_WHITE);
+        w.sprite.fillSprite(TFT_BLACK);
+        w.sprite.setTextColor(TFT_WHITE);
         w.sprite.drawString("HELLO", 10, 10, 2);
         w.sprite.pushSprite(w.off.x, w.off.y);
     }
