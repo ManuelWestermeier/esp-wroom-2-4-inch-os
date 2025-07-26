@@ -72,12 +72,12 @@ namespace Windows
                 bool collides = false;
                 constexpr int margin = 3;
 
-                Rect nextRect = Rect{Vec{-1, -13} + proposedOff, w.size + Vec{12 + 2, 13}};
+                Rect nextRect = Rect{Vec{0, -12} + proposedOff, w.size + Vec{12, 12}};
 
                 for (size_t i = 0; i < apps.size() - 1; ++i)
                 {
                     const Window &otherWin = *apps[i];
-                    Rect otherRect = Rect{otherWin.off + Vec{-1, -13}, otherWin.size + Vec{12 + 2, 13}};
+                    Rect otherRect = Rect{otherWin.off + Vec{0, -12}, otherWin.size + Vec{12, 12}};
 
                     if (nextRect.intersects(otherRect))
                     {
