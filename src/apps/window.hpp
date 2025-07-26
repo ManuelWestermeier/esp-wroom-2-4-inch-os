@@ -26,15 +26,15 @@ struct Window
     TFT_eSprite sprite{&Screen::tft};
     MouseEvent lastEvent{MouseState::Up, {0, 0}, {0, 0}};
 
-    static constexpr Vec minSize = {80, 60};
+    static constexpr Vec minSize = {40, 30};
     static constexpr Vec maxSize = {240, 160};
     static constexpr int titleBarHeight = 12;
     static constexpr int closeBtnSize = 12;
     static constexpr int resizeBoxSize = 12;
 
-    Rect dragArea() const { return {off - Vec{0, titleBarHeight}, {size.x, titleBarHeight}}; }
-    Rect closeBtn() const { return {off + Vec{size.x - closeBtnSize, -titleBarHeight}, {closeBtnSize, closeBtnSize}}; }
-    Rect resizeArea() const { return {off + size - Vec{resizeBoxSize, resizeBoxSize}, {resizeBoxSize, resizeBoxSize}}; }
+    Rect dragArea() const { return {off - Vec{0, titleBarHeight}, {size.x + resizeBoxSize, titleBarHeight}}; }
+    Rect closeBtn() const { return {off + Vec{size.x, -titleBarHeight}, {closeBtnSize, closeBtnSize}}; }
+    Rect resizeArea() const { return {off + size - Vec{0, resizeBoxSize}, {resizeBoxSize, resizeBoxSize}}; }
 
     void init(const String &windowName, Vec position)
     {

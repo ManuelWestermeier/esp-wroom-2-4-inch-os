@@ -48,7 +48,7 @@ namespace Windows
         for (int i = (int)apps.size() - 1; i >= 0; --i)
         {
             Window &w = *apps[i];
-            if (Rect{w.off + Vec{-1, -13}, w.size + Vec{2, 13}}.isIn(pos))
+            if (Rect{w.off + Vec{-1, -13}, w.size + Vec{12 + 2, 13}}.isIn(pos))
             {
                 activeIdx = i;
                 break;
@@ -107,7 +107,7 @@ namespace Windows
 
         Screen::tft.drawRect(
             w.off.x - 1, w.off.y - Window::titleBarHeight - 1,
-            w.size.x + 2, w.size.y + Window::titleBarHeight + 2,
+            w.size.x + 2 + 12, w.size.y + Window::titleBarHeight + 2,
             TFT_BLACK);
 
         Screen::tft.fillRect(
