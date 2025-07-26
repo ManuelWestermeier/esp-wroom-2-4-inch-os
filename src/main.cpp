@@ -14,7 +14,7 @@ void setup()
 
     // Create + initialize a Window on the heap
     WindowPtr win(new Window());
-    win->init("Hello World Test", Vec{30, 30});
+    win->init("Hello World Test", Vec{10, 10});
 
     // Add it into our window manager
     add(std::move(win));
