@@ -1,11 +1,8 @@
-// src/apps/windows.cpp
-
 #include "windows.hpp"
 
 namespace Windows
 {
-
-    std::vector<WindowPtr> apps; // storage
+    std::vector<WindowPtr> apps;
 
     void add(WindowPtr w)
     {
@@ -33,6 +30,12 @@ namespace Windows
         static MouseState lastState = MouseState::Up;
 
         auto touch = Screen::getTouchPos();
+
+        if (touch.clicked)
+        {
+            Screen::tft.fillScreen(TFT_WHITE);
+        }
+
         MouseState state = touch.clicked
                                ? (lastState == MouseState::Up ? MouseState::Down : MouseState::Held)
                                : MouseState::Up;
@@ -45,7 +48,7 @@ namespace Windows
         for (int i = (int)apps.size() - 1; i >= 0; --i)
         {
             Window &w = *apps[i];
-            if (Rect{w.off, w.size}.isIn(pos))
+            if (Rect{w.off + Vec{-1, -13}, w.size + Vec{2, 13}}.isIn(pos))
             {
                 activeIdx = i;
                 break;
@@ -76,6 +79,14 @@ namespace Windows
             if (state == MouseState::Down && w.closeBtn().isIn(pos))
             {
                 removeAt((int)apps.size() - 1);
+            }
+        }
+        else
+        {
+            for (auto &p : apps)
+            {
+                Window &w = *p;
+                w.off += move;
             }
         }
 

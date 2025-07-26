@@ -21,7 +21,7 @@ void Screen::setBrightness(int x)
 
 void Screen::init()
 {
-    setBrightness(200);
+    setBrightness(20);
     tft.init(RGB(25, 25, 25));
     tft.setRotation(2);
     tft.fillScreen(TFT_WHITE);
