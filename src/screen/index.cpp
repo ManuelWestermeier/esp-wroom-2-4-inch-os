@@ -22,9 +22,9 @@ void Screen::setBrightness(int x)
 void Screen::init()
 {
     setBrightness(20);
-    tft.init(RGB(25, 25, 25));
+    tft.init();
     tft.setRotation(2);
-    tft.fillScreen(TFT_WHITE);
+    tft.fillScreen(RGB(245, 245, 255));
 
     tft.setTextColor(TFT_BLACK);
     tft.setTextSize(2);

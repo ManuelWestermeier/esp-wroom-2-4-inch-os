@@ -56,4 +56,14 @@ struct Rect
         }
         return Rect{Vec{0, 0}, Vec{0, 0}}; // Kein Schnitt
     }
+
+    Rect shrink(int x)
+    {
+        Rect out;
+        out.pos.x += x;
+        out.pos.y += x;
+        out.dimensions.x -= x;
+        out.dimensions.y -= x;
+        return out;
+    }
 };

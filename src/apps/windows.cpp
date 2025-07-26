@@ -33,7 +33,7 @@ namespace Windows
 
         if (touch.clicked)
         {
-            Screen::tft.fillScreen(TFT_WHITE);
+            Screen::tft.fillScreen(RGB(245, 245, 255));
         }
 
         MouseState state = touch.clicked
@@ -128,25 +128,36 @@ namespace Windows
         auto d = w.dragArea();
         auto c = w.closeBtn();
 
+        // full screen
         Screen::tft.drawRect(
             w.off.x - 1, w.off.y - Window::titleBarHeight - 1,
             w.size.x + 2 + 12, w.size.y + Window::titleBarHeight + 2,
             TFT_BLACK);
 
-        Screen::tft.fillRect(
+        // drag area
+        Screen::tft.fillRectHGradient(
             d.pos.x, d.pos.y,
             d.dimensions.x - Window::closeBtnSize, d.dimensions.y,
-            RGB(220, 220, 250));
+            RGB(200, 200, 250), RGB(220, 220, 250));
 
-        Screen::tft.setTextSize(1);
-        Screen::tft.setCursor(d.pos.x + 2, d.pos.y + 2);
-        int maxC = (w.size.x - 20) / 6;
-        for (int i = 0; i < std::min((int)w.name.length(), maxC); ++i)
-            Screen::tft.print(w.name[i]);
+        // drag are text
+        if (Rect{0, 0, 320, 240}.intersects(d))
+        {
+            Screen::tft.setTextSize(1);
+            Screen::tft.setCursor(d.pos.x + 2, d.pos.y + 2);
+            int maxC = (d.dimensions.x - 20) / 6;
 
-        Screen::tft.fillRect(c.pos.x, c.pos.y, c.dimensions.x, c.dimensions.y, RGB(255, 150, 150));
-        Screen::tft.setCursor(c.pos.x + 4, c.pos.y + 2);
-        Screen::tft.print("X");
+            for (int i = 0; i < std::min((int)w.name.length(), maxC); ++i)
+                if (Rect{0, 0, 320, 240}.intersects(Rect{d.pos.x + 2 + 6 * (i + 1), d.pos.y + 2, 6, 8}))
+                    Screen::tft.print(w.name[i]);
+        }
+
+        if (Rect{0, 0, 320, 240}.intersects(c.shrink(2)))
+        {
+            Screen::tft.fillRect(c.pos.x, c.pos.y, c.dimensions.x, c.dimensions.y, RGB(255, 150, 150));
+            Screen::tft.setCursor(c.pos.x + 4, c.pos.y + 2);
+            Screen::tft.print("X");
+        }
 
         Screen::tft.setTextSize(2);
     }
