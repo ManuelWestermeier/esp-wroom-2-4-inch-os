@@ -1,8 +1,11 @@
 #pragma once
 #include <Arduino.h>
+
 #include "../screen/index.hpp"
 #include "../utils/rect.hpp"
 #include "../utils/vec.hpp"
+
+#include "windows.hpp"
 
 enum class MouseState
 {
@@ -42,12 +45,46 @@ struct Window
     Rect closeBtn() const { return {off + Vec{size.x, -titleBarHeight}, {closeBtnSize, closeBtnSize}}; }
     Rect resizeArea() const { return {off + size - Vec{0, resizeBoxSize}, {resizeBoxSize, resizeBoxSize}}; }
 
-    void init(const String &windowName, Vec position)
+    void init(const String &windowName = "Untitled Window", Vec position = {20, 20}, Vec dimensions = {160, 90}, uint16_t *_icon = nullptr)
     {
         name = windowName;
         off = position;
+        size = {constrain(dimensions.x, minSize.x, maxSize.x), constrain(dimensions.y, minSize.y, maxSize.y)};
+
+        bool colliding = true;
+        int movedDown = 0;
+
+        while (colliding)
+        {
+            for (auto &p : Windows::apps)
+            {
+                Window &w = *p;
+                // if the window collides move it down
+                if (Rect{w.off + Vec{-1, -13}, w.size + Vec{12 + 2, 13}}.intersects(Rect{off + Vec{-1, -13}, size + Vec{12 + 2, 13}}))
+                {
+                    colliding = true;
+                    movedDown += 30;
+                    off.y += 30;
+                    break;
+                }
+            }
+        }
+
+        for (auto &p : Windows::apps)
+        {
+            Window &w = *p;
+            w.off.y -= movedDown;
+        }
+
+        if (_icon != nullptr)
+        {
+            memcpy(icon, _icon, sizeof(icon)); // kopiert 144 * sizeof(uint16_t) = 288 Bytes
+        }
+
         sprite.createSprite(size.x, size.y);
         rightSprite.createSprite(resizeBoxSize, size.y - resizeBoxSize);
+
+        Screen::tft.fillScreen(RGB(245, 245, 255));
     }
 
     void resizeSprite()

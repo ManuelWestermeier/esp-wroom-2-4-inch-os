@@ -172,9 +172,12 @@ namespace Windows
         for (auto &p : apps)
         {
             Window &w = *p;
-            drawTitleBar(w);
-            drawContent(w);
-            drawResizeBox(w);
+            if (Rect{0, 0, 320, 240}.intersects(Rect{w.off + Vec{-1, -13}, w.size + Vec{12 + 2, 13}}))
+            {
+                drawTitleBar(w);
+                drawContent(w);
+                drawResizeBox(w);
+            }
         }
     }
 

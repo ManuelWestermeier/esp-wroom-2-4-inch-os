@@ -2,7 +2,6 @@
 #include <vector>
 #include <memory>
 #include "../screen/index.hpp"
-#include "window.hpp"
 
 namespace Windows
 {
@@ -22,3 +21,5 @@ namespace Windows
     void drawResizeBox(Window &w);
 
 }
+
+#include "window.hpp"
