@@ -33,6 +33,7 @@ void Window::init(const String &windowName, Vec position, Vec dimensions, uint16
     const int stepY = 30;
     const int maxTries = 50; // Prevent infinite loop
     int tries = 0;
+    int movedDown = 0;
 
     while (tries < maxTries)
     {
@@ -54,7 +55,14 @@ void Window::init(const String &windowName, Vec position, Vec dimensions, uint16
             break;
 
         off.y += stepY;
+        movedDown += stepY;
         tries++;
+    }
+
+    for (auto &p : Windows::apps)
+    {
+        Window &w = *p;
+        w.off.y -= movedDown;
     }
 
     // Optional: log if the window couldn't find space

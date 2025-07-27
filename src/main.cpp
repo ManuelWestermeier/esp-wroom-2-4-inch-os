@@ -14,17 +14,24 @@ void setup()
 
     // Create + initialize a Window on the heap
     WindowPtr win(new Window());
-    win->init("Hello World Test", Vec{10, 22});
+    win->init("Hello World Test", Vec{10, 10});
 
     // Add it into our window manager
     add(std::move(win));
 
     // Create + initialize a Window on the heap
     WindowPtr win2(new Window());
-    win2->init("Helllo 2", Vec{130, 130});
+    win2->init("Helllo 2", Vec{10, 10});
 
     // Add it into our window manager
     add(std::move(win2));
+
+    // Create + initialize a Window on the heap
+    WindowPtr win3(new Window());
+    win3->init("Win3", Vec{10, 10});
+
+    // Add it into our window manager
+    add(std::move(win3));
 }
 
 void loop()
