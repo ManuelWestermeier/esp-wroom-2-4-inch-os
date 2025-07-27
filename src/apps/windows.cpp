@@ -76,7 +76,7 @@ namespace Windows
             }
 
             // drag
-            if (state == MouseState::Held && w.dragArea().isIn(pos))
+            if (state == MouseState::Held && (w.dragArea().isIn(pos) || w.dragArea().isIn(pos - move)))
             {
                 Vec proposedOff = w.off + move;
 
@@ -112,7 +112,7 @@ namespace Windows
             }
 
             // resize
-            if (state == MouseState::Held && w.resizeArea().isIn(pos))
+            if (state == MouseState::Held && (w.resizeArea().isIn(pos) || w.resizeArea().isIn(pos - move)))
             {
                 Vec proposedSize = {
                     constrain(w.size.x + move.x, Window::minSize.x, Window::maxSize.x),
