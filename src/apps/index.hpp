@@ -18,6 +18,8 @@ extern "C"
 #include "lualib.h"
 }
 
+using fs::File;
+
 namespace LuaApps
 {
 

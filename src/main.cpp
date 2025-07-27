@@ -12,12 +12,10 @@ void setup()
 
     // Initialize the display & touch
     Screen::init();
-
-    // Create + initialize a Window on the heap
+    // // Create + initialize a Window on the heap
     WindowPtr win(new Window());
     win->init("Hello World Test", Vec{10, 10});
-
-    // Add it into our window manager
+    // // Add it into our window manager
     add(std::move(win));
 
     LuaApps::initialize(); // Initialisiere Serial + SPIFFS
@@ -26,7 +24,8 @@ void setup()
     // Führt /test.lua im Sandbox-Modus aus
     int result = LuaApps::runApp("/test.lua", {"Arg1", "Hi"});
     Serial.printf("Lua App exited with code: %d\n", result);
-    win->sprite.print(result);
+
+    // win->sprite.print(result);
 }
 
 void loop()
