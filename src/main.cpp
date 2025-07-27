@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "screen/index.hpp"
 #include "apps/windows.hpp"
+#include "apps/index.hpp"
 
 using namespace Windows;
 
@@ -19,19 +20,13 @@ void setup()
     // Add it into our window manager
     add(std::move(win));
 
-    // Create + initialize a Window on the heap
-    WindowPtr win2(new Window());
-    win2->init("Helllo 2", Vec{10, 10});
+    LuaApps::initialize(); // Initialisiere Serial + SPIFFS
 
-    // Add it into our window manager
-    add(std::move(win2));
-
-    // Create + initialize a Window on the heap
-    WindowPtr win3(new Window());
-    win3->init("Win3", Vec{10, 10});
-
-    // Add it into our window manager
-    add(std::move(win3));
+    Serial.println("Running Lua app...");
+    // Führt /test.lua im Sandbox-Modus aus
+    int result = LuaApps::runApp("/test.lua", {"Arg1", "Hi"});
+    Serial.printf("Lua App exited with code: %d\n", result);
+    win->sprite.print(result);
 }
 
 void loop()
