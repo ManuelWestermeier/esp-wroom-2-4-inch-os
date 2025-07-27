@@ -11,8 +11,6 @@ namespace Windows
 
     void removeAt(int idx)
     {
-        // apps[idx]->lastEvent = {MouseEvent::, rel, move};
-
         if (idx >= 0 && idx < (int)apps.size())
             apps.erase(apps.begin() + idx);
     }
@@ -58,11 +56,13 @@ namespace Windows
             Window &w = *apps.back();
 
             Vec rel{pos.x - w.off.x, pos.y - w.off.y};
-            w.lastEvent = {state, rel, move};
 
             if (Rect{w.off, w.size}.isIn(pos))
             {
-                w.onEvent({state, rel, move});
+                w.lastEvent = {state, rel, move};
+                Serial.println("Event:");
+                w.lastEvent.pos.print();
+                w.lastEvent.move.print();
             }
 
             // drag
@@ -106,6 +106,7 @@ namespace Windows
             {
                 w.size.x = constrain(w.size.x + move.x, Window::minSize.x, Window::maxSize.x);
                 w.size.y = constrain(w.size.y + move.y, Window::minSize.y, Window::maxSize.y);
+
                 w.resizeSprite();
                 Screen::tft.fillScreen(RGB(245, 245, 255));
             }
@@ -124,7 +125,7 @@ namespace Windows
                 Window &w = *p;
                 w.off += move;
             }
-            if (move.x != 0 && move.y != 0)
+            if (move.x != 0 || move.y != 0)
                 Screen::tft.fillScreen(RGB(245, 245, 255));
         }
 
@@ -191,12 +192,14 @@ namespace Windows
 
         // icon
         Screen::tft.pushImage(d.pos.x, d.pos.y, 12, 12, w.icon);
+        Screen::tft.drawLine(d.pos.x + 12, d.pos.y, d.pos.x + 12, d.pos.y + 12, TFT_BLACK);
 
         // drag area
         Screen::tft.fillRectHGradient(
-            d.pos.x + 12, d.pos.y,
-            d.dimensions.x - Window::closeBtnSize, d.dimensions.y,
+            d.pos.x + 13, d.pos.y,
+            d.dimensions.x - Window::closeBtnSize - 14, d.dimensions.y,
             RGB(200, 200, 250), RGB(220, 220, 250));
+        Screen::tft.drawLine(d.pos.x + 12 + d.dimensions.x - Window::closeBtnSize - 13, d.pos.y, d.pos.x + 12 + d.dimensions.x - Window::closeBtnSize - 13, d.pos.y + 12, TFT_BLACK);
 
         // drag are text
         if (Rect{0, 0, 320, 240}.intersects(d))
@@ -218,11 +221,11 @@ namespace Windows
 
     void drawContent(Window &w)
     {
-        w.sprite.fillSprite(TFT_BLACK);
-        w.sprite.setTextColor(TFT_WHITE);
+        w.sprite.fillSprite(TFT_WHITE);
+        w.sprite.setTextColor(TFT_BLACK);
         w.sprite.drawString("HELLO", 10, 10, 2);
 
-        w.rightSprite.fillSprite(TFT_BLACK);
+        w.rightSprite.fillSprite(TFT_WHITE);
 
         w.sprite.pushSprite(w.off.x, w.off.y);
         w.rightSprite.pushSprite(w.off.x + w.size.x, w.off.y);

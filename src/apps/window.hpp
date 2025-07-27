@@ -8,8 +8,7 @@ enum class MouseState
 {
     Down,
     Held,
-    Up,
-    Close
+    Up
 };
 
 struct MouseEvent
@@ -23,12 +22,14 @@ struct Window
 {
     Vec off = {0, 0};
     Vec size = {160, 90};
-    String name;
+    String name = "";
     TFT_eSprite sprite{&Screen::tft};
     TFT_eSprite rightSprite{&Screen::tft};
-    MouseEvent lastEvent{MouseState::Up, {0, 0}, {0, 0}};
 
-    uint16_t icon[12 * 12] = {};
+    MouseEvent lastEvent{MouseState::Up, {0, 0}, {0, 0}};
+    bool closed = false;
+
+#include "icon.hpp"
 
     static constexpr Vec minSize = {40, 30};
     static constexpr Vec maxSize = {240, 160};
@@ -54,30 +55,5 @@ struct Window
         sprite.createSprite(size.x, size.y);
         rightSprite.deleteSprite();
         rightSprite.createSprite(resizeBoxSize, size.y - resizeBoxSize);
-    }
-
-    void onEvent(MouseEvent e)
-    {
-        Serial.println("Mouse: " + name);
-
-        e.move.print();
-        e.pos.print();
-
-        if (e.state == MouseState::Down)
-        {
-            Serial.println("MouseState::Down");
-        }
-        if (e.state == MouseState::Held)
-        {
-            Serial.println("MouseState::Held");
-        }
-        if (e.state == MouseState::Up)
-        {
-            Serial.println("MouseState::Up");
-        }
-        if (e.state == MouseState::Close)
-        {
-            Serial.println("MouseState::Close");
-        }
     }
 };
