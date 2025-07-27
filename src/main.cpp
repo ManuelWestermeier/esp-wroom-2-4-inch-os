@@ -5,6 +5,8 @@
 
 using namespace Windows;
 
+WindowPtr win(new Window());
+
 void setup()
 {
     Serial.begin(115200);
@@ -13,10 +15,10 @@ void setup()
     // Initialize the display & touch
     Screen::init();
     // // Create + initialize a Window on the heap
-    WindowPtr win(new Window());
-    win->init("Hello World Test", Vec{10, 10});
+    win->init("Test App", Vec{10, 10});
     // // Add it into our window manager
-    add(std::move(win));
+    Window *rawWin = win.get(); // grab raw pointer before move
+    add(std::move(win));        // transfer ownership
 
     LuaApps::initialize(); // Initialisiere Serial + SPIFFS
 
@@ -25,7 +27,10 @@ void setup()
     int result = LuaApps::runApp("/test.lua", {"Arg1", "Hi"});
     Serial.printf("Lua App exited with code: %d\n", result);
 
-    // win->sprite.print(result);
+    rawWin->sprite.fillSprite(TFT_WHITE);
+    rawWin->sprite.setTextColor(TFT_BLACK);
+    rawWin->sprite.drawString(String("Result: ") + result, 10, 10, 2);
+    rawWin->rightSprite.fillSprite(RGB(200, 240, 100));
 }
 
 void loop()

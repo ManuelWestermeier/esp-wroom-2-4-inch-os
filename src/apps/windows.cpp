@@ -263,12 +263,6 @@ namespace Windows
 
     void drawContent(Window &w)
     {
-        w.sprite.fillSprite(TFT_WHITE);
-        w.sprite.setTextColor(TFT_BLACK);
-        w.sprite.drawString("HELLO", 10, 10, 2);
-
-        w.rightSprite.fillSprite(TFT_WHITE);
-
         w.sprite.pushSprite(w.off.x, w.off.y);
         w.rightSprite.pushSprite(w.off.x + w.size.x, w.off.y);
     }
