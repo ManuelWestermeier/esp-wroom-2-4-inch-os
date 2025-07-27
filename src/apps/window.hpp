@@ -27,6 +27,7 @@ struct Window
     TFT_eSprite rightSprite{&Screen::tft};
 
     MouseEvent lastEvent{MouseState::Up, {0, 0}, {0, 0}};
+    MouseEvent lastEventSmallScreen{MouseState::Up, {0, 0}, {0, 0}};
     bool closed = false;
 
 #include "icon.hpp"
