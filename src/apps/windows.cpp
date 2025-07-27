@@ -104,11 +104,40 @@ namespace Windows
             // resize
             if (state == MouseState::Held && w.resizeArea().isIn(pos))
             {
-                w.size.x = constrain(w.size.x + move.x, Window::minSize.x, Window::maxSize.x);
-                w.size.y = constrain(w.size.y + move.y, Window::minSize.y, Window::maxSize.y);
+                Vec proposedSize = {
+                    constrain(w.size.x + move.x, Window::minSize.x, Window::maxSize.x),
+                    constrain(w.size.y + move.y, Window::minSize.y, Window::maxSize.y),
+                };
 
-                w.resizeSprite();
-                Screen::tft.fillScreen(RGB(245, 245, 255));
+                // Collision detection
+                bool collides = false;
+                Rect nextRect = Rect{Vec{0, -12} + w.off, proposedSize + Vec{12, 12}};
+                Rect oldRect = Rect{Vec{0, -12} + w.off, w.size + Vec{12, 12}};
+
+                for (size_t i = 0; i < apps.size() - 1; ++i)
+                {
+                    const Window &otherWin = *apps[i];
+                    Rect otherRect = Rect{otherWin.off + Vec{0, -12}, otherWin.size + Vec{12, 12}};
+
+                    if (oldRect.intersects(otherRect))
+                    {
+                        collides = false;
+                        break;
+                    }
+
+                    if (nextRect.intersects(otherRect))
+                    {
+                        collides = true;
+                        break;
+                    }
+                }
+
+                if (!collides)
+                {
+                    w.size = proposedSize;
+                    w.resizeSprite();
+                    Screen::tft.fillScreen(RGB(245, 245, 255));
+                }
             }
 
             // close
