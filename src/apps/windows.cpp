@@ -60,9 +60,19 @@ namespace Windows
             if (Rect{w.off, w.size}.isIn(pos))
             {
                 w.lastEvent = {state, rel, move};
-                Serial.println("Event:");
+                Serial.println("Event: BS");
                 w.lastEvent.pos.print();
                 w.lastEvent.move.print();
+            }
+
+            Rect rightSpriteArea = {w.off + Vec{w.size.x, 0}, {Window::resizeBoxSize, w.size.y - Window::resizeBoxSize}};
+            if (rightSpriteArea.isIn(pos))
+            {
+                Vec relRight = {pos.x - rightSpriteArea.pos.x, pos.y - rightSpriteArea.pos.y};
+                w.lastEventRightSprite = {state, relRight, move};
+                Serial.println("Event: RS");
+                w.lastEventRightSprite.pos.print();
+                w.lastEventRightSprite.move.print();
             }
 
             // drag
