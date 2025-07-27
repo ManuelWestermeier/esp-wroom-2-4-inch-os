@@ -1,7 +1,11 @@
 #pragma once
+
 #include <vector>
 #include <memory>
+
 #include "../screen/index.hpp"
+
+struct Window;
 
 namespace Windows
 {
