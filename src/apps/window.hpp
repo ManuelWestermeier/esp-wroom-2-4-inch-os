@@ -28,6 +28,8 @@ struct Window
     TFT_eSprite rightSprite{&Screen::tft};
     MouseEvent lastEvent{MouseState::Up, {0, 0}, {0, 0}};
 
+    uint16_t icon[12 * 12] = {};
+
     static constexpr Vec minSize = {40, 30};
     static constexpr Vec maxSize = {240, 160};
     static constexpr int titleBarHeight = 12;

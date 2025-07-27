@@ -124,6 +124,8 @@ namespace Windows
                 Window &w = *p;
                 w.off += move;
             }
+            if (move.x != 0 && move.y != 0)
+                Screen::tft.fillScreen(RGB(245, 245, 255));
         }
 
         // render all
@@ -187,9 +189,12 @@ namespace Windows
             w.size.x + 2 + 12, w.size.y + Window::titleBarHeight + 2,
             TFT_BLACK);
 
+        // icon
+        Screen::tft.pushImage(d.pos.x, d.pos.y, 12, 12, w.icon);
+
         // drag area
         Screen::tft.fillRectHGradient(
-            d.pos.x, d.pos.y,
+            d.pos.x + 12, d.pos.y,
             d.dimensions.x - Window::closeBtnSize, d.dimensions.y,
             RGB(200, 200, 250), RGB(220, 220, 250));
 
@@ -197,11 +202,11 @@ namespace Windows
         if (Rect{0, 0, 320, 240}.intersects(d))
         {
             Screen::tft.setTextSize(1);
-            Screen::tft.setCursor(d.pos.x + 2, d.pos.y + 2);
-            int maxC = (d.dimensions.x - 20) / 6;
+            Screen::tft.setCursor(d.pos.x + 2 + 12, d.pos.y + 2);
+            int maxC = (d.dimensions.x - 32) / 6;
 
             for (int i = 0; i < std::min((int)w.name.length(), maxC); ++i)
-                if (Rect{0, 0, 320, 240}.intersects(Rect{d.pos.x + 2 + 6 * (i + 1), d.pos.y + 2, 6, 8}))
+                if (Rect{0, 0, 320, 240}.intersects(Rect{d.pos.x + 2 + 12 + 6 * (i + 1), d.pos.y + 2, 6, 8}))
                     Screen::tft.print(w.name[i]);
         }
 
