@@ -147,16 +147,17 @@ namespace Windows
 
     void drawResizeIcon(int x, int y, uint16_t color)
     {
-        // Diagonale Linie von (x+2, y+2) bis (x+9, y+9)
-        Screen::tft.drawLine(x + 2, y + 2, x + 9, y + 9, color);
+        x++;
+        y++;
+        Screen::tft.drawLine(x, y, x + 8, y + 8, color);
+        Screen::tft.drawLine(x + 1, y, x + 8, y + 8, color);
+        Screen::tft.drawLine(x, y + 1, x + 8, y + 8, color);
 
-        // Pfeilspitze unten rechts
-        Screen::tft.drawPixel(x + 9, y + 10, color);
-        Screen::tft.drawPixel(x + 10, y + 9, color);
+        Screen::tft.drawLine(x, y, x + 3, y, color);
+        Screen::tft.drawLine(x, y, x, y + 3, color);
 
-        // Pfeilspitze oben links
-        Screen::tft.drawPixel(x + 1, y + 0, color);
-        Screen::tft.drawPixel(x + 0, y + 1, color);
+        Screen::tft.drawLine(x + 8, y + 6, x + 8, y + 8, color);
+        Screen::tft.drawLine(x + 6, y + 8, x + 8, y + 8, color);
     }
 
     void drawTitleBar(Window &w)
