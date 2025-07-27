@@ -8,7 +8,8 @@ enum class MouseState
 {
     Down,
     Held,
-    Up
+    Up,
+    Close
 };
 
 struct MouseEvent
@@ -42,7 +43,7 @@ struct Window
         name = windowName;
         off = position;
         sprite.createSprite(size.x, size.y);
-        rightSprite.createSprite(12, size.y);
+        rightSprite.createSprite(resizeBoxSize, size.y - resizeBoxSize);
     }
 
     void resizeSprite()
@@ -50,6 +51,31 @@ struct Window
         sprite.deleteSprite();
         sprite.createSprite(size.x, size.y);
         rightSprite.deleteSprite();
-        rightSprite.createSprite(12, size.y);
+        rightSprite.createSprite(resizeBoxSize, size.y - resizeBoxSize);
+    }
+
+    void onEvent(MouseEvent e)
+    {
+        Serial.println("Mouse: " + name);
+
+        e.move.print();
+        e.pos.print();
+
+        if (e.state == MouseState::Down)
+        {
+            Serial.println("MouseState::Down");
+        }
+        if (e.state == MouseState::Held)
+        {
+            Serial.println("MouseState::Held");
+        }
+        if (e.state == MouseState::Up)
+        {
+            Serial.println("MouseState::Up");
+        }
+        if (e.state == MouseState::Close)
+        {
+            Serial.println("MouseState::Close");
+        }
     }
 };

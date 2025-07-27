@@ -6,7 +6,7 @@ using namespace Screen;
 TFT_eSPI Screen::tft = TFT_eSPI(320, 240);
 
 // Global threshold for movement timing
-int Screen::MOVEMENT_TIME_THRESHOLD = 200;
+int Screen::MOVEMENT_TIME_THRESHOLD = 250;
 
 // Internal state for touch calculations
 static uint16_t touchY = 0, touchX = 0;

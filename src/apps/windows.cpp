@@ -11,6 +11,8 @@ namespace Windows
 
     void removeAt(int idx)
     {
+        // apps[idx]->lastEvent = {MouseEvent::, rel, move};
+
         if (idx >= 0 && idx < (int)apps.size())
             apps.erase(apps.begin() + idx);
     }
@@ -63,6 +65,11 @@ namespace Windows
             Vec rel{pos.x - w.off.x, pos.y - w.off.y};
             w.lastEvent = {state, rel, move};
 
+            if (Rect{w.off, w.size}.isIn(pos))
+            {
+                w.onEvent({state, rel, move});
+            }
+
             // drag
             if (state == MouseState::Held && w.dragArea().isIn(pos))
             {
@@ -73,12 +80,18 @@ namespace Windows
                 constexpr int margin = 3;
 
                 Rect nextRect = Rect{Vec{0, -12} + proposedOff, w.size + Vec{12, 12}};
+                Rect oldRect = Rect{Vec{0, -12} + w.off, w.size + Vec{12, 12}};
 
                 for (size_t i = 0; i < apps.size() - 1; ++i)
                 {
                     const Window &otherWin = *apps[i];
                     Rect otherRect = Rect{otherWin.off + Vec{0, -12}, otherWin.size + Vec{12, 12}};
 
+                    if (oldRect.intersects(otherRect))
+                    {
+                        collides = false;
+                        break;
+                    }
                     if (nextRect.intersects(otherRect))
                     {
                         collides = true;
@@ -123,6 +136,29 @@ namespace Windows
         }
     }
 
+    void drawCloseX(int x, int y, uint16_t color)
+    {
+        for (int i = 1; i < 11; i++)
+        {
+            Screen::tft.drawPixel(x + i, y + i, color);
+            Screen::tft.drawPixel(x + 11 - i, y + i, color);
+        }
+    }
+
+    void drawResizeIcon(int x, int y, uint16_t color)
+    {
+        // Diagonale Linie von (x+2, y+2) bis (x+9, y+9)
+        Screen::tft.drawLine(x + 2, y + 2, x + 9, y + 9, color);
+
+        // Pfeilspitze unten rechts
+        Screen::tft.drawPixel(x + 9, y + 10, color);
+        Screen::tft.drawPixel(x + 10, y + 9, color);
+
+        // Pfeilspitze oben links
+        Screen::tft.drawPixel(x + 1, y + 0, color);
+        Screen::tft.drawPixel(x + 0, y + 1, color);
+    }
+
     void drawTitleBar(Window &w)
     {
         auto d = w.dragArea();
@@ -152,12 +188,8 @@ namespace Windows
                     Screen::tft.print(w.name[i]);
         }
 
-        if (Rect{0, 0, 320, 240}.intersects(c.shrink(2)))
-        {
-            Screen::tft.fillRect(c.pos.x, c.pos.y, c.dimensions.x, c.dimensions.y, RGB(255, 150, 150));
-            Screen::tft.setCursor(c.pos.x + 4, c.pos.y + 2);
-            Screen::tft.print("X");
-        }
+        Screen::tft.fillRect(c.pos.x, c.pos.y, c.dimensions.x, c.dimensions.y, RGB(255, 150, 150));
+        drawCloseX(c.pos.x, c.pos.y, RGB(0, 0, 0)); // oder TFT_BLACK
 
         Screen::tft.setTextSize(2);
     }
@@ -178,6 +210,7 @@ namespace Windows
     {
         auto r = w.resizeArea();
         Screen::tft.fillRect(r.pos.x, r.pos.y, r.dimensions.x, r.dimensions.y, RGB(180, 180, 255));
+        drawResizeIcon(r.pos.x, r.pos.y, TFT_BLACK);
     }
 
 } // namespace Windows
