@@ -15,7 +15,7 @@ void setup()
     // Initialize the display & touch
     Screen::init();
     // // Create + initialize a Window on the heap
-    win->init("Test App", Vec{10, 10});
+    win->init("Test App", Vec{30, 30});
     // // Add it into our window manager
     Window *rawWin = win.get(); // grab raw pointer before move
     add(std::move(win));        // transfer ownership
