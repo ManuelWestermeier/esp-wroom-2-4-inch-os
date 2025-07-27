@@ -33,11 +33,6 @@ namespace Windows
 
         auto touch = Screen::getTouchPos();
 
-        if (touch.clicked)
-        {
-            Screen::tft.fillScreen(RGB(245, 245, 255));
-        }
-
         MouseState state = touch.clicked
                                ? (lastState == MouseState::Up ? MouseState::Down : MouseState::Held)
                                : MouseState::Up;
@@ -100,7 +95,10 @@ namespace Windows
                 }
 
                 if (!collides)
+                {
                     w.off = proposedOff;
+                    Screen::tft.fillScreen(RGB(245, 245, 255));
+                }
             }
 
             // resize
@@ -109,12 +107,14 @@ namespace Windows
                 w.size.x = constrain(w.size.x + move.x, Window::minSize.x, Window::maxSize.x);
                 w.size.y = constrain(w.size.y + move.y, Window::minSize.y, Window::maxSize.y);
                 w.resizeSprite();
+                Screen::tft.fillScreen(RGB(245, 245, 255));
             }
 
             // close
             if (state == MouseState::Down && w.closeBtn().isIn(pos))
             {
                 removeAt((int)apps.size() - 1);
+                Screen::tft.fillScreen(RGB(245, 245, 255));
             }
         }
         else
@@ -138,10 +138,20 @@ namespace Windows
 
     void drawCloseX(int x, int y, uint16_t color)
     {
-        for (int i = 1; i < 11; i++)
+        x += 2;
+        y += 2;
+        // Draw a centered, bold X inside an 8x8 square
+        for (int i = 0; i < 8; i++)
         {
+            // Diagonal from top-left to bottom-right
             Screen::tft.drawPixel(x + i, y + i, color);
-            Screen::tft.drawPixel(x + 11 - i, y + i, color);
+            Screen::tft.drawPixel(x + i, y + i + 1, color); // bold vertical
+            Screen::tft.drawPixel(x + i + 1, y + i, color); // bold horizontal
+
+            // Diagonal from top-right to bottom-left
+            Screen::tft.drawPixel(x + 7 - i, y + i, color);
+            Screen::tft.drawPixel(x + 7 - i, y + i + 1, color); // bold vertical
+            Screen::tft.drawPixel(x + 6 - i, y + i, color);     // bold horizontal
         }
     }
 
@@ -149,15 +159,21 @@ namespace Windows
     {
         x++;
         y++;
-        Screen::tft.drawLine(x, y, x + 8, y + 8, color);
-        Screen::tft.drawLine(x + 1, y, x + 8, y + 8, color);
-        Screen::tft.drawLine(x, y + 1, x + 8, y + 8, color);
 
-        Screen::tft.drawLine(x, y, x + 3, y, color);
-        Screen::tft.drawLine(x, y, x, y + 3, color);
+        // Main diagonal (thicker, longer)
+        Screen::tft.drawLine(x, y, x + 9, y + 9, color);
+        Screen::tft.drawLine(x + 1, y, x + 9, y + 8, color);
+        Screen::tft.drawLine(x, y + 1, x + 8, y + 9, color);
 
-        Screen::tft.drawLine(x + 8, y + 6, x + 8, y + 8, color);
-        Screen::tft.drawLine(x + 6, y + 8, x + 8, y + 8, color);
+        // Top-left arrow head
+        Screen::tft.drawLine(x, y, x + 4, y, color); // horizontal tip
+        Screen::tft.drawLine(x, y, x, y + 4, color); // vertical tip
+        Screen::tft.drawPixel(x + 1, y + 1, color);  // corner pixel for emphasis
+
+        // Bottom-right arrow head (mirrored)
+        Screen::tft.drawLine(x + 5, y + 9, x + 9, y + 9, color); // horizontal tip
+        Screen::tft.drawLine(x + 9, y + 5, x + 9, y + 9, color); // vertical tip
+        Screen::tft.drawPixel(x + 8, y + 8, color);              // corner pixel for emphasis
     }
 
     void drawTitleBar(Window &w)
