@@ -47,13 +47,15 @@ void setup()
 
     Serial.println("Running Lua app task...");
 
-    xTaskCreate(AppRunTask, "AppRunTask", 1 << 13, NULL, 1, &WindowAppRunHandle);
-    xTaskCreate(AppRenderTask, "AppRenderTask", 1 << 13, NULL, 2, &WindowAppRenderHandle);
+    xTaskCreate(AppRunTask, "AppRunTask", 50000, NULL, 1, &WindowAppRunHandle);
+    delay(300);
+    xTaskCreate(AppRenderTask, "AppRenderTask", 2048, NULL, 2, &WindowAppRenderHandle);
 }
 
 void loop()
 {
-    Serial.printf("AppRunTask stack high water mark: %d\n", uxTaskGetStackHighWaterMark(NULL));
+    Serial.println(ESP.getMaxAllocHeap());
+    Serial.printf("AppRunTask stack high water mark: %d\n", uxTaskGetStackHighWaterMark(WindowAppRunHandle));
     Serial.printf("AppRenderTask stack high water mark: %d\n", uxTaskGetStackHighWaterMark(WindowAppRenderHandle));
 
     delay(1000);

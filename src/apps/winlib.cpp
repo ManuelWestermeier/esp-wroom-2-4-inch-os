@@ -2,13 +2,14 @@
 #include "apps/windows.hpp"
 #include "screen/index.hpp"
 
-#include <vector>
+#include <unordered_map>
 #include <memory>
 
 namespace LuaApps::WinLib
 {
-    static std::vector<Windows::WindowPtr> windows;
-    static std::vector<Window *> rawWindows;
+    static std::unordered_map<int, Windows::WindowPtr> windows;
+    static std::unordered_map<int, Window *> rawWindows;
+    static int nextWindowId = 1;
 
     int lua_createWindow(lua_State *L)
     {
@@ -17,22 +18,21 @@ namespace LuaApps::WinLib
         int w = luaL_checkinteger(L, 3);
         int h = luaL_checkinteger(L, 4);
 
-        // std::make_unique evtl. nicht verfügbar -> manuell new + unique_ptr
         auto win = Windows::WindowPtr(new Window());
         win->init("LuaWindow", {x, y}, {w, h});
 
-        windows.push_back(std::move(win));
-        int id = (int)(windows.size() - 1);
+        int id = nextWindowId++;
 
-        // Fenster an Windows::add übergeben (move), windows[id] ist danach nullptr
-        Windows::add(std::move(windows[id]));
+        // Temporär speichern, um danach Pointer zu extrahieren
+        Windows::WindowPtr localWin = std::move(win);
+        Window *raw = localWin.get();
 
-        // rohen Zeiger speichern, damit wir später wieder Zugriff auf das Fenster haben
-        if (rawWindows.size() <= (size_t)id)
-            rawWindows.resize(id + 1);
-        rawWindows[id] = Windows::apps.back().get();
+        // In globale Maps eintragen
+        windows[id] = std::move(localWin);
+        Windows::add(std::move(windows[id])); // Übergabe an Windows::apps
 
-        // id zurückgeben
+        rawWindows[id] = Windows::apps.back().get(); // Zugriff auf endgültigen Pointer
+
         lua_pushinteger(L, id);
         return 1;
     }
@@ -40,12 +40,13 @@ namespace LuaApps::WinLib
     static Window *getWindow(lua_State *L, int index)
     {
         int id = luaL_checkinteger(L, index);
-        if (id < 0 || id >= (int)rawWindows.size() || rawWindows[id] == nullptr)
+        auto it = rawWindows.find(id);
+        if (it == rawWindows.end() || it->second == nullptr)
         {
             luaL_error(L, "Invalid window id %d", id);
             return nullptr;
         }
-        return rawWindows[id];
+        return it->second;
     }
 
     int lua_WIN_setName(lua_State *L)

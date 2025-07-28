@@ -1,12 +1,10 @@
-print("APP:STARTED")
+-- print("APP:STARTED")
 
-print("APP:1")
-win = createWindow(20, 20, 100, 100)
-print("APP:2")
-print(win)
-print("APP:3")
+win = createWindow(20, 20, 150, 40)
+-- win2 = createWindow(20, 80, 40, 40)
 
 WIN_setName(win, "Test App :)")
+-- WIN_setName(win2, "Test App 2 (:")
 
 bigScreen = 1 
 leftScreen = 2 
