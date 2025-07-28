@@ -74,7 +74,6 @@ namespace LuaApps::WinLib
 
     int lua_WIN_getLastEvent(lua_State *L)
     {
-        Windows::loop();
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         if (!w)

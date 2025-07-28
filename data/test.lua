@@ -1,3 +1,5 @@
+print("APP:STARTED")
+
 win = createWindow(20, 20, 100, 100)
 WIN_setName(win, "Test App :)")
 
@@ -24,4 +26,8 @@ while not WIN_closed(win) do
     if happened then
         WIN_writeRect(win, bigScreen, posX, posY, moveX, moveY, textColor)
     end
+
+    delay(10)
 end
+
+print("APP:EXITED")

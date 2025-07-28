@@ -9,8 +9,8 @@ namespace LuaApps
 
     void initialize()
     {
-        Serial.begin(115200);
         SPIFFS.begin(true);
+        Serial.begin(115200);
         Serial.println("LuaApps initialized.");
     }
 
