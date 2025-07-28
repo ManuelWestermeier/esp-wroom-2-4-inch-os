@@ -152,6 +152,74 @@ namespace LuaApps::WinLib
         return 0;
     }
 
+    int lua_WIN_setIcon(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        if (!w)
+            return 0;
+
+        luaL_checktype(L, 2, LUA_TTABLE);
+
+        constexpr size_t iconSize = sizeof(w->icon) / sizeof(w->icon[0]); // 144
+
+        for (size_t i = 0; i < iconSize; ++i)
+        {
+            lua_rawgeti(L, 2, i + 1);
+            if (!lua_isinteger(L, -1))
+            {
+                luaL_error(L, "Expected integer at index %zu in icon array", i + 1);
+                return 0;
+            }
+            int val = lua_tointeger(L, -1);
+            if (val < 0 || val > 0xFFFF)
+            {
+                luaL_error(L, "Icon pixel value out of range at index %zu", i + 1);
+                return 0;
+            }
+            w->icon[i] = static_cast<uint16_t>(val);
+            lua_pop(L, 1);
+        }
+
+        return 0;
+    }
+
+    int lua_WIN_drawImage(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        int screenId = luaL_checkinteger(L, 2);
+        int x = luaL_checkinteger(L, 3);
+        int y = luaL_checkinteger(L, 4);
+        int width = luaL_checkinteger(L, 5);
+        int height = luaL_checkinteger(L, 6);
+
+        luaL_checktype(L, 7, LUA_TTABLE); // Bilddaten sind Tabelle
+
+        size_t pixelCount = width * height;
+        std::unique_ptr<uint16_t[]> buffer(new uint16_t[pixelCount]);
+
+        for (size_t i = 0; i < pixelCount; ++i)
+        {
+            lua_rawgeti(L, 7, i + 1); // Lua-Arrays sind 1-indiziert
+            if (!lua_isinteger(L, -1))
+            {
+                luaL_error(L, "Expected integer at index %zu in image array", i + 1);
+                return 0;
+            }
+            int val = lua_tointeger(L, -1);
+            if (val < 0 || val > 0xFFFF)
+            {
+                luaL_error(L, "Pixel value out of range at index %zu", i + 1);
+                return 0;
+            }
+            buffer[i] = static_cast<uint16_t>(val);
+            lua_pop(L, 1);
+        }
+
+        TFT_eSprite &spr = (screenId == 2) ? w->rightSprite : w->sprite;
+        spr.pushImage(x, y, width, height, buffer.get());
+        return 0;
+    }
+
     void register_win_functions(lua_State *L)
     {
         lua_register(L, "createWindow", lua_createWindow);
@@ -162,6 +230,8 @@ namespace LuaApps::WinLib
         lua_register(L, "WIN_fillBg", lua_WIN_fillBg);
         lua_register(L, "WIN_writeText", lua_WIN_writeText);
         lua_register(L, "WIN_writeRect", lua_WIN_writeRect);
+        lua_register(L, "WIN_setIcon", lua_WIN_setIcon);
+        lua_register(L, "WIN_drawImage", lua_WIN_drawImage);
     }
 
 } // namespace LuaApps::WinLib
