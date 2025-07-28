@@ -37,15 +37,20 @@ local colorScrollStartY, colorScrollStartOffset = 0, 0
 local lastX, lastY = nil, nil
 local isDrawing = false
 
-local function clearCanvas()
-  WIN_writeRect(win, bigScreen, canvasX, 0, canvasW, canvasH, white)
+local function clearAll()
+  -- Gesamtfläche löschen (Sidebar+Canvas + Farbleiste)
+  WIN_fillBg(win, bigScreen,  white)
+  WIN_fillBg(win, leftScreen, white)
 end
 
 local function drawSidebar()
   WIN_writeRect(win, bigScreen, 0, 0, sidebarW, canvasH, bgColor)
-  WIN_writeRect(win, bigScreen, 2, 2, sidebarW-4, 16, RGB(200,200,200))
-  WIN_writeText(win, bigScreen, 4, 4, "mode: " .. brushMode, 1, textColor)
 
+  -- Modus-Button mit aktuellem Modus
+  WIN_writeRect(win, bigScreen, 2, 2, sidebarW-4, 16, RGB(200,200,200))
+  WIN_writeText(win, bigScreen, 4, 4, brushMode, 1, textColor)
+
+  -- Clear-Button
   WIN_writeRect(win, bigScreen, 2, 20, sidebarW-4, 16, RGB(220,80,80))
   WIN_writeText(win, bigScreen, 4, 22, "clear", 1, white)
 
@@ -67,8 +72,8 @@ local function drawSidebar()
 end
 
 local function drawCanvas()
-  WIN_writeRect(win, bigScreen, canvasX, 0, canvasW, canvasH, white)
-  WIN_writeRect(win, bigScreen, canvasX-1, -1, canvasW+2, canvasH+2, textColor)
+    WIN_writeRect(win, bigScreen, canvasX, 0, canvasW, canvasH, white)
+    WIN_writeRect(win, bigScreen, canvasX-1, -1, canvasW+2, canvasH+2, white)
 end
 
 local function drawColorBar()
@@ -105,31 +110,29 @@ drawCanvas()
 drawColorBar()
 
 while not WIN_closed(win) do
-  local redrawSide, redrawColor = false, false
+  -- UI komplett neu zeichnen
+  drawSidebar()
+  drawColorBar()
 
   local h,s,px,py = WIN_getLastEvent(win, bigScreen)
   if h then
     if s==0 then
       if px>=2 and px<=sidebarW-2 and py>=2 and py<=18 then
-        -- Korrekte Modus-Umschaltung
         for i,m in ipairs(brushModes) do
           if m == brushMode then
             brushMode = brushModes[(i % #brushModes) + 1]
             break
           end
         end
-        redrawSide = true
-
       elseif px>=2 and px<=sidebarW-2 and py>=20 and py<=36 then
-        clearCanvas()
-
+        -- Clear-Button: einfach Canvas weiß füllen
+        drawCanvas()
       else
         local sliderX, sliderY, sliderH = math.floor(sidebarW/2), 40, canvasH-40-4
         if px>=sliderX-5 and px<=sliderX+5 and py>=sliderY and py<=sliderY+sliderH then
           local rel = py-sliderY; local pct = rel/sliderH
           brushSize = math.floor(minSize + pct*(maxSize-minSize) +0.5)
           brushSize = math.max(minSize, math.min(maxSize, brushSize))
-          redrawSide = true
         end
         if px>=canvasX then isDrawing=true; lastX, lastY = px,py; paintAt(px,py) end
       end
@@ -145,16 +148,12 @@ while not WIN_closed(win) do
       local dy=py2-colorScrollStartY; colorScrollY = colorScrollStartOffset - dy
       local maxScroll = math.max(0,#palette*30 - canvasH)
       colorScrollY = math.max(0, math.min(maxScroll, colorScrollY))
-      redrawColor = true
     elseif s2==2 then isColorScrolling=false end
     if s2==0 then
       local idx=math.floor((py2+colorScrollY)/30)+1
-      if idx>=1 and idx<=#palette then currentColor=palette[idx]; brushMode="brush"; redrawSide=true end
+      if idx>=1 and idx<=#palette then currentColor=palette[idx]; brushMode="brush" end
     end
   end
-
-  if redrawSide then drawSidebar() end
-  if redrawColor then drawColorBar() end
 
   delay(10)
 end
