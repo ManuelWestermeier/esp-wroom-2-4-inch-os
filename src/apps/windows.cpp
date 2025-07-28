@@ -11,6 +11,7 @@ namespace Windows
 
     void removeAt(int idx)
     {
+        apps[idx]->closed = true;
         if (idx >= 0 && idx < (int)apps.size())
             apps.erase(apps.begin() + idx);
     }
