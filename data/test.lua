@@ -23,9 +23,9 @@ local white        = RGB(255,255,255)
 local brushModes = { "brush", "eraser", "square" }
 local brushMode  = "brush"
 
--- Pinsel-Parameter
-local brushSize = 3
-local minSize, maxSize = 1, 10
+-- Pinsel-Parameter (nun 1px bis 50px)
+local brushSize = 10
+local minSize, maxSize = 1, 30
 
 -- Farbauswahl-Palette
 local palette = {
@@ -125,9 +125,7 @@ while not WIN_closed(win) do
     if s==0 then
       -- Modus wechseln?
       if px>=2 and px<=sidebarW-2 and py>=2 and py<=18 then
-        for i,m in ipairs(brushModes) do
-          if m==brushMode then brushMode = brushModes[(i%#brushModes)+1]; break end
-        end
+        for i,m in ipairs(brushModes) do brushMode = brushModes[(i%#brushModes)+1]; break end
         redrawSide = true
       end
       -- Slider-Klick?
@@ -158,7 +156,7 @@ while not WIN_closed(win) do
     elseif s2==2 then isColorScrolling=false end
     if s2==0 then
       local idx=math.floor((py2+colorScrollY)/30)+1
-      if idx>=1 and idx<=#palette then currentColor=palette[idx]; if brushMode=="eraser" then brushMode="brush" end; redrawSide=true end
+      if idx>=1 and idx<=#palette then currentColor=palette[idx]; brushMode="brush"; redrawSide=true end
     end
   end
 
