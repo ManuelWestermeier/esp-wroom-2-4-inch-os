@@ -1,7 +1,3 @@
-function RGB(r, g, b)
-    return (r << 16) | (g << 8) | b
-end
-
 win = createWindow(0, 0, 100, 100)
 WIN_setName(win, "Test App :)")
 
@@ -16,6 +12,7 @@ while not WIN_closed(win) do
     happened, state, posX, posY, moveX, moveY = WIN_getLastEvent(win, bigScreen)
 
     WIN_fillBg(win, bigScreen, bgColor)
+    WIN_fillBg(win, leftScreen, RGB(100,200,100))
     WIN_writeText(win, bigScreen, 10, 10, "!Hello World!", 2, textColor)
 
     WIN_writeText(win, bigScreen, 10, 30, 

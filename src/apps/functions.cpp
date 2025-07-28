@@ -43,6 +43,18 @@ namespace LuaApps::LuaFunctions
         return 0;
     }
 
+    int lua_RGB(lua_State *L)
+    {
+        int r = luaL_checkinteger(L, 1);
+        int g = luaL_checkinteger(L, 2);
+        int b = luaL_checkinteger(L, 3);
+
+        uint16_t res = (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3));
+
+        lua_pushinteger(L, res);
+        return 1;
+    }
+
     int luaDelay(lua_State *L)
     {
         int time = luaL_checkinteger(L, 1);
@@ -250,6 +262,7 @@ namespace LuaApps::LuaFunctions
         lua_register(L, "httpReq", luaHttpRequest);
         lua_register(L, "httpsReq", luaHttpsRequest);
         lua_register(L, "ConnectToWifi", connectToWofi);
+        lua_register(L, "RGB", lua_RGB);
         LuaApps::WinLib::register_win_functions(L);
     }
 

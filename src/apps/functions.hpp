@@ -19,6 +19,7 @@ namespace LuaApps::LuaFunctions
 {
     int luaPrintSerial(lua_State *L);
     int setLED(lua_State *L);
+    int lua_RGB(lua_State *L);
     int luaDelay(lua_State *L);
     int luaHttpRequest(lua_State *L);
     int luaHttpsRequest(lua_State *L);
