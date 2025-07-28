@@ -58,7 +58,8 @@ namespace LuaApps::LuaFunctions
     int luaDelay(lua_State *L)
     {
         int time = luaL_checkinteger(L, 1);
-        delayMicroseconds(time * 1000);
+        // delayMicroseconds(time * 1000);
+        vTaskDelay(time / portTICK_PERIOD_MS); // this *does* yield to the RTOS
         return 0;
     }
 

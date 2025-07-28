@@ -80,6 +80,7 @@ void Window::init(const String &windowName, Vec position, Vec dimensions, uint16
     // Create sprites
     sprite.createSprite(size.x, size.y);
     rightSprite.createSprite(resizeBoxSize, size.y - resizeBoxSize);
+
     Screen::tft.fillScreen(RGB(245, 245, 255));
 }
 

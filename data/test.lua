@@ -1,6 +1,11 @@
 print("APP:STARTED")
 
+print("APP:1")
 win = createWindow(20, 20, 100, 100)
+print("APP:2")
+print(win)
+print("APP:3")
+
 WIN_setName(win, "Test App :)")
 
 bigScreen = 1 
@@ -8,6 +13,7 @@ leftScreen = 2
 
 bgColor = RGB(230, 230, 230)
 textColor = RGB(20, 20, 20)
+
 
 while not WIN_closed(win) do
     x, y, w, h = WIN_getRect(win, bigScreen)

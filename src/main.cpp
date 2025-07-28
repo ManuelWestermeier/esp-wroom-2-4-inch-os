@@ -10,7 +10,7 @@ using namespace Windows;
 
 WindowPtr win(new Window());
 
-TaskHandle_t WindowAppRunndle = NULL;
+TaskHandle_t WindowAppRunHandle = NULL;
 
 void AppRunTask(void *)
 {
@@ -19,6 +19,18 @@ void AppRunTask(void *)
     // Führt /test.lua im Sandbox-Modus aus in einen neuen prozess aus
     int result = LuaApps::runApp("/test.lua", {"Arg1", "Hi"});
     Serial.printf("Lua App exited with code: %d\n", result);
+    vTaskDelete(NULL); // kill task cleanly
+}
+
+TaskHandle_t WindowAppRenderHandle = NULL;
+
+void AppRenderTask(void *)
+{
+    while (true)
+    {
+        Windows::loop();
+        delay(10);
+    }
 }
 
 void setup()
@@ -34,12 +46,15 @@ void setup()
     LuaApps::initialize(); // Initialisiere SPIFFS
 
     Serial.println("Running Lua app task...");
-    xTaskCreate(AppRunTask, "AppRunTask", 1 << 12, NULL, 1, &WindowAppRunndle);
-    Serial.println("Running loop...");
+
+    xTaskCreate(AppRunTask, "AppRunTask", 1 << 13, NULL, 1, &WindowAppRunHandle);
+    xTaskCreate(AppRenderTask, "AppRenderTask", 1 << 13, NULL, 2, &WindowAppRenderHandle);
 }
 
 void loop()
 {
-    Windows::loop();
-    delay(10);
+    Serial.printf("AppRunTask stack high water mark: %d\n", uxTaskGetStackHighWaterMark(NULL));
+    Serial.printf("AppRenderTask stack high water mark: %d\n", uxTaskGetStackHighWaterMark(WindowAppRenderHandle));
+
+    delay(1000);
 }
