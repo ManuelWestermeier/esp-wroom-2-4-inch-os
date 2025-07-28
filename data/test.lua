@@ -6,179 +6,191 @@ WIN_setName(win, "Paint")
 local bigScreen = 1
 local leftScreen = 2
 
-local screenH = 160
+-- Ermitteln von Größen aus Fenster
+local totalW, totalH = 240, 160
+local sidebarW = math.floor(totalW * 0.15)       -- 15% Breite für Sidebar
+local canvasX = sidebarW
+local canvasW = totalW - sidebarW
+local canvasH = totalH
 
-local bgColor = RGB(230, 230, 230)
-local textColor = RGB(20, 20, 20)
+-- Farben
+local bgColor   = RGB(230,230,230)
+local textColor = RGB(20,20,20)
+local white     = RGB(255,255,255)
 
-local sidebarW = 40
-local canvasX, canvasY = sidebarW, 0
-local canvasW, canvasH = 200, screenH
+-- Pinsel-Modi
+local brushModes = { "brush", "eraser", "square" }
+local brushMode  = "brush"
 
-local palette = {
-    RGB(0,0,0), RGB(255,0,0), RGB(0,255,0), RGB(0,0,255),
-    RGB(255,255,0), RGB(255,165,0), RGB(128,0,128), RGB(255,192,203),
-    RGB(0,255,255), RGB(128,128,128), RGB(255,255,255), RGB(50,50,50)
-}
-
-local currentColor = palette[1]
+-- Pinsel-Parameter
 local brushSize = 3
-local brushMode = "brush" -- brush, square, line, eraser
+local minSize, maxSize = 1, 10
 
--- For line mode
-local lastX, lastY = nil, nil
-
+-- Farbauswahl
+local palette = {
+  RGB(0,0,0), RGB(255,0,0), RGB(0,255,0), RGB(0,0,255),
+  RGB(255,255,0), RGB(255,165,0), RGB(128,0,128), RGB(255,192,203),
+  RGB(0,255,255), RGB(128,128,128)
+}
+local currentColor = palette[1]
 local colorScrollY = 0
 local isColorScrolling = false
-local colorScrollStartY = 0
-local colorScrollStartOffset = 0
+local colorScrollStartY, colorScrollStartOffset = 0, 0
 
-local brushModes = { "brush", "square", "line", "eraser" }
+-- Hilfsvariablen
+local lastX, lastY = nil, nil
+local isDrawing = false
 
+-- Zeichnet Sidebar (Modus + Size-Slider)
 local function drawSidebar()
-    WIN_writeRect(win, bigScreen, 0, 0, sidebarW, canvasH, bgColor)
+  -- Hintergrund
+  WIN_writeRect(win, bigScreen, 0, 0, sidebarW, canvasH, bgColor)
 
-    -- Mode Button
-    WIN_writeRect(win, bigScreen, 2, 2, 36, 16, RGB(180,180,180))
-    WIN_writeText(win, bigScreen, 4, 4, brushMode, 1, textColor)
+  -- Modus-Button oben
+  WIN_writeRect(win, bigScreen, 2, 2, sidebarW-4, 16, RGB(200,200,200))
+  WIN_writeText(win, bigScreen, 4, 4, brushMode, 1, textColor)
 
-    -- Size Buttons
-    for i = 1, 5 do
-        local y = 25 + (i - 1) * 20
-        local col = (brushSize == i) and RGB(100,200,100) or RGB(200,200,200)
-        WIN_writeRect(win, bigScreen, 5, y, 30, 16, col)
-        WIN_writeText(win, bigScreen, 15, y + 2, tostring(i), 1, textColor)
+  -- Size-Slider: gesamte freie Fläche unterhalb des Modus-Buttons
+  local sliderX = math.floor(sidebarW/2)
+  local sliderY = 22
+  local sliderH = canvasH - sliderY - 4
+  -- Track
+  WIN_writeRect(win, bigScreen, sliderX-2, sliderY, 4, sliderH, RGB(180,180,180))
+  -- Cursor position (relation brushSize)
+  local pct = (brushSize - minSize) / (maxSize - minSize)
+  local cursorY = sliderY + math.floor(pct * (sliderH-1))
+  -- Cursor als kleiner Kreis (zentriert über Track)
+  local r = 3
+  for dx=-r,r do
+    for dy=-r,r do
+      if dx*dx+dy*dy <= r*r then
+        WIN_writeRect(win, bigScreen, sliderX + dx, cursorY + dy, 1,1, textColor)
+      end
     end
+  end
 end
 
+-- Zeichnet Canvas (weiß)
 local function drawCanvas()
-    WIN_writeRect(win, bigScreen, canvasX, canvasY, canvasW, canvasH, RGB(255,255,255))
-    WIN_writeRect(win, bigScreen, canvasX - 1, canvasY - 1, canvasW + 2, canvasH + 2, textColor)
+  WIN_writeRect(win, bigScreen, canvasX, 0, canvasW, canvasH, white)
+  WIN_writeRect(win, bigScreen, canvasX-1, -1, canvasW+2, canvasH+2, textColor)
 end
 
+-- Zeichnet Farbleiste links auf zweitem Bildschirm
 local function drawColorBar()
-    WIN_writeRect(win, leftScreen, 0, 0, 12, screenH, RGB(200,200,200))
+  -- Hintergrund der Leiste
+  WIN_writeRect(win, leftScreen, 0, 0, sidebarW, canvasH, RGB(200,200,200))
 
-    local fieldHeight = 20
-    for i, c in ipairs(palette) do
-        local y = (i - 1) * fieldHeight - colorScrollY
-        if y + fieldHeight >= 0 and y < screenH then
-            WIN_writeRect(win, leftScreen, 0, y, 12, fieldHeight, c)
-        end
+  local fieldH = math.floor(30)  -- feste Höhe für jedes Feld
+  for i,c in ipairs(palette) do
+    local y = (i-1)*fieldH - colorScrollY
+    if y+fieldH >= 0 and y < canvasH then
+      WIN_writeRect(win, leftScreen, 0, y, sidebarW, fieldH, c)
     end
+  end
 end
 
-local function paintAt(x, y)
-    local col = (brushMode == "eraser") and RGB(255,255,255) or currentColor
-    local size = brushSize
-    local half = math.floor(size / 2)
+-- Mal-Funktion
+local function paintAt(x,y)
+  if x < canvasX or x >= canvasX+canvasW or y < 0 or y >= canvasH then return end
+  local col = (brushMode=="eraser") and white or currentColor
+  local half = math.floor(brushSize/2)
 
-    if brushMode == "brush" or brushMode == "eraser" then
-        for dx = -half, half do
-            for dy = -half, half do
-                if dx*dx + dy*dy <= half*half then
-                    WIN_writeRect(win, bigScreen, x + dx, y + dy, 1, 1, col)
-                end
-            end
+  if brushMode=="brush" or brushMode=="eraser" then
+    for dx=-half,half do
+      for dy=-half,half do
+        if dx*dx+dy*dy <= half*half then
+          WIN_writeRect(win, bigScreen, x+dx, y+dy,1,1,col)
         end
-    elseif brushMode == "square" then
-        WIN_writeRect(win, bigScreen, x - half, y - half, size, size, col)
-    elseif brushMode == "line" and lastX then
-        local dx = x - lastX
-        local dy = y - lastY
-        local steps = math.max(math.abs(dx), math.abs(dy))
-        for i = 0, steps do
-            local px = math.floor(lastX + dx * (i / steps))
-            local py = math.floor(lastY + dy * (i / steps))
-            WIN_writeRect(win, bigScreen, px, py, 1, 1, col)
-        end
+      end
     end
 
-    lastX, lastY = x, y
+  elseif brushMode=="square" then
+    WIN_writeRect(win, bigScreen,
+      x-half, y-half,
+      brushSize, brushSize,
+      col)
+  end
 end
 
+-- Initiales Zeichnen
 drawSidebar()
 drawCanvas()
 drawColorBar()
 
-local isDrawing = false
-
+-- Main Loop
 while not WIN_closed(win) do
-    local redrawSidebar = false
-    local redrawColorBar = false
+  local redrawSide, redrawColor = false, false
 
-    local happened, state, posX, posY = WIN_getLastEvent(win, bigScreen)
-    local happened2, state2, posX2, posY2 = WIN_getLastEvent(win, leftScreen)
-
-    -- Main canvas events
-    if happened then
-        if state == 0 and posX >= canvasX then
-            isDrawing = true
-            lastX, lastY = posX, posY
-            paintAt(posX, posY)
-        elseif state == 1 and isDrawing then
-            paintAt(posX, posY)
-        elseif state == 2 then
-            isDrawing = false
-            lastX, lastY = nil, nil
+  -- Events bigScreen
+  local h,s,px,py = WIN_getLastEvent(win, bigScreen)
+  if h then
+    if s==0 then
+      -- Modus-Button anklicken?
+      if px>=2 and px<=sidebarW-2 and py>=2 and py<=18 then
+        -- nächster Modus
+        for i,m in ipairs(brushModes) do
+          if m==brushMode then
+            brushMode = brushModes[(i%#brushModes)+1]
+            break
+          end
         end
+        redrawSide = true
+      end
+      -- Slider anklicken?
+      local sliderX = math.floor(sidebarW/2)
+      local sliderY = 22
+      local sliderH = canvasH - sliderY -4
+      if px >= sliderX-5 and px <= sliderX+5 and py >= sliderY and py <= sliderY+sliderH then
+        local rel = py-sliderY
+        local pct = rel/sliderH
+        brushSize = math.floor(minSize + pct*(maxSize-minSize) +0.5)
+        brushSize = math.max(minSize, math.min(maxSize, brushSize))
+        redrawSide = true
+      end
+      -- Painting starten?
+      if px>=canvasX then
+        isDrawing=true; lastX, lastY = px, py
+        paintAt(px,py)
+      end
 
-        -- Sidebar clicks
-        if state == 0 and posX < sidebarW then
-            if posY >= 2 and posY <= 18 then
-                -- Switch brush mode
-                for i, m in ipairs(brushModes) do
-                    if brushModes[i] == brushMode then
-                        brushMode = brushModes[(i % #brushModes) + 1]
-                        break
-                    end
-                end
-                redrawSidebar = true
-            end
+    elseif s==1 and isDrawing then
+      paintAt(px,py)
 
-            -- Size buttons
-            for i = 1, 5 do
-                local y = 25 + (i - 1) * 20
-                if posY >= y and posY <= y + 16 then
-                    brushSize = i
-                    redrawSidebar = true
-                    break
-                end
-            end
-        end
+    elseif s==2 then
+      isDrawing=false; lastX,lastY = nil,nil
     end
+  end
 
-    -- Color picker scroll and selection
-    if happened2 then
-        if state2 == 0 then
-            isColorScrolling = true
-            colorScrollStartY = posY2
-            colorScrollStartOffset = colorScrollY
-        elseif state2 == 1 and isColorScrolling then
-            local dy = posY2 - colorScrollStartY
-            colorScrollY = colorScrollStartOffset - dy
-            local maxScroll = math.max(0, (#palette * 20) - screenH)
-            colorScrollY = math.max(0, math.min(colorScrollY, maxScroll))
-            redrawColorBar = true
-        elseif state2 == 2 then
-            isColorScrolling = false
-        end
-
-        -- Click to select color
-        if state2 == 0 then
-            local idx = math.floor((posY2 + colorScrollY) / 20) + 1
-            if idx >= 1 and idx <= #palette then
-                currentColor = palette[idx]
-                brushMode = (brushMode == "eraser") and "brush" or brushMode
-                redrawSidebar = true
-            end
-        end
+  -- Events leftScreen (ColorBar)
+  local h2,s2,px2,py2 = WIN_getLastEvent(win, leftScreen)
+  if h2 then
+    if s2==0 then
+      isColorScrolling=true
+      colorScrollStartY = py2; colorScrollStartOffset = colorScrollY
+    elseif s2==1 and isColorScrolling then
+      local dy = py2 - colorScrollStartY
+      colorScrollY = colorScrollStartOffset - dy
+      local maxScroll = math.max(0, #palette*30 - canvasH)
+      colorScrollY = math.max(0, math.min(maxScroll, colorScrollY))
+      redrawColor = true
+    elseif s2==2 then
+      isColorScrolling=false
     end
+    if s2==0 then
+      local idx = math.floor((py2+colorScrollY)/30)+1
+      if idx>=1 and idx<=#palette then
+        currentColor = palette[idx]
+        if brushMode=="eraser" then brushMode="brush" end
+        redrawSide = true
+      end
+    end
+  end
 
-    if redrawSidebar then drawSidebar() end
-    if redrawColorBar then drawColorBar() end
+  if redrawSide  then drawSidebar()   end
+  if redrawColor then drawColorBar() end
 
-    delay(10)
+  delay(10)
 end
 
 print("APP:EXITED")
