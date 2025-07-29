@@ -4,7 +4,7 @@
 #include <vector>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_task_wdt.h"
+// #include "esp_task_wdt.h"
 
 #include "index.hpp"
 #include "windows.hpp"
@@ -18,10 +18,10 @@ namespace Apps
     {
         // Take ownership of args and delete after use
         auto args = *((std::vector<String> *)rawArgs);
-        delete (std::vector<String> *)rawArgs;
+        // delete (std::vector<String> *)rawArgs;
 
         // Disable watchdog for this task to prevent resets
-        esp_task_wdt_delete(NULL);
+        // esp_task_wdt_delete(NULL);
 
         Serial.println("Running Lua app...");
 
@@ -32,6 +32,7 @@ namespace Apps
         vTaskDelete(NULL); // Cleanly kill this task
     }
 
+    TaskHandle_t WindowAppRunHandle = NULL;
     void startApp(std::vector<String> args = {"/test.lua", "arg1", "arg2"})
     {
         if (args.empty())
@@ -45,8 +46,6 @@ namespace Apps
 
         // Build task name safely (must persist until task creation)
         String taskName = "AppRunTask#" + args[0];
-
-        TaskHandle_t WindowAppRunHandle = NULL;
 
         // Create the task, passing pointer to argsCopy
         BaseType_t res = xTaskCreate(
@@ -65,11 +64,10 @@ namespace Apps
     }
 
     TaskHandle_t WindowsAppRenderTaskHandle = NULL;
-
     void AppRenderTask(void *)
     {
         // Disable watchdog for this render task
-        esp_task_wdt_delete(NULL);
+        // esp_task_wdt_delete(NULL);
 
         while (true)
         {
@@ -77,7 +75,6 @@ namespace Apps
             delay(10); // Yield CPU, prevent watchdog resets
         }
     }
-
     void startRender()
     {
         xTaskCreate(
