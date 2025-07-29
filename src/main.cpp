@@ -71,7 +71,7 @@ void setup()
     Serial.println("Running Lua app task...");
 
     xTaskCreate(AppRunTask, "AppRunTask", 50000, NULL, 1, &WindowAppRunHandle);
-    delay(100);
+    delay(300);
     xTaskCreate(AppRenderTask, "AppRenderTask", 2048, NULL, 2, &WindowAppRenderHandle);
 }
 
