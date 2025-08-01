@@ -223,6 +223,7 @@ namespace LuaApps::WinLib
     int lua_WIN_isRendered(lua_State *L) 
     {
         lua_pushboolean(L, Windows::isRendering);
+        return 0;
     }
 
     void register_win_functions(lua_State *L)
