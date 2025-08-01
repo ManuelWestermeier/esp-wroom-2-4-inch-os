@@ -12,6 +12,7 @@ namespace Windows
 
     typedef std::unique_ptr<Window> WindowPtr;
     extern std::vector<WindowPtr> apps;
+    extern bool isRendering;
 
     // core API
     void add(WindowPtr w);

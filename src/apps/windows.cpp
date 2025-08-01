@@ -3,6 +3,7 @@
 namespace Windows
 {
     std::vector<WindowPtr> apps;
+    bool isRendering = true;
 
     void add(WindowPtr w)
     {

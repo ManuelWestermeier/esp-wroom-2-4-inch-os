@@ -219,6 +219,11 @@ namespace LuaApps::WinLib
         spr.pushImage(x, y, width, height, buffer.get());
         return 0;
     }
+    
+    int lua_WIN_isRendered(lua_State *L) 
+    {
+        lua_pushboolean(L, Windows::isRendering);
+    }
 
     void register_win_functions(lua_State *L)
     {
@@ -232,6 +237,7 @@ namespace LuaApps::WinLib
         lua_register(L, "WIN_writeRect", lua_WIN_writeRect);
         lua_register(L, "WIN_setIcon", lua_WIN_setIcon);
         lua_register(L, "WIN_drawImage", lua_WIN_drawImage);
+        lua_register(L, "WIN_isRendering", lua_WIN_isRendered);
     }
 
 } // namespace LuaApps::WinLib
