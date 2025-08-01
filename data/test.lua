@@ -111,8 +111,10 @@ drawColorBar()
 
 while not WIN_closed(win) do
   local render = WIN_isRendering()
+
   if not render then
     delay(20)
+    return
   end
   -- UI komplett neu zeichnen
   drawSidebar()
