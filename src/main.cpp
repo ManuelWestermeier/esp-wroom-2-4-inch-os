@@ -59,7 +59,7 @@ void AppRenderTask(void *)
 void setup()
 {
     Serial.begin(115200);
-    Serial.println("Booting MW 2.4i OS...");
+    Serial.println("Booting MW 2.4i OS...\n");
 
     if (!Serial)
         delay(1000);
