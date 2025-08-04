@@ -13,7 +13,7 @@ static uint16_t touchY = 0, touchX = 0;
 static uint16_t lastTouchY = UINT16_MAX, lastTouchX = 0;
 static uint32_t lastTime = 0;
 
-void Screen::setBrightness(int x)
+void Screen::setBrightness(int x = 255)
 {
     pinMode(TFT_BL, OUTPUT);
     analogWrite(TFT_BL, x);
@@ -21,7 +21,7 @@ void Screen::setBrightness(int x)
 
 void Screen::init()
 {
-    setBrightness(20);
+    setBrightness(200);
     tft.init();
     tft.setRotation(2);
     tft.fillScreen(RGB(245, 245, 255));
