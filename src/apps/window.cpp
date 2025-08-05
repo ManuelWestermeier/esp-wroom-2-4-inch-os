@@ -88,6 +88,7 @@ void Window::resizeSprite()
 {
     sprite.deleteSprite();
     sprite.createSprite(size.x, size.y);
+
     rightSprite.deleteSprite();
     rightSprite.createSprite(resizeBoxSize, size.y - resizeBoxSize);
 }

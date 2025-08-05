@@ -66,6 +66,8 @@
 #include "apps/windows.hpp"
 #include "apps/index.hpp"
 
+#include "utils/time.hpp"
+
 using namespace Windows;
 
 TaskHandle_t WindowAppRunHandle = NULL;
@@ -91,10 +93,23 @@ void AppRenderTask(void *)
     }
 }
 
+const char *ssid = "LocalHost";
+const char *password = "hhhhhhhy";
+
 void setup()
 {
     Serial.begin(115200);
     Serial.println("Booting MW 2.4i OS...\n");
+
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("Verbunden!");
+
+    UserTime::set();
 
     if (!Serial)
         delay(1000);

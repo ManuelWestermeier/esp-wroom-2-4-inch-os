@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "../screen/index.hpp"
+#include "../utils/time.hpp"
 
 struct Window;
 
@@ -24,7 +25,7 @@ namespace Windows
     void drawTitleBar(Window &w);
     void drawContent(Window &w);
     void drawResizeBox(Window &w);
-
+    void drawTime();
 }
 
 #include "window.hpp"

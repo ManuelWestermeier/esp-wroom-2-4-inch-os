@@ -29,6 +29,8 @@ namespace Windows
 
     void loop()
     {
+        drawTime();
+
         static MouseState lastState = MouseState::Up;
 
         auto touch = Screen::getTouchPos();
@@ -161,7 +163,10 @@ namespace Windows
                 w.off += move;
             }
             if (move.x != 0 || move.y != 0)
+            {
                 Screen::tft.fillScreen(RGB(245, 245, 255));
+                drawTime();
+            }
         }
 
         // render all
@@ -173,6 +178,7 @@ namespace Windows
                 drawTitleBar(w);
                 drawContent(w);
                 drawResizeBox(w);
+                drawTime();
             }
         }
     }
@@ -268,6 +274,16 @@ namespace Windows
         auto r = w.resizeArea();
         Screen::tft.fillRect(r.pos.x, r.pos.y, r.dimensions.x, r.dimensions.y, RGB(180, 180, 255));
         drawResizeIcon(r.pos.x, r.pos.y, TFT_BLACK);
+    }
+
+    void drawTime()
+    {
+        Screen::tft.setTextSize(1);
+        Screen::tft.fillRect(320 - 60, 240 - 20, 60, 20, RGB(30, 144, 255));
+        Screen::tft.setCursor(320 - 60 + 10, 240 - 20 + 5);
+
+        auto time = UserTime::get();
+        Screen::tft.print(String(time.tm_hour) + ":" + time.tm_min);
     }
 
 } // namespace Windows
