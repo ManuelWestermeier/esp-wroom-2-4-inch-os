@@ -152,7 +152,8 @@ namespace Windows
             if (state == MouseState::Down && w.closeBtn().isIn(pos))
             {
                 removeAt((int)apps.size() - 1);
-                Screen::tft.fillScreen(RGB(245, 245, 255));
+                auto area = Rect{w.off + Vec{-1, -13}, w.size + Vec{12 + 2, 14}};
+                Screen::tft.fillRect(area.pos.x, area.pos.y, area.dimensions.x, area.dimensions.y, RGB(245, 245, 255));
             }
         }
         else
