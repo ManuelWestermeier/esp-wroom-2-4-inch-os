@@ -279,7 +279,7 @@ namespace Windows
 
     void drawTime()
     {
-        constexpr int w = 46;
+        constexpr int w = 42;
         constexpr int h = 16;
         constexpr int x = 320 - w - 5;
         constexpr int y = 240 - h - 5;
