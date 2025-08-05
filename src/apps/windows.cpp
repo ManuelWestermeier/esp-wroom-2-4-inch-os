@@ -278,12 +278,27 @@ namespace Windows
 
     void drawTime()
     {
-        Screen::tft.setTextSize(1);
-        Screen::tft.fillRect(320 - 60, 240 - 20, 60, 20, RGB(30, 144, 255));
-        Screen::tft.setCursor(320 - 60 + 10, 240 - 20 + 5);
+        constexpr int w = 46;
+        constexpr int h = 16;
+        constexpr int x = 320 - w - 5;
+        constexpr int y = 240 - h - 5;
 
         auto time = UserTime::get();
-        Screen::tft.print(String(time.tm_hour) + ":" + time.tm_min);
+        String hour = String(time.tm_hour);
+        String minute = String(time.tm_min);
+        if (minute.length() < 2)
+            minute = "0" + minute;
+        if (hour.length() < 2)
+            hour = "0" + hour;
+
+        String timeStr = hour + ":" + minute;
+
+        Screen::tft.setTextSize(1);
+        Screen::tft.setTextColor(TFT_WHITE);
+        Screen::tft.fillRoundRect(x, y, w, h, 4, RGB(30, 144, 255));
+        Screen::tft.setCursor(x + 6, y + 4);
+        Screen::tft.print(timeStr);
+        Screen::tft.setTextColor(TFT_BLACK);
     }
 
 } // namespace Windows
