@@ -4,6 +4,7 @@ namespace Windows
 {
     std::vector<WindowPtr> apps;
     bool isRendering = true;
+    Rect timeButton{{320 - 42 - 5, 240 - 16 - 5}, {42, 16}};
 
     void add(WindowPtr w)
     {
@@ -27,21 +28,8 @@ namespace Windows
         apps.push_back(std::move(tmp));
     }
 
-    void loop()
+    void drawWindows(Vec pos, Vec move, MouseState state)
     {
-        drawTime();
-
-        static MouseState lastState = MouseState::Up;
-
-        auto touch = Screen::getTouchPos();
-
-        MouseState state = touch.clicked
-                               ? (lastState == MouseState::Up ? MouseState::Down : MouseState::Held)
-                               : MouseState::Up;
-        Vec pos = {touch.x, touch.y};
-        Vec move = (state != MouseState::Up) ? touch.move : Vec{0, 0};
-        lastState = state;
-
         // pick topmost window under cursor
         int activeIdx = -1;
         for (int i = (int)apps.size() - 1; i >= 0; --i)
@@ -184,6 +172,47 @@ namespace Windows
         }
     }
 
+    void drawMenu(Vec pos, Vec move, MouseState state)
+    {
+        using Screen::tft;
+
+        tft.setCursor(10, 10);
+        tft.setTextSize(5);
+        tft.print("Menu");
+        tft.setTextSize(1);
+
+        drawTime();
+        delay(10);
+    }
+
+    void loop()
+    {
+        drawTime();
+
+        static MouseState lastState = MouseState::Up;
+
+        auto touch = Screen::getTouchPos();
+
+        MouseState state = touch.clicked
+                               ? (lastState == MouseState::Up ? MouseState::Down : MouseState::Held)
+                               : MouseState::Up;
+        Vec pos = {touch.x, touch.y};
+        Vec move = (state != MouseState::Up) ? touch.move : Vec{0, 0};
+        lastState = state;
+
+        // time button toglls rendering
+        if (timeButton.isIn(pos) && state == MouseState::Down)
+        {
+            Screen::tft.fillScreen(RGB(245, 245, 255));
+            isRendering = !isRendering;
+        }
+
+        if (isRendering)
+            drawWindows(pos, move, state);
+        else
+            drawMenu(pos, move, state);
+    }
+
     void drawCloseX(int x, int y, uint16_t color)
     {
         x += 2;
@@ -279,10 +308,10 @@ namespace Windows
 
     void drawTime()
     {
-        constexpr int w = 42;
-        constexpr int h = 16;
-        constexpr int x = 320 - w - 5;
-        constexpr int y = 240 - h - 5;
+        int w = timeButton.dimensions.x;
+        int h = timeButton.dimensions.y;
+        int x = timeButton.pos.x;
+        int y = timeButton.pos.y;
 
         auto time = UserTime::get();
         String hour = String(time.tm_hour);
