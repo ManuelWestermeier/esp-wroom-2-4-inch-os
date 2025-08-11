@@ -219,8 +219,8 @@ namespace LuaApps::WinLib
         spr.pushImage(x, y, width, height, buffer.get());
         return 0;
     }
-    
-    int lua_WIN_isRendered(lua_State *L) 
+
+    int lua_WIN_isRendered(lua_State *L)
     {
         lua_pushboolean(L, Windows::isRendering);
         return 1;

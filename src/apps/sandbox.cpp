@@ -1,9 +1,11 @@
 #include "sandbox.hpp"
 #include "functions.hpp"
 
-namespace LuaApps::Sandbox {
+namespace LuaApps::Sandbox
+{
 
-    lua_State *createRestrictedLuaState() {
+    lua_State *createRestrictedLuaState()
+    {
         lua_State *L = luaL_newstate();
         luaL_openlibs(L);
 
