@@ -11,6 +11,7 @@
 using namespace Windows;
 
 TaskHandle_t WindowAppRunHandle = NULL;
+TaskHandle_t WindowAppRunHandle2 = NULL;
 
 void AppRunTask(void *)
 {
@@ -60,9 +61,9 @@ void setup()
 
     Serial.println("Running Lua app task...");
 
-    xTaskCreate(AppRunTask, "AppRunTask", 50000, NULL, 1, &WindowAppRunHandle);
-    delay(300);
     xTaskCreate(AppRenderTask, "AppRenderTask", 2048, NULL, 2, &WindowAppRenderHandle);
+    delay(300);
+    xTaskCreate(AppRunTask, "AppRunTask", 50000, NULL, 1, &WindowAppRunHandle);
 }
 
 void loop()
