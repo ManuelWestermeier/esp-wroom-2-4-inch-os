@@ -15,16 +15,38 @@ namespace UserWiFi
         String password;
     };
 
-    std::vector<KnownWiFi> knownNetworks = {
-        {"LocalHost", "hhhhhhhy"},
-        {"HomeWiFi", "password123"},
-        {"OfficeNet", "officepass"},
-    };
-
     TaskHandle_t WiFiConnectTaskHandle = NULL;
 
     void WiFiConnectTask(void *)
     {
+        auto publicWiFiNames = SD_FS::readDir("/public/wifi");
+
+        std::vector<KnownWiFi> knownNetworks;
+        for (File wifiFile : publicWiFiNames)
+        {
+            if (!wifiFile.isDirectory())
+            {
+                KnownWiFi wifi;
+                String name = wifiFile.name();
+
+                if (name == "README.md")
+                    continue;
+
+                // Remove last 5 characters ".wifi"
+                if (name.length() > 5)
+                {
+                    name.remove(name.length() - 5);
+                }
+
+                wifi.ssid = name;
+                wifi.password = wifiFile.readString();
+
+                Serial.println("WIFI FOUND: " + wifi.ssid + " | " + wifi.password);
+
+                knownNetworks.push_back(wifi);
+            }
+        }
+
         for (;;)
         {
             if (WiFi.status() != WL_CONNECTED)

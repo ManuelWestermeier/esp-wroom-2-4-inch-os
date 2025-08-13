@@ -17,6 +17,7 @@ namespace Windows
     typedef std::unique_ptr<Window> WindowPtr;
     extern std::vector<WindowPtr> apps;
     extern bool isRendering;
+    extern bool isUsingKeyBoard;
     extern Rect timeButton;
 
     // core API

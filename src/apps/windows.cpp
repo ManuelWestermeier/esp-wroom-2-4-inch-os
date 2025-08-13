@@ -4,6 +4,7 @@ namespace Windows
 {
     std::vector<WindowPtr> apps;
     bool isRendering = true;
+    bool isUsingKeyBoard = false;
     Rect timeButton{{320 - 42 - 5, 240 - 16 - 5}, {42, 16}};
 
     void add(WindowPtr w)

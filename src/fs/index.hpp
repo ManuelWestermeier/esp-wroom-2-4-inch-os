@@ -4,6 +4,9 @@
 #include <FS.h>
 #include <SD.h>
 #include <SPI.h>
+#include <vector>
+
+using std::vector;
 
 namespace SD_FS
 {
@@ -111,33 +114,24 @@ namespace SD_FS
         return false;
     }
 
-    void readDir(const String &path, uint8_t levels = 1)
+    vector<File> readDir(const String &path, uint8_t levels = 1)
     {
+        vector<File> out;
         File root = SD.open(path);
         if (!root || !root.isDirectory())
         {
             Serial.printf("❌ Not a dir: %s\n", path.c_str());
-            return;
+            return {};
         }
 
         File file = root.openNextFile();
         while (file)
         {
-            Serial.print(file.isDirectory() ? "DIR : " : "FILE: ");
-            Serial.print(file.name());
-            if (!file.isDirectory())
-            {
-                Serial.print("\tSIZE: ");
-                Serial.println(file.size());
-            }
-            else
-            {
-                Serial.println();
-                if (levels > 0)
-                    readDir(file.name(), levels - 1);
-            }
+            out.push_back(file);
             file = root.openNextFile();
         }
+
+        return out;
     }
 
     bool createDir(const String &path)

@@ -30,8 +30,8 @@ void Window::init(const String &windowName, Vec position, Vec dimensions, uint16
     };
 
     // Try to find a non-colliding vertical spot
-    const int stepY = 30;
-    const int maxTries = 50; // Prevent infinite loop
+    const int stepY = 14;
+    const int maxTries = 5600 / stepY; // Prevent infinite loop
     int tries = 0;
     int movedDown = 0;
 

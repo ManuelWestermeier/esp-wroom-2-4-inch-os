@@ -8,6 +8,8 @@
 #include "apps/index.hpp"
 #include "wifi/index.hpp"
 
+#include "anim/entry.hpp"
+
 using namespace Windows;
 
 void setup()
@@ -20,10 +22,9 @@ void setup()
     UserWiFi::start();
     LuaApps::initialize();
 
+    startAnimationMWOS();
     startWindowRender();
-    delay(100);
-    executeApplication({"/test.lua", "Arg1", "Hi"});
-    delay(50);
+
     executeApplication({"/test.lua", "Arg1", "Hi"});
 }
 
