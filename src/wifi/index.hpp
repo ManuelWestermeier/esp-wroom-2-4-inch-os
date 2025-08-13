@@ -9,7 +9,6 @@
 
 namespace UserWiFi
 {
-    // ---------------------- WiFi Config ----------------------
     struct KnownWiFi
     {
         String ssid;
