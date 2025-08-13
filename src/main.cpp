@@ -10,7 +10,6 @@
 
 using namespace Windows;
 
-// ---------------------- Setup ----------------------
 void setup()
 {
     Serial.begin(115200);
@@ -21,9 +20,8 @@ void setup()
     UserWiFi::start();
     LuaApps::initialize();
 
-    executeApplication({"/test.lua", "Arg1", "Hi"});
-    delay(300);
     startWindowRender();
+    executeApplication({"/test.lua", "Arg1", "Hi"});
 }
 
 void loop()
