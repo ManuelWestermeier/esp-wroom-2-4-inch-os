@@ -22,6 +22,7 @@ namespace UserTime
         tm timeinfo = {};
         timeinfo.tm_hour = 0;
         timeinfo.tm_min = 0;
+        timeinfo.tm_year = 0;
         getLocalTime(&timeinfo);
         return timeinfo;
     }

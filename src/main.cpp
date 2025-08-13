@@ -6,25 +6,23 @@
 #include "screen/index.hpp"
 #include "apps/windows.hpp"
 #include "apps/index.hpp"
-
-#include "utils/time.hpp"
+#include "wifi/index.hpp"
 
 using namespace Windows;
 
 TaskHandle_t WindowAppRunHandle = NULL;
-
-void AppRunTask(void *)
-{
-    // run app
-    Serial.println("Running Lua app...");
-    // Führt /test.lua im Sandbox-Modus aus in einen neuen prozess aus
-    int result = LuaApps::runApp("/test.lua", {"Arg1", "Hi"});
-    Serial.printf("Lua App exited with code: %d\n", result);
-    vTaskDelete(NULL); // kill task cleanly
-}
-
 TaskHandle_t WindowAppRenderHandle = NULL;
 
+// ---------------------- App Run Task ----------------------
+void AppRunTask(void *)
+{
+    Serial.println("Running Lua app...");
+    int result = LuaApps::runApp("/test.lua", {"Arg1", "Hi"});
+    Serial.printf("Lua App exited with code: %d\n", result);
+    vTaskDelete(NULL);
+}
+
+// ---------------------- App Render Task ----------------------
 void AppRenderTask(void *)
 {
     while (true)
@@ -34,36 +32,18 @@ void AppRenderTask(void *)
     }
 }
 
-const char *ssid = "LocalHost";
-const char *password = "hhhhhhhy";
-
+// ---------------------- Setup ----------------------
 void setup()
 {
     Serial.begin(115200);
     Serial.println("Booting MW 2.4i OS...\n");
 
-    WiFi.begin(ssid, password);
-
     SD_FS::init();
-    // Initialize the display & touch
     Screen::init();
-    LuaApps::initialize(); // Initialisiere SPIFFS
+    UserWiFi::start();
+    LuaApps::initialize();
 
-    while (WiFi.status() != WL_CONNECTED)
-    {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("Verbunden!");
-
-    UserTime::set();
-
-    if (!Serial)
-        delay(1000);
-
-    Serial.println("Running Lua app task...");
-
-    xTaskCreate(AppRunTask, "AppRunTask", 50000, NULL, 1, &WindowAppRunHandle);
+    xTaskCreate(AppRunTask, "AppRunTask", 2048 * 4, NULL, 1, &WindowAppRunHandle);
     delay(300);
     xTaskCreate(AppRenderTask, "AppRenderTask", 2048, NULL, 2, &WindowAppRenderHandle);
 }
@@ -73,6 +53,7 @@ void loop()
     Serial.println(ESP.getMaxAllocHeap());
     Serial.printf("AppRunTask stack high water mark: %d\n", uxTaskGetStackHighWaterMark(WindowAppRunHandle));
     Serial.printf("AppRenderTask stack high water mark: %d\n", uxTaskGetStackHighWaterMark(WindowAppRenderHandle));
+    Serial.printf("WiFiConnectTask stack high water mark: %d\n", uxTaskGetStackHighWaterMark(UserWiFi::WiFiConnectTaskHandle));
 
     delay(1000);
 }

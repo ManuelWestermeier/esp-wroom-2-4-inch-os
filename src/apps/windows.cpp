@@ -323,6 +323,11 @@ namespace Windows
 
         String timeStr = hour + ":" + minute;
 
+        if (time.tm_year == 0)
+        {
+            timeStr = "XX:XX";
+        }
+
         Screen::tft.setTextSize(1);
         Screen::tft.setTextColor(TFT_WHITE);
         Screen::tft.fillRoundRect(x, y, w, h, 4, RGB(30, 144, 255));
