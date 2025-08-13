@@ -1,159 +1,78 @@
-#include <TFT_eSPI.h>
-#include <SD.h>
+#include <Arduino.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
-TFT_eSPI tft(320, 240);
+#include "fs/index.hpp"
+#include "screen/index.hpp"
+#include "apps/windows.hpp"
+#include "apps/index.hpp"
 
-struct Item
+#include "utils/time.hpp"
+
+using namespace Windows;
+
+TaskHandle_t WindowAppRunHandle = NULL;
+
+void AppRunTask(void *)
 {
-    String name;
-    bool isDir;
-};
-Item items[50];
-uint8_t itemCount = 0;
-String currentPath = "/";
-
-#define LINE_HEIGHT 20
-
-// ---------------- FILE LISTING ----------------
-void listFiles(String path)
-{
-    tft.fillScreen(TFT_BLACK);
-    tft.setCursor(0, 0);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setTextSize(2);
-
-    itemCount = 0;
-
-    if (path != "/")
-    {
-        tft.println("../");
-        items[itemCount].name = "..";
-        items[itemCount].isDir = true;
-        itemCount++;
-    }
-
-    File dir = SD.open(path);
-    if (!dir || !dir.isDirectory())
-    {
-        tft.println("Error opening dir");
-        return;
-    }
-
-    File file = dir.openNextFile();
-    while (file && itemCount < 50)
-    {
-        String name = file.name();
-        if (file.isDirectory())
-        {
-            name += "/";
-            items[itemCount].isDir = true;
-        }
-        else
-        {
-            items[itemCount].isDir = false;
-        }
-        items[itemCount].name = name;
-
-        tft.println(name);
-        itemCount++;
-
-        file = dir.openNextFile();
-    }
-    dir.close();
+    // run app
+    Serial.println("Running Lua app...");
+    // Führt /test.lua im Sandbox-Modus aus in einen neuen prozess aus
+    int result = LuaApps::runApp("/test.lua", {"Arg1", "Hi"});
+    Serial.printf("Lua App exited with code: %d\n", result);
+    vTaskDelete(NULL); // kill task cleanly
 }
 
-// ---------------- FILE VIEW ----------------
-void viewFile(String path)
+TaskHandle_t WindowAppRenderHandle = NULL;
+
+void AppRenderTask(void *)
 {
-    tft.fillScreen(TFT_BLACK);
-    tft.setCursor(0, 0);
-    tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    tft.setTextSize(1);
-
-    File f = SD.open(path);
-    if (!f)
+    while (true)
     {
-        tft.println("Failed to open file");
-        delay(1000);
-        return;
+        Windows::loop();
+        delay(10);
     }
-
-    while (f.available())
-    {
-        tft.print((char)f.read());
-    }
-    f.close();
-
-    delay(2000);
 }
 
-// ---------------- TOUCH HANDLING ----------------
-void handleTouch(uint16_t tx, uint16_t ty)
-{
-    uint8_t index = ty / LINE_HEIGHT;
-    if (index >= itemCount)
-        return;
-
-    if (items[index].isDir)
-    {
-        if (items[index].name == "..")
-        {
-            // Go up
-            int slashPos = currentPath.lastIndexOf('/');
-            if (slashPos > 0)
-            {
-                currentPath = currentPath.substring(0, slashPos);
-            }
-            else
-            {
-                currentPath = "/";
-            }
-        }
-        else
-        {
-            if (currentPath == "/")
-                currentPath += items[index].name.substring(0, items[index].name.length() - 1);
-            else
-                currentPath += "/" + items[index].name.substring(0, items[index].name.length() - 1);
-        }
-        listFiles(currentPath);
-    }
-    else
-    {
-        String filePath;
-        if (currentPath == "/")
-            filePath = currentPath + items[index].name;
-        else
-            filePath = currentPath + "/" + items[index].name;
-        viewFile(filePath);
-        listFiles(currentPath);
-    }
-}
+const char *ssid = "LocalHost";
+const char *password = "hhhhhhhy";
 
 void setup()
 {
     Serial.begin(115200);
-    pinMode(TFT_BL, OUTPUT);
-    digitalWrite(TFT_BL, HIGH);
+    Serial.println("Booting MW 2.4i OS...\n");
 
-    tft.init();
-    tft.setRotation(3);
+    WiFi.begin(ssid, password);
 
-    if (!SD.begin(5))
+    SD_FS::init();
+    // Initialize the display & touch
+    Screen::init();
+    LuaApps::initialize(); // Initialisiere SPIFFS
+
+    while (WiFi.status() != WL_CONNECTED)
     {
-        tft.println("SD init failed!");
-        return;
+        delay(500);
+        Serial.print(".");
     }
+    Serial.println("Verbunden!");
 
-    listFiles(currentPath);
+    UserTime::set();
+
+    if (!Serial)
+        delay(1000);
+
+    Serial.println("Running Lua app task...");
+
+    xTaskCreate(AppRunTask, "AppRunTask", 50000, NULL, 1, &WindowAppRunHandle);
+    delay(300);
+    xTaskCreate(AppRenderTask, "AppRenderTask", 2048, NULL, 2, &WindowAppRenderHandle);
 }
 
-uint16_t tx, ty;
 void loop()
 {
-    if (tft.getTouch(&tx, &ty))
-    {
-        handleTouch(tx, ty);
-        delay(200);
-    }
+    Serial.println(ESP.getMaxAllocHeap());
+    Serial.printf("AppRunTask stack high water mark: %d\n", uxTaskGetStackHighWaterMark(WindowAppRunHandle));
+    Serial.printf("AppRenderTask stack high water mark: %d\n", uxTaskGetStackHighWaterMark(WindowAppRenderHandle));
+
+    delay(1000);
 }
