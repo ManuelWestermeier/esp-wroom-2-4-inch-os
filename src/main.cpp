@@ -1,75 +1,78 @@
-#include <Arduino.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include <TFT_eSPI.h>
+#include <SD.h>
 
-#include "screen/index.hpp"
-#include "apps/windows.hpp"
-#include "apps/index.hpp"
+TFT_eSPI tft(320, 240);
 
-#include "utils/time.hpp"
-
-using namespace Windows;
-
-TaskHandle_t WindowAppRunHandle = NULL;
-
-void AppRunTask(void *)
+void listRootFiles()
 {
-    // run app
-    Serial.println("Running Lua app...");
-    // Führt /test.lua im Sandbox-Modus aus in einen neuen prozess aus
-    int result = LuaApps::runApp("/test.lua", {"Arg1", "Hi"});
-    Serial.printf("Lua App exited with code: %d\n", result);
-    vTaskDelete(NULL); // kill task cleanly
-}
-
-TaskHandle_t WindowAppRenderHandle = NULL;
-
-void AppRenderTask(void *)
-{
-    while (true)
+    File root = SD.open("/");
+    if (!root)
     {
-        Windows::loop();
-        delay(10);
+        Serial.println("Failed to open root directory");
+        tft.println("Failed to open root");
+        return;
+    }
+    if (!root.isDirectory())
+    {
+        Serial.println("Root is not a directory");
+        tft.println("Not a directory");
+        return;
+    }
+
+    tft.fillScreen(TFT_BLACK);
+    tft.setCursor(0, 0);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(2);
+
+    File file = root.openNextFile();
+    while (file)
+    {
+        String name = file.name();
+        if (file.isDirectory())
+        {
+            name += "/";
+        }
+
+        // Print to Serial
+        Serial.println(name);
+
+        // Print to TFT
+        tft.println(name);
+
+        file = root.openNextFile();
     }
 }
-
-const char *ssid = "LocalHost";
-const char *password = "hhhhhhhy";
 
 void setup()
 {
     Serial.begin(115200);
-    Serial.println("Booting MW 2.4i OS...\n");
+    pinMode(TFT_BL, OUTPUT);
+    digitalWrite(TFT_BL, HIGH);
 
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED)
+    tft.init();
+    tft.setRotation(3);
+
+    if (!SD.begin(5))
     {
-        delay(500);
-        Serial.print(".");
+        Serial.println("SD init failed!");
+        tft.println("SD init failed!");
+        return;
     }
-    Serial.println("Verbunden!");
 
-    UserTime::set();
-
-    if (!Serial)
-        delay(1000);
-
-    // Initialize the display & touch
-    Screen::init();
-    LuaApps::initialize(); // Initialisiere SPIFFS
-
-    Serial.println("Running Lua app task...");
-
-    xTaskCreate(AppRunTask, "AppRunTask", 50000, NULL, 1, &WindowAppRunHandle);
-    delay(300);
-    xTaskCreate(AppRenderTask, "AppRenderTask", 2048, NULL, 2, &WindowAppRenderHandle);
+    listRootFiles();
 }
 
+uint16_t x = 0, y = 0;
 void loop()
 {
-    Serial.println(ESP.getMaxAllocHeap());
-    Serial.printf("AppRunTask stack high water mark: %d\n", uxTaskGetStackHighWaterMark(WindowAppRunHandle));
-    Serial.printf("AppRenderTask stack high water mark: %d\n", uxTaskGetStackHighWaterMark(WindowAppRenderHandle));
-
-    delay(1000);
+    uint8_t t = tft.getTouch(&x, &y);
+    if (t)
+    {
+        tft.fillRect(0, 280, 240, 40, TFT_BLACK);
+        tft.setCursor(10, 280);
+        tft.println(t);
+        tft.setCursor(10, 300);
+        tft.println(String(x) + "|" + y);
+        delay(20);
+    }
 }
