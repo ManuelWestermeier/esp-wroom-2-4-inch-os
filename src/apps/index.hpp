@@ -3,6 +3,7 @@
 #include <vector>
 #include <algorithm>
 #include <Arduino.h>
+
 #include "functions.hpp"
 #include "sandbox.hpp"
 #include "network.hpp"
@@ -12,141 +13,124 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
+// semphr.h wird nicht mehr benötigt, da wir keinen Mutex verwenden
+#include "esp_system.h"
 
 #include "../wifi/index.hpp"
 
-// --- Globals ---
+// ---------------------- Globals ----------------------
 TaskHandle_t WindowAppRenderHandle = NULL;
 
+// Wir schützen runningTasks mit einem ESP32-Spinlock (Critical Section),
+// damit es keine Owner-Asserts wie bei Mutexen gibt.
+#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3
+static portMUX_TYPE runningTasksLock = portMUX_INITIALIZER_UNLOCKED;
+#else
+static portMUX_TYPE runningTasksLock; // Fallback
+#endif
+
 static std::vector<TaskHandle_t> runningTasks;
-static SemaphoreHandle_t runningTasksMutex = NULL;
 
-// Ensure mutex exists (lazy init)
-static void ensureRunningTasksMutex()
-{
-    if (runningTasksMutex == NULL)
-    {
-        runningTasksMutex = xSemaphoreCreateMutex();
-        if (runningTasksMutex == NULL)
-        {
-            Serial.println("ERROR: failed to create runningTasksMutex");
-        }
-    }
-}
+// Kurze Hilfsmakros für atomare Zugriffe
+#define RUNNING_TASKS_LOCK() taskENTER_CRITICAL(&runningTasksLock)
+#define RUNNING_TASKS_UNLOCK() taskEXIT_CRITICAL(&runningTasksLock)
 
-// Add a task handle to runningTasks (no duplicates)
+// ---------------------- Helpers: runningTasks ----------------------
+
+// Füge Taskhandle (einmalig) ein
 static void addRunningTask(TaskHandle_t h)
 {
-    if (h == NULL)
+    if (!h)
         return;
-    ensureRunningTasksMutex();
-    if (runningTasksMutex == NULL)
-        return; // couldn't create
-
-    if (xSemaphoreTake(runningTasksMutex, pdMS_TO_TICKS(100)) == pdTRUE)
-    {
-        // only push if not present already
-        if (std::find(runningTasks.begin(), runningTasks.end(), h) == runningTasks.end())
-        {
-            runningTasks.push_back(h);
-        }
-        xSemaphoreGive(runningTasksMutex);
-    }
+    RUNNING_TASKS_LOCK();
+    if (std::find(runningTasks.begin(), runningTasks.end(), h) == runningTasks.end())
+        runningTasks.push_back(h);
+    RUNNING_TASKS_UNLOCK();
 }
 
-// Remove a task handle from runningTasks
+// Entferne Taskhandle, wenn vorhanden
 static void removeRunningTask(TaskHandle_t h)
 {
-    if (h == NULL)
+    if (!h)
         return;
-    ensureRunningTasksMutex();
-    if (runningTasksMutex == NULL)
-        return;
-
-    if (xSemaphoreTake(runningTasksMutex, pdMS_TO_TICKS(100)) == pdTRUE)
-    {
-        auto it = std::find(runningTasks.begin(), runningTasks.end(), h);
-        if (it != runningTasks.end())
-        {
-            runningTasks.erase(it);
-        }
-        xSemaphoreGive(runningTasksMutex);
-    }
+    RUNNING_TASKS_LOCK();
+    auto it = std::find(runningTasks.begin(), runningTasks.end(), h);
+    if (it != runningTasks.end())
+        runningTasks.erase(it);
+    RUNNING_TASKS_UNLOCK();
 }
 
 // ---------------------- App Run Task ----------------------
+//
+// Erwartet in pvParameters einen Zeiger auf eine heap-allokierte std::vector<String>
+// args[0] = App-Pfad; args[1..] = App-Argumente
+//
 void AppRunTask(void *pvParameters)
 {
-    // pvParameters erwartet einen Zeiger auf eine heap-allokierte std::vector<String>
     auto taskArgsPtr = static_cast<std::vector<String> *>(pvParameters);
     std::vector<String> args = *taskArgsPtr;
-    delete taskArgsPtr;
+    delete taskArgsPtr; // Übergabe-Speicher freigeben
 
-    // Mark this task as running (in case caller didn't add it yet) - addRunningTask ist duplikat-sicher
+    // Ab jetzt "läuft" der Task und gehört in die Liste
     addRunningTask(xTaskGetCurrentTaskHandle());
 
     Serial.println("Running Lua app...");
 
-    // Build app argument vector (args[0] = path; rest = args for app)
     std::vector<String> appArgs;
     if (args.size() > 1)
-    {
         appArgs.assign(args.begin() + 1, args.end());
-    }
 
+    // App ausführen
     int result = LuaApps::runApp(args[0], appArgs);
     Serial.printf("Lua App exited with code: %d\n", result);
 
-    // remove self from runningTasks (best-effort)
+    // Sich selbst aus der Liste entfernen und beenden
     removeRunningTask(xTaskGetCurrentTaskHandle());
-
-    // Task beenden
     vTaskDelete(NULL);
 }
 
-// --- Start an application in a new FreeRTOS task ---
-// NOTE: args wird kopiert und die Kopie auf dem Heap übergeben (sicher für Task)
+// ---------------------- Start application in a new task ----------------------
+//
+// args wird kopiert und die Kopie (heap) in den Task übergeben.
+//
 void executeApplication(const std::vector<String> &args)
 {
-    TaskHandle_t WindowAppRunHandle = NULL;
-
     if (args.empty())
     {
         Serial.println("ERROR: no execute path specified");
         return;
     }
 
-    // Erstelle eine heap-allokierte Kopie der Argumente, die der Task freigibt
+    // Heap-allokierte Kopie der Argumente. AppRunTask löscht sie.
     auto taskArgsPtr = new std::vector<String>(args);
 
+    TaskHandle_t WindowAppRunHandle = NULL;
     BaseType_t res = xTaskCreate(
         AppRunTask,         // task function
         "AppRunTask",       // name
-        2048 * 4,           // stack (words)
+        2048 * 6,           // stack (words) -> erhöht für Stabilität
         taskArgsPtr,        // parameter (heap-allocated copy)
         1,                  // priority
-        &WindowAppRunHandle // task handle
+        &WindowAppRunHandle // task handle (optional)
     );
 
     if (res != pdPASS)
     {
         Serial.println("ERROR: failed to create AppRunTask");
-        // bei Fehler Speicher freigeben
-        delete taskArgsPtr;
-        WindowAppRunHandle = NULL;
+        delete taskArgsPtr; // bei Fehler Speicher freigeben
         return;
     }
 
-    // Task erfolgreich erstellt -> handle speichern (duplikat-sicher)
-    addRunningTask(WindowAppRunHandle);
+    // Wichtig: wir fügen den Task **nicht** hier ein.
+    // addRunningTask() passiert im Task selbst, sobald er wirklich läuft.
 }
 
-// AppRenderTask
+// ---------------------- Persistent Render Task ----------------------
 void AppRenderTask(void *pvParameters)
 {
     (void)pvParameters;
-    // mark self as running (in case not added)
+
+    // Render-Task in die Liste aufnehmen
     addRunningTask(xTaskGetCurrentTaskHandle());
 
     while (true)
@@ -158,12 +142,25 @@ void AppRenderTask(void *pvParameters)
 
 void startWindowRender()
 {
+    // Falls bereits gestartet, nicht nochmal starten
+    if (WindowAppRenderHandle != NULL)
+    {
+        eTaskState s = eTaskGetState(WindowAppRenderHandle);
+        if (s != eDeleted)
+        {
+            Serial.println("AppRenderTask already running");
+            return;
+        }
+        // Falls gelöscht, Handle zurücksetzen
+        WindowAppRenderHandle = NULL;
+    }
+
     BaseType_t res = xTaskCreate(
         AppRenderTask,
         "AppRenderTask",
-        2048,
+        4096, // etwas größerer Stack
         NULL,
-        2,
+        2, // etwas höhere Prio als App-Tasks
         &WindowAppRenderHandle);
 
     if (res != pdPASS)
@@ -173,62 +170,85 @@ void startWindowRender()
         return;
     }
 
-    addRunningTask(WindowAppRenderHandle);
+    // Kein addRunningTask() hier -> macht der Task selbst am Anfang
 }
 
 // ---------------------- Task Monitor ----------------------
-// Prints high water marks and removes deleted tasks from runningTasks
-// ---------------------- Task Monitor ----------------------
-// Prints high water marks, free heap, and removes deleted tasks
+//
+// Druckt High-Water-Marks aller bekannten Tasks,
+// bereinigt gelöschte Tasks und loggt freien Heap.
+//
 void TaskMonitor(void *pvParameters)
 {
     (void)pvParameters;
-    ensureRunningTasksMutex();
 
-    while (true)
+    for (;;)
     {
-        Serial.printf("[TaskMonitor] Free heap: %u bytes\n", ESP.getFreeHeap());
+        // Globaler Heap-Status
+        Serial.printf("[TaskMonitor] Free heap: %u bytes, MaxAlloc: %u bytes\n",
+                      ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
-        if (runningTasksMutex != NULL &&
-            xSemaphoreTake(runningTasksMutex, pdMS_TO_TICKS(200)) == pdTRUE)
+        // Schnappschuss der Handles unter kurzer Critical-Section
+        std::vector<TaskHandle_t> snapshot;
+        RUNNING_TASKS_LOCK();
+        snapshot = runningTasks;
+        RUNNING_TASKS_UNLOCK();
+
+        // Außerhalb der Critical-Section über Handles iterieren
+        for (TaskHandle_t h : snapshot)
         {
-            for (size_t i = 0; i < runningTasks.size();)
-            {
-                TaskHandle_t h = runningTasks[i];
-                eTaskState state = eTaskGetState(h);
+            if (!h)
+                continue;
 
-                if (state == eDeleted)
-                {
-                    Serial.printf("Task %p state=DELETED -> removing from runningTasks\n", (void *)h);
-                    runningTasks.erase(runningTasks.begin() + i);
-                    continue;
-                }
-                else
-                {
-                    UBaseType_t highWords = uxTaskGetStackHighWaterMark(h);
-                    unsigned int highBytes = (unsigned int)(highWords * sizeof(StackType_t));
-                    Serial.printf("Task %p state=%d highWater=%u bytes\n",
-                                  (void *)h, (int)state, highBytes);
-                }
-                ++i;
+            eTaskState state = eTaskGetState(h);
+
+            if (state == eDeleted)
+            {
+                // Aus der echten Liste entfernen und melden
+                removeRunningTask(h);
+                Serial.printf("Task %p state=DELETED -> removed\n", (void *)h);
+                continue;
             }
-            xSemaphoreGive(runningTasksMutex);
+
+            // High-Water-Mark abfragen
+            UBaseType_t highWords = uxTaskGetStackHighWaterMark(h);
+            unsigned int highBytes = (unsigned int)(highWords * sizeof(StackType_t));
+            UBaseType_t prio = uxTaskPriorityGet(h);
+
+            // Optionale Namensausgabe (wenn verfügbar)
+            const char *name = pcTaskGetTaskName(h);
+            if (name == nullptr)
+                name = "?";
+
+            Serial.printf("Task %p name=%s prio=%u state=%d highWater=%u bytes\n",
+                          (void *)h, name, (unsigned)prio, (int)state, highBytes);
         }
 
+        // Einmal pro Sekunde
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
 
 void startTaskMonitor(unsigned priority = 1)
 {
-    // create mutex if needed
-    ensureRunningTasksMutex();
+    // Nur einen Monitor starten
+    static TaskHandle_t monitorHandle = NULL;
 
-    TaskHandle_t monitorHandle = NULL;
+    if (monitorHandle != NULL)
+    {
+        eTaskState s = eTaskGetState(monitorHandle);
+        if (s != eDeleted)
+        {
+            Serial.println("TaskMonitor already running");
+            return;
+        }
+        monitorHandle = NULL;
+    }
+
     BaseType_t res = xTaskCreate(
         TaskMonitor,
         "TaskMonitor",
-        2048,
+        3072, // moderater Stack
         NULL,
         priority,
         &monitorHandle);
@@ -239,13 +259,17 @@ void startTaskMonitor(unsigned priority = 1)
         return;
     }
 
-    addRunningTask(monitorHandle);
+    // Der Monitor taucht in der Liste auf, sobald er addRunningTask() ruft?
+    // -> Nein, der Monitor verwaltet andere Tasks und muss selbst nicht
+    // in runningTasks erscheinen. Wenn gewünscht, hier einkommentieren:
+    // addRunningTask(monitorHandle);
 }
 
 // ---------------------- Debug (single-shot) ----------------------
 void debugTaskLog()
 {
-    Serial.println(String("MAX HEAP:") + ESP.getMaxAllocHeap());
+    Serial.println(String("MAX HEAP: ") + ESP.getMaxAllocHeap());
+    Serial.println(String("FREE HEAP: ") + ESP.getFreeHeap());
 
     if (WindowAppRenderHandle)
     {
@@ -255,5 +279,24 @@ void debugTaskLog()
     else
     {
         Serial.println("AppRenderTask handle not set");
+    }
+
+    // Optional: Alle bekannten Tasks einmalig loggen
+    std::vector<TaskHandle_t> snapshot;
+    RUNNING_TASKS_LOCK();
+    snapshot = runningTasks;
+    RUNNING_TASKS_UNLOCK();
+
+    for (TaskHandle_t h : snapshot)
+    {
+        if (!h)
+            continue;
+        UBaseType_t highWords = uxTaskGetStackHighWaterMark(h);
+        unsigned int highBytes = (unsigned int)(highWords * sizeof(StackType_t));
+        const char *name = pcTaskGetTaskName(h);
+        if (!name)
+            name = "?";
+        Serial.printf("[debugTaskLog] Task %p name=%s highWater=%u bytes\n",
+                      (void *)h, name, highBytes);
     }
 }
