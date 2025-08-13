@@ -44,7 +44,7 @@ namespace SD_FS
 
     void exit()
     {
-        Serial.println("ℹ️ exit() called (noop).");
+        Serial.println("exit() called (noop).");
     }
 
     bool writeFile(const String &path, const String &content)

@@ -30,6 +30,6 @@ void setup()
 
 void loop()
 {
-    debugTaskLog();
+    // debugTaskLog();
     delay(3000);
 }
