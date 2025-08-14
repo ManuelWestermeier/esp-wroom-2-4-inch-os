@@ -83,7 +83,6 @@ static void drawTextArea(TFT_eSPI &tft,
 }
 
 // ===== Keyboard builder =====
-// ===== Keyboard builder =====
 enum class KbMode
 {
     LOWER,
@@ -120,12 +119,10 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
         addRow(String(r2), y);
         y += KEY_H + KEY_SP;
 
-        // third row with Shift and arrows
         int totalW = String(r3).length() * KEY_W + (String(r3).length() - 1) * KEY_SP;
         int startX = (SCREEN_W - totalW) / 2;
         int x = startX;
 
-        // Shift
         keys.push_back({MARGIN, y, 40, KEY_H, "Shift", "Shift"});
         for (size_t i = 0; i < String(r3).length(); ++i)
         {
@@ -133,7 +130,6 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
             keys.push_back({x, y, KEY_W, KEY_H, lab, lab});
             x += KEY_W + KEY_SP;
         }
-        // Arrow keys
         keys.push_back({SCREEN_W - MARGIN - 80, y, 18, KEY_H, "←", "LEFT"});
         keys.push_back({SCREEN_W - MARGIN - 60, y, 18, KEY_H, "→", "RIGHT"});
         keys.push_back({SCREEN_W - MARGIN - 40, y, 18, KEY_H, "↑", "UP"});
@@ -144,13 +140,12 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
     {
         addRow("1234567890", y);
         y += KEY_H + KEY_SP;
-        addRow("!@#$%^&*()-_=+", y); // special chars
+        addRow("!@#$%^&*()-_=+", y);
         y += KEY_H + KEY_SP;
-        addRow("[]{};:'\",.<>/?\\|`~", y); // more special chars
+        addRow("[]{};:'\",.<>/?\\|`~", y);
         y += KEY_H + KEY_SP;
     }
 
-    // bottom row: mode switch, space, backspace, enter, delete, OK
     int sx = MARGIN;
     if (mode == KbMode::NUMSYM)
         keys.push_back({sx, y, 56, KEY_H, "ABC", "ABC"});
@@ -178,7 +173,6 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
 // ===== Main text input =====
 String readString(const String &question = "", const String &defaultValue = "")
 {
-    // Text buffer
     std::vector<String> lines;
     if (defaultValue.length() == 0)
         lines.push_back("");
@@ -198,7 +192,6 @@ String readString(const String &question = "", const String &defaultValue = "")
     int cursorLine = lines.size() - 1;
     int cursorCol = lines[cursorLine].length();
 
-    // UI
     tft.fillScreen(0xFFFF);
     tft.setTextSize(2);
     tft.setTextColor(0x0000);
@@ -208,141 +201,58 @@ String readString(const String &question = "", const String &defaultValue = "")
         tft.print(question);
     }
 
-    // Keyboard state
     KbMode mode = KbMode::LOWER;
     auto keys = buildKeyboardLayout(mode);
 
-    // draw initial
     bool cursorVisible = true;
     unsigned long lastBlink = millis();
     drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, cursorVisible);
     drawKeyboard(tft, keys, -1);
 
-    // Input loop (action on RELEASE to satisfy: "wait until you release")
-    int pressedKey = -1;      // index while finger is down
-    int lastHighlighted = -1; // to redraw only when changes
-    bool prevPressed = false; // previous frame touch state
+    int pressedKey = -1;
+    int lastHighlighted = -1;
+    bool prevPressed = false;
 
     while (true)
     {
         auto pos = Screen::getTouchPos();
-        bool isPressed = pos.clicked; // true while touching
+        bool isPressed = pos.clicked;
 
         if (isPressed)
         {
-            // locate key under finger
             int found = -1;
             for (size_t i = 0; i < keys.size(); ++i)
             {
-                const auto &k = keys[i];
-                if (pos.x >= k.x && pos.x < k.x + k.w && pos.y >= k.y && pos.y < k.y + k.h)
+                KeyRect &k = keys[i];
+                if (pos.x >= k.x && pos.x <= k.x + k.w &&
+                    pos.y >= k.y && pos.y <= k.y + k.h)
                 {
-                    found = (int)i;
+                    found = i;
                     break;
                 }
             }
-            pressedKey = found;
-            if (pressedKey != lastHighlighted)
+            if (found != lastHighlighted)
             {
-                drawKeyboard(tft, keys, pressedKey);
-                lastHighlighted = pressedKey;
-            }
-
-            // Allow moving the cursor by dragging in the text area (no key under finger)
-            if (pressedKey == -1 && pos.y >= AREA_Y && pos.y < AREA_Y + AREA_H)
-            {
-                int lineH = lineHForSize(1);
-                int clickedLine = scrollLine + (pos.y - AREA_Y) / lineH;
-                clickedLine = std::min(std::max(0, clickedLine), (int)lines.size() - 1);
-                int col = (pos.x - (AREA_X + 6)) / charWForSize(1);
-                col = std::min(std::max(0, col), (int)lines[clickedLine].length());
-                cursorLine = clickedLine;
-                cursorCol = col;
-                drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
+                lastHighlighted = found;
+                drawKeyboard(tft, keys, found);
+                pressedKey = found;
             }
         }
-
-        // On RELEASE edge => perform action
-        if (!isPressed && prevPressed)
+        else if (!isPressed && prevPressed)
         {
-            // remove highlight
-            if (lastHighlighted != -1)
-            {
-                drawKeyboard(tft, keys, -1);
-                lastHighlighted = -1;
-            }
-
             if (pressedKey != -1)
             {
-                const KeyRect &k = keys[pressedKey];
-                String val = k.value;
-                if (val == "space")
-                {
-                    lines[cursorLine] += ' ';
-                    cursorCol++;
-                }
-                else if (val == "BACK")
-                {
-                    if (cursorCol > 0)
-                    {
-                        lines[cursorLine].remove(cursorCol - 1, 1);
-                        cursorCol--;
-                    }
-                    else if (cursorLine > 0)
-                    {
-                        int prevLen = lines[cursorLine - 1].length();
-                        lines[cursorLine - 1] += lines[cursorLine];
-                        lines.erase(lines.begin() + cursorLine);
-                        cursorLine--;
-                        cursorCol = prevLen;
-                    }
-                }
-                else if (val == "DEL")
-                {
-                    if (cursorCol < (int)lines[cursorLine].length())
-                    {
-                        lines[cursorLine].remove(cursorCol, 1);
-                    }
-                    else if (cursorLine < (int)lines.size() - 1)
-                    {
-                        lines[cursorLine] += lines[cursorLine + 1];
-                        lines.erase(lines.begin() + cursorLine + 1);
-                    }
-                }
-                else if (val == "\n")
-                {
-                    String remainder = lines[cursorLine].substring(cursorCol);
-                    lines[cursorLine] = lines[cursorLine].substring(0, cursorCol);
-                    lines.insert(lines.begin() + cursorLine + 1, remainder);
-                    cursorLine++;
-                    cursorCol = 0;
-                }
-                else if (val == "OK")
-                {
-                    String out;
-                    for (size_t i = 0; i < lines.size(); ++i)
-                    {
-                        out += lines[i];
-                        if (i + 1 < lines.size())
-                            out += '\n';
-                    }
-                    return out;
-                }
-                else if (val == "Shift")
+                String val = keys[pressedKey].value;
+
+                if (val == "Shift")
                 {
                     mode = (mode == KbMode::LOWER) ? KbMode::UPPER : KbMode::LOWER;
                     keys = buildKeyboardLayout(mode);
                     drawKeyboard(tft, keys, -1);
                 }
-                else if (val == "?123")
+                else if (val == "?123" || val == "ABC")
                 {
-                    mode = KbMode::NUMSYM;
-                    keys = buildKeyboardLayout(mode);
-                    drawKeyboard(tft, keys, -1);
-                }
-                else if (val == "ABC")
-                {
-                    mode = KbMode::LOWER;
+                    mode = (mode == KbMode::NUMSYM) ? KbMode::LOWER : KbMode::NUMSYM;
                     keys = buildKeyboardLayout(mode);
                     drawKeyboard(tft, keys, -1);
                 }
@@ -382,22 +292,53 @@ String readString(const String &question = "", const String &defaultValue = "")
                         cursorCol = std::min(cursorCol, (int)lines[cursorLine].length());
                     }
                 }
-                else
+                else if (val == "BACK")
                 {
-                    // regular character (letters, numbers, symbols)
-                    lines[cursorLine] += val; // value is 1-char label for normal keys
-                    cursorCol += val.length();
-                    if (mode == KbMode::UPPER)
-                    { // auto-return to lower after single char? keep sticky Shift: DO NOT auto-return
+                    if (cursorCol > 0)
+                    {
+                        lines[cursorLine].remove(cursorCol - 1, 1);
+                        cursorCol--;
+                    }
+                    else if (cursorLine > 0)
+                    {
+                        cursorCol = lines[cursorLine - 1].length();
+                        lines[cursorLine - 1] += lines[cursorLine];
+                        lines.erase(lines.begin() + cursorLine);
+                        cursorLine--;
                     }
                 }
+                else if (val == "DEL")
+                {
+                    if (cursorCol < (int)lines[cursorLine].length())
+                        lines[cursorLine].remove(cursorCol, 1);
+                    else if (cursorLine < (int)lines.size() - 1)
+                    {
+                        lines[cursorLine] += lines[cursorLine + 1];
+                        lines.erase(lines.begin() + cursorLine + 1);
+                    }
+                }
+                else if (val == "OK")
+                {
+                    String result;
+                    for (size_t i = 0; i < lines.size(); ++i)
+                    {
+                        result += lines[i];
+                        if (i < lines.size() - 1)
+                            result += "\n";
+                    }
+                    return result;
+                }
+                else // normal char
+                {
+                    lines[cursorLine] = lines[cursorLine].substring(0, cursorCol) + val + lines[cursorLine].substring(cursorCol);
+                    cursorCol += val.length();
+                }
 
-                // Maintain scroll so cursor stays visible
-                int lineH = lineHForSize(1);
-                int visibleLines = AREA_H / lineH;
+                // Adjust scroll
+                int visibleLines = AREA_H / lineHForSize(1);
                 if (cursorLine < scrollLine)
                     scrollLine = cursorLine;
-                if (cursorLine >= scrollLine + visibleLines)
+                else if (cursorLine >= scrollLine + visibleLines)
                     scrollLine = cursorLine - visibleLines + 1;
 
                 drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
@@ -405,17 +346,16 @@ String readString(const String &question = "", const String &defaultValue = "")
             pressedKey = -1;
         }
 
+        prevPressed = isPressed;
+
         // Blink cursor
         if (millis() - lastBlink > 500)
         {
-            lastBlink = millis();
             cursorVisible = !cursorVisible;
+            lastBlink = millis();
             drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, cursorVisible);
         }
 
-        prevPressed = isPressed;
-        delay(16);
+        delay(10);
     }
-
-    return String("");
 }
