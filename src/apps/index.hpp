@@ -268,8 +268,10 @@ void startTaskMonitor(unsigned priority = 1)
 // ---------------------- Debug (single-shot) ----------------------
 void debugTaskLog()
 {
-    Serial.println(String("MAX HEAP: ") + ESP.getMaxAllocHeap());
-    Serial.println(String("FREE HEAP: ") + ESP.getFreeHeap());
+    Serial.println("Min,Nor,Max");
+    Serial.println(ESP.getMinFreeHeap());
+    Serial.println(ESP.getFreeHeap());
+    Serial.println(ESP.getMaxAllocHeap());
 
     if (WindowAppRenderHandle)
     {

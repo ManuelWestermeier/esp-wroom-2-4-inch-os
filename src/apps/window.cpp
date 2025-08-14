@@ -87,8 +87,7 @@ void Window::init(const String &windowName, Vec position, Vec dimensions, uint16
 void Window::resizeSprite()
 {
     sprite.deleteSprite();
-    sprite.createSprite(size.x, size.y);
-
     rightSprite.deleteSprite();
+    sprite.createSprite(size.x, size.y);
     rightSprite.createSprite(resizeBoxSize, size.y - resizeBoxSize);
 }
