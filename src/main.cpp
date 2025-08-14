@@ -9,6 +9,7 @@
 #include "wifi/index.hpp"
 
 #include "anim/entry.hpp"
+#include "io/read-string.hpp"
 
 using namespace Windows;
 
@@ -19,13 +20,16 @@ void setup()
 
     SD_FS::init();
     Screen::init();
+
+    Screen::tft.println(readString("Input your name:", "Manuel"));
+
+    return;
+
     UserWiFi::start();
     LuaApps::initialize();
 
     startAnimationMWOS();
     startWindowRender();
-
-    executeApplication({"/test.lua", "Arg1", "Hi"});
 }
 
 void loop()
