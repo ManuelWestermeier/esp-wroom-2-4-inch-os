@@ -95,7 +95,6 @@ void AppRunTask(void *pvParameters)
 //
 void executeApplication(const std::vector<String> &args)
 {
-    delay(random(20));
     if (args.empty())
     {
         Serial.println("ERROR: no execute path specified");

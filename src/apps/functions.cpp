@@ -233,28 +233,6 @@ namespace LuaApps::LuaFunctions
         return 1;
     }
 
-    int connectToWofi(lua_State *L)
-    {
-        const char *ssid = luaL_checkstring(L, 1);
-        const char *password = luaL_checkstring(L, 2);
-        unsigned long timeoutMs = 15000;
-
-        WiFi.begin(ssid, password);
-        unsigned long start = millis();
-        while (WiFi.status() != WL_CONNECTED)
-        {
-            if (millis() - start > timeoutMs)
-            {
-                lua_pushboolean(L, false);
-                return 1;
-            }
-            delay(500);
-        }
-
-        lua_pushboolean(L, true);
-        return 1;
-    }
-
     void register_default_functions(lua_State *L)
     {
         lua_register(L, "print", luaPrintSerial);
@@ -262,7 +240,6 @@ namespace LuaApps::LuaFunctions
         lua_register(L, "delay", luaDelay);
         lua_register(L, "httpReq", luaHttpRequest);
         lua_register(L, "httpsReq", luaHttpsRequest);
-        lua_register(L, "ConnectToWifi", connectToWofi);
         lua_register(L, "RGB", lua_RGB);
         LuaApps::WinLib::register_win_functions(L);
     }
