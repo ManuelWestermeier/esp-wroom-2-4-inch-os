@@ -83,6 +83,7 @@ static void drawTextArea(TFT_eSPI &tft,
 }
 
 // ===== Keyboard builder =====
+// ===== Keyboard builder =====
 enum class KbMode
 {
     LOWER,
@@ -118,6 +119,7 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
         y += KEY_H + KEY_SP;
         addRow(String(r2), y);
         y += KEY_H + KEY_SP;
+
         // third row with Shift and arrows
         int totalW = String(r3).length() * KEY_W + (String(r3).length() - 1) * KEY_SP;
         int startX = (SCREEN_W - totalW) / 2;
@@ -138,29 +140,25 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
         keys.push_back({SCREEN_W - MARGIN - 20, y, 18, KEY_H, "↓", "DOWN"});
         y += KEY_H + KEY_SP;
     }
-    else
-    { // NUMSYM
+    else // NUMSYM
+    {
         addRow("1234567890", y);
         y += KEY_H + KEY_SP;
-        addRow("-/:;()$&@\"", y);
+        addRow("!@#$%^&*()-_=+", y); // special chars
         y += KEY_H + KEY_SP;
-        addRow(".,?!'\"_*#", y);
+        addRow("[]{};:'\",.<>/?\\|`~", y); // more special chars
         y += KEY_H + KEY_SP;
     }
 
     // bottom row: mode switch, space, backspace, enter, delete, OK
     int sx = MARGIN;
     if (mode == KbMode::NUMSYM)
-    {
         keys.push_back({sx, y, 56, KEY_H, "ABC", "ABC"});
-    }
     else
-    {
         keys.push_back({sx, y, 56, KEY_H, "?123", "?123"});
-    }
     sx += 56 + KEY_SP;
 
-    keys.push_back({sx, y, 120, KEY_H, "space", "space"});
+    keys.push_back({sx, y, 120, KEY_H, "space", " "});
     sx += 120 + KEY_SP;
 
     keys.push_back({sx, y, 50, KEY_H, "⌫", "BACK"});
