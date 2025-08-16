@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <vector>
 #include <algorithm>
+#include <TFT_eSPI.h> // wichtig für MC_DATUM
 
 #include "../screen/index.hpp"
 using Screen::tft;
@@ -18,13 +19,13 @@ struct KeyRect
 static const int SCREEN_W = 320;
 static const int SCREEN_H = 240;
 static const int MARGIN = 6;
-static const int KEY_W = 26;
-static const int KEY_H = 28;
-static const int KEY_SP = 6;
+static const int KEY_W = 28; // a bit wider
+static const int KEY_H = 32; // a bit taller
+static const int KEY_SP = 4; // smaller spacing
 static const int AREA_X = 6;
 static const int AREA_Y = 6;
 static const int AREA_W = 308; // 320 - margins
-static const int AREA_H = 120;
+static const int AREA_H = 100; // shorter text area so keyboard fits
 
 // ===== Utility =====
 static inline int charWForSize(int textSize) { return 6 * textSize; }
@@ -78,7 +79,7 @@ static void drawTextArea(TFT_eSPI &tft,
         int cy = AREA_Y + (cursorLine - scrollLine) * lineH + pad;
         int charW = charWForSize(1);
         int cx = AREA_X + pad + cursorCol * charW;
-        tft.fillRect(cx, cy, 2, lineH - 2, 0x0000);
+        tft.drawFastVLine(cx, cy, lineH - 2, 0x0000);
     }
 }
 
@@ -90,21 +91,22 @@ enum class KbMode
     NUMSYM
 };
 
+// ===== Keyboard builder =====
 static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
 {
     std::vector<KeyRect> keys;
-    int y = 130 + MARGIN; // keyboard top
+    int y = AREA_Y + AREA_H + 6; // keyboard starts below text area
 
-    auto addRow = [&](const String &row, int yRow, int leftPad = 0)
+    auto addRow = [&](const String &row, int yRow, int leftPad = 0, int keyW = KEY_W, int keySp = KEY_SP)
     {
-        int totalW = row.length() * KEY_W + (row.length() - 1) * KEY_SP;
+        int totalW = row.length() * keyW + (row.length() - 1) * keySp;
         int startX = (SCREEN_W - totalW) / 2 + leftPad;
         int x = startX;
         for (size_t i = 0; i < row.length(); ++i)
         {
             String lab = String((char)row[i]);
-            keys.push_back({x, yRow, KEY_W, KEY_H, lab, lab});
-            x += KEY_W + KEY_SP;
+            keys.push_back({x, yRow, keyW, KEY_H, lab, lab});
+            x += keyW + keySp;
         }
     };
 
@@ -114,55 +116,63 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
         const char *r2 = (mode == KbMode::UPPER) ? "ASDFGHJKL" : "asdfghjkl";
         const char *r3 = (mode == KbMode::UPPER) ? "ZXCVBNM" : "zxcvbnm";
 
+        // Row 1
         addRow(String(r1), y);
         y += KEY_H + KEY_SP;
+        // Row 2
         addRow(String(r2), y);
         y += KEY_H + KEY_SP;
-
-        int totalW = String(r3).length() * KEY_W + (String(r3).length() - 1) * KEY_SP;
-        int startX = (SCREEN_W - totalW) / 2;
-        int x = startX;
-
-        keys.push_back({MARGIN, y, 40, KEY_H, "Shift", "Shift"});
+        // Row 3 with Shift + arrows
+        int x = MARGIN + 2;
+        keys.push_back({x, y, 46, KEY_H, "Shift", "Shift"});
+        x += 46 + KEY_SP;
         for (size_t i = 0; i < String(r3).length(); ++i)
         {
             String lab = String(r3[i]);
             keys.push_back({x, y, KEY_W, KEY_H, lab, lab});
             x += KEY_W + KEY_SP;
         }
-        keys.push_back({SCREEN_W - MARGIN - 80, y, 18, KEY_H, "←", "LEFT"});
-        keys.push_back({SCREEN_W - MARGIN - 60, y, 18, KEY_H, "→", "RIGHT"});
-        keys.push_back({SCREEN_W - MARGIN - 40, y, 18, KEY_H, "↑", "UP"});
-        keys.push_back({SCREEN_W - MARGIN - 20, y, 18, KEY_H, "↓", "DOWN"});
+        // arrows on the right
+        int ax = SCREEN_W - (4 * 26) - MARGIN;
+        keys.push_back({ax, y, 26, KEY_H, "<", "LEFT"});
+        ax += 26 + KEY_SP;
+        keys.push_back({ax, y, 26, KEY_H, ">", "RIGHT"});
+        ax += 26 + KEY_SP;
+        keys.push_back({ax, y, 26, KEY_H, "^", "UP"});
+        ax += 26 + KEY_SP;
+        keys.push_back({ax, y, 26, KEY_H, "v", "DOWN"});
         y += KEY_H + KEY_SP;
     }
-    else // NUMSYM
-    {
+    else
+    { // NUMSYM
         addRow("1234567890", y);
         y += KEY_H + KEY_SP;
-        addRow("!@#$%^&*()-_=+", y);
+        addRow("!@#$%^&*()", y);
         y += KEY_H + KEY_SP;
-        addRow("[]{};:'\",.<>/?\\|`~", y);
+        addRow("[]{};:'\"", y, 0, 26, 4);
+        y += KEY_H + KEY_SP;
+        addRow(",.<>/?\\|", y, 0, 26, 4);
         y += KEY_H + KEY_SP;
     }
 
+    // Bottom row = controls
     int sx = MARGIN;
     if (mode == KbMode::NUMSYM)
-        keys.push_back({sx, y, 56, KEY_H, "ABC", "ABC"});
+        keys.push_back({sx, y, 60, KEY_H, "ABC", "ABC"});
     else
-        keys.push_back({sx, y, 56, KEY_H, "?123", "?123"});
-    sx += 56 + KEY_SP;
+        keys.push_back({sx, y, 60, KEY_H, "?123", "?123"});
+    sx += 60 + KEY_SP;
 
     keys.push_back({sx, y, 120, KEY_H, "space", " "});
     sx += 120 + KEY_SP;
 
-    keys.push_back({sx, y, 50, KEY_H, "⌫", "BACK"});
+    keys.push_back({sx, y, 50, KEY_H, "<<", "BACK"});
     sx += 50 + KEY_SP;
 
     keys.push_back({sx, y, 50, KEY_H, "Del", "DEL"});
     sx += 50 + KEY_SP;
 
-    keys.push_back({sx, y, 50, KEY_H, "↵", "\n"});
+    keys.push_back({sx, y, 50, KEY_H, "⏎", "\n"});
     sx += 50 + KEY_SP;
 
     keys.push_back({sx, y, 40, KEY_H, "OK", "OK"});
@@ -218,6 +228,25 @@ String readString(const String &question = "", const String &defaultValue = "")
         auto pos = Screen::getTouchPos();
         bool isPressed = pos.clicked;
 
+        // Klick im Textbereich = Cursor setzen
+        if (isPressed &&
+            pos.x >= AREA_X && pos.x < AREA_X + AREA_W &&
+            pos.y >= AREA_Y && pos.y < AREA_Y + AREA_H)
+        {
+            int relY = pos.y - AREA_Y;
+            int lineH = lineHForSize(1);
+            int clickedLine = scrollLine + relY / lineH;
+            if (clickedLine < (int)lines.size())
+            {
+                cursorLine = clickedLine;
+                int relX = pos.x - (AREA_X + 6);
+                int charW = charWForSize(1);
+                cursorCol = min(relX / charW, (int)lines[cursorLine].length());
+                drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
+            }
+        }
+
+        // Tastatur
         if (isPressed)
         {
             int found = -1;
@@ -235,8 +264,8 @@ String readString(const String &question = "", const String &defaultValue = "")
             {
                 lastHighlighted = found;
                 drawKeyboard(tft, keys, found);
-                pressedKey = found;
             }
+            pressedKey = found; // merken
         }
         else if (!isPressed && prevPressed)
         {
@@ -328,13 +357,13 @@ String readString(const String &question = "", const String &defaultValue = "")
                     }
                     return result;
                 }
-                else // normal char
-                {
+                else
+                { // normal char
                     lines[cursorLine] = lines[cursorLine].substring(0, cursorCol) + val + lines[cursorLine].substring(cursorCol);
                     cursorCol += val.length();
                 }
 
-                // Adjust scroll
+                // Scroll anpassen
                 int visibleLines = AREA_H / lineHForSize(1);
                 if (cursorLine < scrollLine)
                     scrollLine = cursorLine;
@@ -344,6 +373,8 @@ String readString(const String &question = "", const String &defaultValue = "")
                 drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
             }
             pressedKey = -1;
+            lastHighlighted = -1;
+            drawKeyboard(tft, keys, -1); // Reset highlight
         }
 
         prevPressed = isPressed;
