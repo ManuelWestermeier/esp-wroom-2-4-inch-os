@@ -13,18 +13,19 @@ namespace Auth
     String username = "";
     String password = "";
 
-    bool exists(String user)
+    bool exists(const String &user)
     {
         String path = "/" + Crypto::HASH::sha256String(user) + "/";
         return SD_FS::exists(path);
     }
 
-    bool login(String user, String pass)
+    bool login(const String &user, const String &pass)
     {
         if (!exists(user))
             return false;
 
-        String path = "/" + Crypto::HASH::sha256String(user) + "/" + Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
+        String path = "/" + Crypto::HASH::sha256String(user) + "/" +
+                      Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
         if (SD_FS::exists(path))
         {
             username = user;
@@ -34,16 +35,16 @@ namespace Auth
         return false;
     }
 
-    bool createAccount(String user, String pass)
+    bool createAccount(const String &user, const String &pass)
     {
         if (exists(user))
             return false;
 
         String userDir = "/" + Crypto::HASH::sha256String(user);
-        bool SD_FS::createDir(userDir);
+        SD_FS::createDir(userDir);
 
         String authFile = userDir + "/" + Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
-        bool SD_FS::writeFile(authFile, "AUTH"); // placeholder
+        SD_FS::writeFile(authFile, "AUTH"); // placeholder
 
         username = user;
         password = pass;
@@ -61,9 +62,9 @@ namespace Auth
         Rect loginBtn{{60, 140}, {200, 40}};
         Rect createBtn{{60, 190}, {200, 40}};
 
-        for (const auto f : SD_FS::readDir("/"))
+        for (auto &f : SD_FS::readDir("/")) // non-const reference
             if (f.isDirectory() && strcmp(f.name(), "System Volume Information") != 0)
-                Serial.println("USER: " + f.name());
+                Serial.println("USER: " + String(f.name()));
 
         int render = 50;
 
@@ -85,9 +86,9 @@ namespace Auth
                 tft.fillRect(55, 40, 210, 55, TFT_WHITE);
                 tft.setTextSize(8);
                 tft.setCursor(55, 40);
-                tft.print(time.tm_year > 124 ? hour + ":" + minute : "..:..");
+                tft.print(time.tm_year > 124 ? hour + ":" + minute : ".....");
 
-                // Buttons
+                // Draw buttons
                 tft.fillRoundRect(loginBtn.pos.x, loginBtn.pos.y, loginBtn.dimensions.x, loginBtn.dimensions.y, 10, RGB(255, 240, 255));
                 tft.fillRoundRect(createBtn.pos.x, createBtn.pos.y, createBtn.dimensions.x, createBtn.dimensions.y, 10, RGB(255, 240, 255));
 
@@ -127,6 +128,7 @@ namespace Auth
                 else if (createBtn.isIn(point))
                 {
                     String user = readString("New Username", "");
+
                     if (exists(user))
                     {
                         // Ask user to confirm overwriting/fallback
