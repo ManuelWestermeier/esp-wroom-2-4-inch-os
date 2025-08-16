@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Arduino.h>
-
 #include "utils/crypto.hpp"
 #include "fs/index.hpp"
 #include "io/read-string.hpp"
@@ -14,7 +13,7 @@ namespace Auth
     String username = "";
     String password = "";
 
-    bool exitst(String user)
+    bool exists(String user)
     {
         String path = "/" + Crypto::HASH::sha256String(user) + "/";
         return SD_FS::exists(path);
@@ -22,10 +21,10 @@ namespace Auth
 
     bool login(String user, String pass)
     {
-        if (!exitst(user))
+        if (!exists(user))
             return false;
-        String path = "/" + Crypto::HASH::sha256String(user) + "/" + Crypto::HASH::sha256String(user + "\n" + password) + ".auth";
 
+        String path = "/" + Crypto::HASH::sha256String(user) + "/" + Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
         if (SD_FS::exists(path))
         {
             username = user;
@@ -35,28 +34,41 @@ namespace Auth
         return false;
     }
 
+    void createAccount(String user, String pass)
+    {
+        if (exists(user))
+            return;
+
+        String userDir = "/" + Crypto::HASH::sha256String(user) + "/";
+        SD_FS::createDir(userDir);
+
+        String authFile = userDir + Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
+        SD_FS::writeFile(authFile, "AUTH"); // placeholder
+
+        username = user;
+        password = pass;
+    }
+
     void init()
     {
-        // you can use:
-        // String res = readString("question", "default");
-        // SD_FS::readFile(String path);
-        // SD_FS::writeFile(String path, String contntent);
-        // SD_FS::createDir(String path);
-        // SD_FS::readDir(String path);
-
-        using Screen::tft;
+        using namespace Screen;
 
         tft.fillScreen(TFT_WHITE);
         tft.setTextColor(TFT_BLACK);
 
-        bool first = true;
-        int render = 50;
-        while (1)
+        // Define vertical buttons with smaller font
+        Rect loginBtn{{60, 140}, {200, 40}}; // x,y pos; w,h
+        Rect createBtn{{60, 190}, {200, 40}};
+
+        int render = 50; // control update speed
+
+        while (true)
         {
             if (--render < 0)
             {
                 render = 50;
 
+                // Clock display
                 auto time = UserTime::get();
                 if (time.tm_year > 124)
                 {
@@ -67,27 +79,69 @@ namespace Auth
                     if (hour.length() < 2)
                         hour = "0" + hour;
 
-                    // Clear the background of the old time completely
-                    tft.fillRect(55, 40, 210, 55, TFT_WHITE); // width & height large enough for all text
+                    // Clear previous clock
+                    tft.fillRect(55, 40, 210, 55, TFT_WHITE);
                     tft.setTextSize(8);
                     tft.setCursor(55, 40);
                     tft.print(hour + ":" + minute);
                 }
 
-                tft.fillRoundRect(55, 130, 210, 60, 15, RGB(240, 240, 255));
+                // Draw buttons with minimal color
+                tft.fillRoundRect(loginBtn.pos.x, loginBtn.pos.y, loginBtn.dimensions.x, loginBtn.dimensions.y, 10, RGB(255, 240, 255));
+                tft.fillRoundRect(createBtn.pos.x, createBtn.pos.y, createBtn.dimensions.x, createBtn.dimensions.y, 10, RGB(255, 240, 255));
 
-                tft.fillRoundRect(70, 145, 225, 30, 5, TFT_WHITE);
-
-                tft.setTextSize(3);
-
-                tft.setCursor(80, 150);
+                // Draw button text
+                tft.setTextSize(2); // smaller font
+                tft.setCursor(loginBtn.pos.x + 10, loginBtn.pos.y + 10);
                 tft.print("LOGIN");
 
-                tft.setCursor(180, 150);
+                tft.setCursor(createBtn.pos.x + 10, createBtn.pos.y + 10);
                 tft.print("CREATE ACCOUNT");
             }
 
-            delay(20);
+            // Handle touch
+            TouchPos touch = getTouchPos();
+            if (touch.clicked)
+            {
+                Vec point{touch.x, touch.y};
+
+                if (loginBtn.isIn(point))
+                {
+                    String user = readString("Username", "");
+                    String pass = readString("Password", "");
+                    if (login(user, pass))
+                    {
+                        tft.fillScreen(TFT_WHITE);
+                        tft.setCursor(50, 100);
+                        tft.setTextSize(3);
+                        tft.print("Login successful!");
+                    }
+                    else
+                    {
+                        tft.fillScreen(TFT_WHITE);
+                        tft.setCursor(50, 100);
+                        tft.setTextSize(3);
+                        tft.print("Login failed!");
+                    }
+                    delay(1500);
+                    tft.fillScreen(TFT_WHITE);
+                }
+                else if (createBtn.isIn(point))
+                {
+                    String user = readString("New Username", "");
+                    String pass = readString("New Password", "");
+                    createAccount(user, pass);
+
+                    tft.fillScreen(TFT_WHITE);
+                    tft.setCursor(50, 100);
+                    tft.setTextSize(3);
+                    tft.print("Account created!");
+                    delay(1500);
+                    tft.fillScreen(TFT_WHITE);
+                }
+            }
+
+            delay(50); // slower main loop
         }
     }
 }
