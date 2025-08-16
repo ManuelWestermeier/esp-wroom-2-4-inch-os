@@ -19,13 +19,16 @@ struct KeyRect
 static const int SCREEN_W = 320;
 static const int SCREEN_H = 240;
 static const int MARGIN = 6;
-static const int KEY_W = 28; // a bit wider
-static const int KEY_H = 32; // a bit taller
-static const int KEY_SP = 4; // smaller spacing
-static const int AREA_X = 6;
-static const int AREA_Y = 6;
-static const int AREA_W = 308; // 320 - margins
-static const int AREA_H = 100; // shorter text area so keyboard fits
+
+static const int QUESTION_H = 20; // reserved space for question text
+static const int KEY_W = 28;
+static const int KEY_H = 32;
+static const int KEY_SP = 4;
+
+static const int AREA_X = MARGIN;
+static const int AREA_Y = QUESTION_H + MARGIN; // text area starts below question
+static const int AREA_W = SCREEN_W - 2 * MARGIN;
+static const int AREA_H = 80; // smaller so keyboard always fits
 
 // ===== Utility =====
 static inline int charWForSize(int textSize) { return 6 * textSize; }
@@ -91,11 +94,10 @@ enum class KbMode
     NUMSYM
 };
 
-// ===== Keyboard builder =====
 static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
 {
     std::vector<KeyRect> keys;
-    int y = AREA_Y + AREA_H + 6; // keyboard starts below text area
+    int y = AREA_Y + AREA_H + MARGIN; // keyboard starts below text area
 
     auto addRow = [&](const String &row, int yRow, int leftPad = 0, int keyW = KEY_W, int keySp = KEY_SP)
     {
@@ -119,10 +121,12 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
         // Row 1
         addRow(String(r1), y);
         y += KEY_H + KEY_SP;
+
         // Row 2
         addRow(String(r2), y);
         y += KEY_H + KEY_SP;
-        // Row 3 with Shift + arrows
+
+        // Row 3 with Shift + letters + arrows
         int x = MARGIN + 2;
         keys.push_back({x, y, 46, KEY_H, "Shift", "Shift"});
         x += 46 + KEY_SP;
@@ -132,15 +136,18 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
             keys.push_back({x, y, KEY_W, KEY_H, lab, lab});
             x += KEY_W + KEY_SP;
         }
+
         // arrows on the right
-        int ax = SCREEN_W - (4 * 26) - MARGIN;
-        keys.push_back({ax, y, 26, KEY_H, "<", "LEFT"});
-        ax += 26 + KEY_SP;
-        keys.push_back({ax, y, 26, KEY_H, ">", "RIGHT"});
-        ax += 26 + KEY_SP;
-        keys.push_back({ax, y, 26, KEY_H, "^", "UP"});
-        ax += 26 + KEY_SP;
-        keys.push_back({ax, y, 26, KEY_H, "v", "DOWN"});
+        int arrowW = 24;
+        int ax = SCREEN_W - (4 * (arrowW + KEY_SP)) - MARGIN;
+        keys.push_back({ax, y, arrowW, KEY_H, "<", "LEFT"});
+        ax += arrowW + KEY_SP;
+        keys.push_back({ax, y, arrowW, KEY_H, ">", "RIGHT"});
+        ax += arrowW + KEY_SP;
+        keys.push_back({ax, y, arrowW, KEY_H, "^", "UP"});
+        ax += arrowW + KEY_SP;
+        keys.push_back({ax, y, arrowW, KEY_H, "v", "DOWN"});
+
         y += KEY_H + KEY_SP;
     }
     else
@@ -158,22 +165,22 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
     // Bottom row = controls
     int sx = MARGIN;
     if (mode == KbMode::NUMSYM)
-        keys.push_back({sx, y, 60, KEY_H, "ABC", "ABC"});
+        keys.push_back({sx, y, 50, KEY_H, "ABC", "ABC"});
     else
-        keys.push_back({sx, y, 60, KEY_H, "?123", "?123"});
-    sx += 60 + KEY_SP;
-
-    keys.push_back({sx, y, 120, KEY_H, "space", " "});
-    sx += 120 + KEY_SP;
-
-    keys.push_back({sx, y, 50, KEY_H, "<<", "BACK"});
+        keys.push_back({sx, y, 50, KEY_H, "?123", "?123"});
     sx += 50 + KEY_SP;
 
-    keys.push_back({sx, y, 50, KEY_H, "Del", "DEL"});
-    sx += 50 + KEY_SP;
+    keys.push_back({sx, y, 100, KEY_H, "space", " "});
+    sx += 100 + KEY_SP;
 
-    keys.push_back({sx, y, 50, KEY_H, "⏎", "\n"});
-    sx += 50 + KEY_SP;
+    keys.push_back({sx, y, 40, KEY_H, "<<", "BACK"});
+    sx += 40 + KEY_SP;
+
+    keys.push_back({sx, y, 40, KEY_H, "Del", "DEL"});
+    sx += 40 + KEY_SP;
+
+    keys.push_back({sx, y, 40, KEY_H, "⏎", "\n"});
+    sx += 40 + KEY_SP;
 
     keys.push_back({sx, y, 40, KEY_H, "OK", "OK"});
 
@@ -205,9 +212,10 @@ String readString(const String &question = "", const String &defaultValue = "")
     tft.fillScreen(0xFFFF);
     tft.setTextSize(2);
     tft.setTextColor(0x0000);
+
     if (question.length())
     {
-        tft.setCursor(6, 6);
+        tft.setCursor(MARGIN, MARGIN);
         tft.print(question);
     }
 
@@ -216,6 +224,7 @@ String readString(const String &question = "", const String &defaultValue = "")
 
     bool cursorVisible = true;
     unsigned long lastBlink = millis();
+
     drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, cursorVisible);
     drawKeyboard(tft, keys, -1);
 
@@ -265,7 +274,7 @@ String readString(const String &question = "", const String &defaultValue = "")
                 lastHighlighted = found;
                 drawKeyboard(tft, keys, found);
             }
-            pressedKey = found; // merken
+            pressedKey = found;
         }
         else if (!isPressed && prevPressed)
         {
