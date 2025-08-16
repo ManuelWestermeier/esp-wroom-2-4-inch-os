@@ -22,7 +22,7 @@ void setup()
     UserWiFi::start();
     Screen::init();
 
-    startAnimationMWOS();
+    // startAnimationMWOS();
     Auth::init();
 
     LuaApps::initialize();
