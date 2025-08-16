@@ -9,7 +9,7 @@
 #include "wifi/index.hpp"
 
 #include "anim/entry.hpp"
-#include "io/read-string.hpp"
+#include "auth.hpp"
 
 using namespace Windows;
 
@@ -19,12 +19,13 @@ void setup()
     Serial.println("Booting MW 2.4i OS...\n");
 
     SD_FS::init();
+    UserWiFi::start();
     Screen::init();
 
-    UserWiFi::start();
-    LuaApps::initialize();
-
     startAnimationMWOS();
+    Auth::init();
+
+    LuaApps::initialize();
     startWindowRender();
 }
 

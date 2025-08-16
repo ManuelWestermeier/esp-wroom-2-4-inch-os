@@ -24,28 +24,10 @@ namespace SD_FS
             return false;
         }
 
-        Serial.println("✅ SD card initialized.");
-        uint8_t cardType = SD.cardType();
-        Serial.print("📇 Card Type: ");
-        if (cardType == CARD_MMC)
-            Serial.println("MMC");
-        else if (cardType == CARD_SD)
-            Serial.println("SDSC");
-        else if (cardType == CARD_SDHC)
-            Serial.println("SDHC");
-        else
-            Serial.println("Unknown");
-
-        uint64_t sizeMB = SD.cardSize() / (1024 * 1024);
-        Serial.printf("💾 Card Size: %llu MB\n", sizeMB);
-
         return true;
     }
 
-    void exit()
-    {
-        Serial.println("exit() called (noop).");
-    }
+    void exit() {}
 
     bool writeFile(const String &path, const String &content)
     {
@@ -57,7 +39,6 @@ namespace SD_FS
         }
         file.print(content);
         file.close();
-        Serial.printf("✅ Wrote to %s\n", path.c_str());
         return true;
     }
 
@@ -71,7 +52,6 @@ namespace SD_FS
         }
         file.print(content);
         file.close();
-        Serial.printf("✅ Appended to %s\n", path.c_str());
         return true;
     }
 
@@ -88,30 +68,27 @@ namespace SD_FS
         while (file.available())
             result += (char)file.read();
         file.close();
-        Serial.printf("✅ Read from %s\n", path.c_str());
         return result;
     }
 
     bool deleteFile(const String &path)
     {
-        if (SD.remove(path))
+        if (!SD.remove(path))
         {
-            Serial.printf("🗑️ Deleted: %s\n", path.c_str());
-            return true;
+            Serial.printf("❌ deleteFile failed: %s\n", path.c_str());
+            return false;
         }
-        Serial.printf("❌ deleteFile failed: %s\n", path.c_str());
-        return false;
+        return true;
     }
 
     bool renameFile(const String &from, const String &to)
     {
-        if (SD.rename(from, to))
+        if (!SD.rename(from, to))
         {
-            Serial.printf("✏️ Renamed: %s → %s\n", from.c_str(), to.c_str());
-            return true;
+            Serial.printf("❌ renameFile failed: %s → %s\n", from.c_str(), to.c_str());
+            return false;
         }
-        Serial.printf("❌ renameFile failed\n");
-        return false;
+        return true;
     }
 
     vector<File> readDir(const String &path, uint8_t levels = 1)
@@ -136,13 +113,12 @@ namespace SD_FS
 
     bool createDir(const String &path)
     {
-        if (SD.mkdir(path))
+        if (!SD.mkdir(path))
         {
-            Serial.printf("📁 Created dir: %s\n", path.c_str());
-            return true;
+            Serial.printf("❌ mkdir failed: %s\n", path.c_str());
+            return false;
         }
-        Serial.printf("❌ mkdir failed: %s\n", path.c_str());
-        return false;
+        return true;
     }
 
     bool deleteDir(const String &path)
@@ -164,13 +140,14 @@ namespace SD_FS
                 SD.remove(filePath);
             file = dir.openNextFile();
         }
-        return SD.rmdir(path);
+
+        if (!SD.rmdir(path))
+            Serial.printf("❌ deleteDir failed: %s\n", path.c_str());
+
+        return true;
     }
 
-    bool exists(const String &path)
-    {
-        return SD.exists(path);
-    }
+    bool exists(const String &path) { return SD.exists(path); }
 
     bool isDirectory(const String &path)
     {
@@ -209,38 +186,14 @@ namespace SD_FS
             Serial.printf("❌ Datei %s nicht gefunden.\n", path.c_str());
             return;
         }
-
-        Serial.printf("📄 Datei: %s\n", f.name());
-        Serial.printf("📦 Größe: %zu Bytes\n", f.size());
-        Serial.printf("🕒 Letzte Änderung: %lu\n", f.getLastWrite());
         f.close();
     }
 
-    uint64_t getCardSize()
-    {
-        return SD.cardSize();
-    }
+    uint64_t getCardSize() { return SD.cardSize(); }
 
-    uint64_t getUsedBytes()
-    {
-        return SD.usedBytes();
-    }
+    uint64_t getUsedBytes() { return SD.usedBytes(); }
 
-    uint64_t getFreeBytes()
-    {
-        return getCardSize() - getUsedBytes();
-    }
+    uint64_t getFreeBytes() { return getCardSize() - getUsedBytes(); }
 
-    void getUsageSummary()
-    {
-        uint64_t total = getCardSize();
-        uint64_t used = getUsedBytes();
-        uint64_t free = total - used;
-        float usedPercent = (total > 0) ? (used * 100.0 / total) : 0;
-
-        Serial.printf("Gesamtgröße: %.2f MB\n", total / 1024.0 / 1024.0);
-        Serial.printf("Belegt: %.2f MB\n", used / 1024.0 / 1024.0);
-        Serial.printf("Frei: %.2f MB\n", free / 1024.0 / 1024.0);
-        Serial.printf("Belegt (%%): %.2f%%\n", usedPercent);
-    }
+    void getUsageSummary() {}
 }
