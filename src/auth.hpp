@@ -37,6 +37,13 @@ namespace Auth
 
     void init()
     {
+        // you can use:
+        // String res = readString("question", "default");
+        // SD_FS::readFile(String path);
+        // SD_FS::writeFile(String path, String contntent);
+        // SD_FS::createDir(String path);
+        // SD_FS::readDir(String path);
+
         using Screen::tft;
 
         tft.fillScreen(TFT_WHITE);
