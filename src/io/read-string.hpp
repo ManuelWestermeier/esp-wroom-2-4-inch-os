@@ -27,7 +27,12 @@ static const int KEY_SP = 4;
 
 static const int AREA_X = MARGIN;
 static const int AREA_Y = QUESTION_H + MARGIN; // text area starts below question
-static const int AREA_W = SCREEN_W - 2 * MARGIN;
+
+// space reserved on the right for the two scroll buttons (width)
+static const int SCROLL_AREA_W = 34;
+static const int SCROLL_BTN_W = 28;
+// AREA_W is reduced to free space for scroll buttons
+static const int AREA_W = SCREEN_W - 2 * MARGIN - SCROLL_AREA_W;
 static const int AREA_H = 80; // smaller so keyboard always fits
 
 // choose a single text size for the editable area (keine Mischung mehr)
@@ -54,15 +59,18 @@ static void drawKeyboard(TFT_eSPI &tft, const std::vector<KeyRect> &keys, int pr
         drawKey(tft, keys[i], (int)i == pressedIndex);
 }
 
+// drawTextArea now also draws the two scroll buttons on the right
+// pressedScroll: -1 = none, 0 = up pressed, 1 = down pressed
 static void drawTextArea(TFT_eSPI &tft,
                          const std::vector<String> &lines,
                          int scrollLine,
                          int cursorLine,
                          int cursorCol,
-                         bool cursorVisible)
+                         bool cursorVisible,
+                         int pressedScroll = -1)
 {
     const int pad = 6;
-    // Hintergrund und Rahmen der Textarea
+    // Hintergrund und Rahmen der Textarea (only the text area part)
     tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0xFFFF);
     tft.drawRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0x0000);
 
@@ -90,6 +98,36 @@ static void drawTextArea(TFT_eSPI &tft,
         int cursorH = lineH - 2;
         tft.drawFastVLine(cx, cy, cursorH, 0x0000);
     }
+
+    // ---- Draw scroll buttons in the reserved right area ----
+    int btnAreaX = AREA_X + AREA_W + 4; // small gutter
+    int btnAreaW = SCROLL_AREA_W - 8;   // inside the reserved area
+    if (btnAreaW < SCROLL_BTN_W)
+        btnAreaW = SCROLL_BTN_W;
+    int spacing = 4;
+    int btnH = (AREA_H - spacing * 3) / 2;
+    if (btnH < 16)
+        btnH = 16;
+    int upY = AREA_Y + spacing;
+    int downY = upY + btnH + spacing;
+    uint16_t bgUp = (pressedScroll == 0) ? 0x8410 : 0xFFFF;
+    uint16_t fgUp = (pressedScroll == 0) ? 0xFFFF : 0x0000;
+    uint16_t bgDown = (pressedScroll == 1) ? 0x8410 : 0xFFFF;
+    uint16_t fgDown = (pressedScroll == 1) ? 0xFFFF : 0x0000;
+
+    // Up button
+    tft.fillRoundRect(btnAreaX, upY, btnAreaW, btnH, 4, bgUp);
+    tft.drawRoundRect(btnAreaX, upY, btnAreaW, btnH, 4, 0x0000);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextSize(1);
+    tft.setTextColor(fgUp);
+    tft.drawString("^", btnAreaX + btnAreaW / 2, upY + btnH / 2);
+
+    // Down button
+    tft.fillRoundRect(btnAreaX, downY, btnAreaW, btnH, 4, bgDown);
+    tft.drawRoundRect(btnAreaX, downY, btnAreaW, btnH, 4, 0x0000);
+    tft.setTextColor(fgDown);
+    tft.drawString("v", btnAreaX + btnAreaW / 2, downY + btnH / 2);
 }
 
 // ===== Keyboard builder =====
@@ -216,12 +254,15 @@ String readString(const String &question = "", const String &defaultValue = "")
     unsigned long lastBlink = millis();
 
     // initial draw
-    drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, cursorVisible);
+    drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, cursorVisible, -1);
     drawKeyboard(tft, keys, -1);
 
     int pressedKey = -1;
     int lastHighlighted = -1;
     bool prevPressed = false;
+
+    int lastScrollHighlighted = -1;
+    int scrollBtnPressed = -1;
 
     const int pad = 6;
     const int charW = charWForSize(TEXT_SIZE_AREA);
@@ -239,6 +280,18 @@ String readString(const String &question = "", const String &defaultValue = "")
         auto pos = Screen::getTouchPos();
         bool isPressed = pos.clicked;
 
+        // compute scroll button geometry (same as used in drawTextArea)
+        int btnAreaX = AREA_X + AREA_W + 4;
+        int btnAreaW = SCROLL_AREA_W - 8;
+        if (btnAreaW < SCROLL_BTN_W)
+            btnAreaW = SCROLL_BTN_W;
+        int spacing = 4;
+        int btnH = (AREA_H - spacing * 3) / 2;
+        if (btnH < 16)
+            btnH = 16;
+        int upY = AREA_Y + spacing;
+        int downY = upY + btnH + spacing;
+
         // Klick im Textbereich = Cursor setzen
         if (isPressed &&
             pos.x >= AREA_X && pos.x < AREA_X + AREA_W &&
@@ -252,34 +305,109 @@ String readString(const String &question = "", const String &defaultValue = "")
                 cursorLine = clickedLine;
                 int relX = pos.x - (AREA_X + pad);
                 cursorCol = min(relX / charW, (int)lines[cursorLine].length());
-                drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
+                // ensure cursor visible - if not, adjust scrollLine
+                int visibleLines = AREA_H / lineHForSize(TEXT_SIZE_AREA);
+                if (cursorLine < scrollLine)
+                    scrollLine = cursorLine;
+                else if (cursorLine >= scrollLine + visibleLines)
+                    scrollLine = cursorLine - visibleLines + 1;
+
+                drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true, -1);
             }
         }
 
-        // Tastatur
+        // Scroll buttons (check before keyboard so they take precedence when touching that right area)
+        int foundScroll = -1;
+        if (isPressed &&
+            pos.x >= btnAreaX && pos.x <= btnAreaX + btnAreaW &&
+            pos.y >= upY && pos.y <= upY + btnH)
+        {
+            foundScroll = 0; // up
+        }
+        else if (isPressed &&
+                 pos.x >= btnAreaX && pos.x <= btnAreaX + btnAreaW &&
+                 pos.y >= downY && pos.y <= downY + btnH)
+        {
+            foundScroll = 1; // down
+        }
+
         if (isPressed)
         {
-            int found = -1;
-            for (size_t i = 0; i < keys.size(); ++i)
+            // highlight scroll button if entering it
+            if (foundScroll != lastScrollHighlighted)
             {
-                KeyRect &k = keys[i];
-                if (pos.x >= k.x && pos.x <= k.x + k.w &&
-                    pos.y >= k.y && pos.y <= k.y + k.h)
+                lastScrollHighlighted = foundScroll;
+                scrollBtnPressed = foundScroll;
+                drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true, scrollBtnPressed);
+            }
+
+            // If not press on scroll buttons, handle keyboard highlighting
+            if (foundScroll == -1)
+            {
+                int found = -1;
+                for (size_t i = 0; i < keys.size(); ++i)
                 {
-                    found = i;
-                    break;
+                    KeyRect &k = keys[i];
+                    if (pos.x >= k.x && pos.x <= k.x + k.w &&
+                        pos.y >= k.y && pos.y <= k.y + k.h)
+                    {
+                        found = i;
+                        break;
+                    }
+                }
+                if (found != lastHighlighted)
+                {
+                    lastHighlighted = found;
+                    drawKeyboard(tft, keys, found);
+                }
+                pressedKey = found;
+            }
+            else
+            {
+                // we are pressing a scroll button; make sure keyboard highlight is cleared
+                if (lastHighlighted != -1)
+                {
+                    lastHighlighted = -1;
+                    pressedKey = -1;
+                    drawKeyboard(tft, keys, -1);
                 }
             }
-            if (found != lastHighlighted)
-            {
-                lastHighlighted = found;
-                drawKeyboard(tft, keys, found);
-            }
-            pressedKey = found;
         }
         else if (!isPressed && prevPressed)
         {
-            if (pressedKey != -1)
+            // Release: if a scroll button was pressed, perform scroll action
+            if (scrollBtnPressed != -1)
+            {
+                int lineH = lineHForSize(TEXT_SIZE_AREA);
+                int visibleLines = AREA_H / lineH;
+                if (scrollBtnPressed == 0)
+                {
+                    // up
+                    if (scrollLine > 0)
+                        scrollLine = scrollLine - 1;
+                    if (scrollLine < 0)
+                        scrollLine = 0;
+                }
+                else
+                {
+                    // down
+                    int maxScroll = 0;
+                    if ((int)lines.size() > visibleLines)
+                        maxScroll = (int)lines.size() - visibleLines;
+                    if (scrollLine < maxScroll)
+                        scrollLine = scrollLine + 1;
+                    if (scrollLine > maxScroll)
+                        scrollLine = maxScroll;
+                }
+
+                // redraw text area (cursor may or may not be in view; we just redraw)
+                drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true, -1);
+
+                // reset scroll button state
+                scrollBtnPressed = -1;
+                lastScrollHighlighted = -1;
+            }
+            else if (pressedKey != -1)
             {
                 String val = keys[pressedKey].value;
 
@@ -288,7 +416,7 @@ String readString(const String &question = "", const String &defaultValue = "")
                     mode = (mode == KbMode::LOWER) ? KbMode::UPPER : KbMode::LOWER;
                     keys = buildKeyboardLayout(mode);
                     tft.fillScreen(0xFFFF);
-                    drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
+                    drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true, -1);
                     drawKeyboard(tft, keys, -1);
                 }
                 else if (val == "?123" || val == "ABC")
@@ -296,7 +424,7 @@ String readString(const String &question = "", const String &defaultValue = "")
                     mode = (mode == KbMode::NUMSYM) ? KbMode::LOWER : KbMode::NUMSYM;
                     keys = buildKeyboardLayout(mode);
                     tft.fillScreen(0xFFFF);
-                    drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
+                    drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true, -1);
                     drawKeyboard(tft, keys, -1);
                 }
                 else if (val == "LEFT")
@@ -403,7 +531,7 @@ String readString(const String &question = "", const String &defaultValue = "")
                     }
                 }
 
-                // Scroll anpassen (line-wise)
+                // Scroll anpassen (line-wise) to keep cursor visible
                 int visibleLines = AREA_H / lineHForSize(TEXT_SIZE_AREA);
                 if (cursorLine < scrollLine)
                     scrollLine = cursorLine;
@@ -412,7 +540,7 @@ String readString(const String &question = "", const String &defaultValue = "")
 
                 // redraw
                 tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0xFFFF); // clear text area only
-                drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
+                drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true, -1);
             }
             pressedKey = -1;
             lastHighlighted = -1;
@@ -426,7 +554,7 @@ String readString(const String &question = "", const String &defaultValue = "")
         {
             cursorVisible = !cursorVisible;
             lastBlink = millis();
-            drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, cursorVisible);
+            drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, cursorVisible, -1);
         }
 
         delay(10);
