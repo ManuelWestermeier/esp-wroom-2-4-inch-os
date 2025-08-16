@@ -21,9 +21,6 @@ void setup()
     SD_FS::init();
     Screen::init();
 
-    Screen::tft.println(readString("Input your name:", "Manuel"));
-    return;
-
     UserWiFi::start();
     LuaApps::initialize();
 
