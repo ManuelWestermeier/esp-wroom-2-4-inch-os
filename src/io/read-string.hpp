@@ -225,16 +225,6 @@ String readString(const String &question = "", const String &defaultValue = "")
 
     const int pad = 6;
     const int charW = charWForSize(TEXT_SIZE_AREA);
-    const int lineH = lineHForSize(TEXT_SIZE_AREA);
-    const int visibleLinesConst = AREA_H / lineH;
-
-    // --- variables for drag / tap detection ---
-    bool dragging = false;
-    int dragStartY = 0;
-    int startScrollLine = 0;
-    bool touchStartedInText = false;
-    bool touchMoved = false;
-    const int DRAG_MOVE_THRESHOLD = 6; // pixels before we consider it a drag
 
     while (true)
     {
@@ -249,55 +239,25 @@ String readString(const String &question = "", const String &defaultValue = "")
         auto pos = Screen::getTouchPos();
         bool isPressed = pos.clicked;
 
-        // Handle press start
-        if (isPressed && !prevPressed)
+        // Klick im Textbereich = Cursor setzen
+        if (isPressed &&
+            pos.x >= AREA_X && pos.x < AREA_X + AREA_W &&
+            pos.y >= AREA_Y && pos.y < AREA_Y + AREA_H)
         {
-            // New press began
-            touchStartedInText = false;
-            touchMoved = false;
-            dragging = false;
-
-            if (pos.x >= AREA_X && pos.x < AREA_X + AREA_W &&
-                pos.y >= AREA_Y && pos.y < AREA_Y + AREA_H)
+            int relY = pos.y - AREA_Y;
+            int lineH = lineHForSize(TEXT_SIZE_AREA);
+            int clickedLine = scrollLine + relY / lineH;
+            if (clickedLine < (int)lines.size())
             {
-                touchStartedInText = true;
-                dragStartY = pos.y;
-                startScrollLine = scrollLine;
+                cursorLine = clickedLine;
+                int relX = pos.x - (AREA_X + pad);
+                cursorCol = min(relX / charW, (int)lines[cursorLine].length());
+                drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
             }
         }
 
-        // While pressed: track movement to decide drag vs tap
-        if (isPressed && prevPressed && touchStartedInText)
-        {
-            int dy = pos.y - dragStartY;
-            if (!touchMoved && abs(dy) > DRAG_MOVE_THRESHOLD)
-            {
-                touchMoved = true;
-                dragging = true;
-            }
-
-            if (dragging)
-            {
-                // compute new scrollLine (drag up -> content moves up -> increase scrollLine)
-                int deltaLines = dy / lineH; // integer division
-                int newScroll = startScrollLine - deltaLines;
-                int maxScroll = max(0, (int)lines.size() - visibleLinesConst);
-                if (newScroll < 0)
-                    newScroll = 0;
-                if (newScroll > maxScroll)
-                    newScroll = maxScroll;
-                if (newScroll != scrollLine)
-                {
-                    scrollLine = newScroll;
-                    // redraw text area only, hide cursor while dragging
-                    tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0xFFFF);
-                    drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, false);
-                }
-            }
-        }
-
-        // Klick / Touch innerhalb Keyboard (only handle if not dragging)
-        if (!dragging && isPressed)
+        // Tastatur
+        if (isPressed)
         {
             int found = -1;
             for (size_t i = 0; i < keys.size(); ++i)
@@ -319,32 +279,8 @@ String readString(const String &question = "", const String &defaultValue = "")
         }
         else if (!isPressed && prevPressed)
         {
-            // Release event
-            if (touchStartedInText && !touchMoved)
+            if (pressedKey != -1)
             {
-                // Treat as tap: set cursor
-                int relY = pos.y - AREA_Y;
-                int clickedLine = scrollLine + relY / lineH;
-                if (clickedLine < (int)lines.size() && clickedLine >= 0)
-                {
-                    cursorLine = clickedLine;
-                    int relX = pos.x - (AREA_X + pad);
-                    cursorCol = min(max(0, relX / charW), (int)lines[cursorLine].length());
-                    // ensure scrollLine keeps cursor visible (should already be)
-                    int visibleLines = AREA_H / lineHForSize(TEXT_SIZE_AREA);
-                    if (cursorLine < scrollLine)
-                        scrollLine = cursorLine;
-                    else if (cursorLine >= scrollLine + visibleLines)
-                        scrollLine = cursorLine - visibleLines + 1;
-
-                    tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0xFFFF);
-                    drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
-                }
-            }
-
-            if (pressedKey != -1 && !dragging)
-            {
-                // Key release handling (same as before)
                 String val = keys[pressedKey].value;
 
                 if (val == "Shift")
@@ -467,7 +403,7 @@ String readString(const String &question = "", const String &defaultValue = "")
                     }
                 }
 
-                // Scroll anpassen
+                // Scroll anpassen (line-wise)
                 int visibleLines = AREA_H / lineHForSize(TEXT_SIZE_AREA);
                 if (cursorLine < scrollLine)
                     scrollLine = cursorLine;
@@ -478,28 +414,19 @@ String readString(const String &question = "", const String &defaultValue = "")
                 tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0xFFFF); // clear text area only
                 drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
             }
-
             pressedKey = -1;
             lastHighlighted = -1;
             drawKeyboard(tft, keys, -1); // Reset highlight
-
-            // reset drag/touch flags after release
-            dragging = false;
-            touchStartedInText = false;
-            touchMoved = false;
         }
 
         prevPressed = isPressed;
 
-        // Blink cursor (only if not dragging)
+        // Blink cursor
         if (millis() - lastBlink > 500)
         {
             cursorVisible = !cursorVisible;
             lastBlink = millis();
-            if (!dragging)
-                drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, cursorVisible);
-            else
-                drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, false);
+            drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, cursorVisible);
         }
 
         delay(10);
