@@ -179,8 +179,10 @@ namespace Windows
 
         tft.setCursor(10, 10);
         tft.setTextSize(5);
-        tft.print("Menu");
+        tft.println("Menu");
         tft.setTextSize(1);
+        tft.println(Auth::username);
+        tft.println(Auth::password);
 
         drawTime();
         delay(10);
