@@ -30,6 +30,9 @@ static const int AREA_Y = QUESTION_H + MARGIN; // text area starts below questio
 static const int AREA_W = SCREEN_W - 2 * MARGIN;
 static const int AREA_H = 80; // smaller so keyboard always fits
 
+// choose a single text size for the editable area (keine Mischung mehr)
+static const int TEXT_SIZE_AREA = 1;
+
 // ===== Utility =====
 static inline int charWForSize(int textSize) { return 6 * textSize; }
 static inline int lineHForSize(int textSize) { return (8 * textSize) + 4; }
@@ -59,15 +62,15 @@ static void drawTextArea(TFT_eSPI &tft,
                          bool cursorVisible)
 {
     const int pad = 6;
+    // Hintergrund und Rahmen der Textarea
     tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0xFFFF);
     tft.drawRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0x0000);
 
-    tft.setTextSize(1);
+    tft.setTextSize(TEXT_SIZE_AREA);
     tft.setTextColor(0x0000);
 
-    int lineH = lineHForSize(1);
+    int lineH = lineHForSize(TEXT_SIZE_AREA);
     int visibleLines = AREA_H / lineH;
-
     for (int i = 0; i < visibleLines; ++i)
     {
         int li = scrollLine + i;
@@ -77,12 +80,15 @@ static void drawTextArea(TFT_eSPI &tft,
         tft.print(lines[li]);
     }
 
+    // Draw cursor if visible and inside the visible area
     if (cursorVisible && cursorLine >= scrollLine && cursorLine < scrollLine + visibleLines)
     {
         int cy = AREA_Y + (cursorLine - scrollLine) * lineH + pad;
-        int charW = charWForSize(1);
+        int charW = charWForSize(TEXT_SIZE_AREA);
         int cx = AREA_X + pad + cursorCol * charW;
-        tft.drawFastVLine(cx, cy, lineH - 2, 0x0000);
+        // cursor height slightly smaller than line height
+        int cursorH = lineH - 2;
+        tft.drawFastVLine(cx, cy, cursorH, 0x0000);
     }
 }
 
@@ -126,7 +132,7 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
         addRow(String(r2), y);
         y += KEY_H + KEY_SP;
 
-        // Row 3 with Shift + letters + arrows
+        // Row 3 with Shift + letters
         int x = MARGIN + 2;
         keys.push_back({x, y, 46, KEY_H, "Shift", "Shift"});
         x += 46 + KEY_SP;
@@ -147,8 +153,6 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
         y += KEY_H + KEY_SP;
         addRow("?[]{};:,.'\"", y, 0, 26, 4);
         y += KEY_H + KEY_SP;
-        // addRow(",.<>/?\\|", y, 0, 26, 4);
-        // y += KEY_H + KEY_SP;
     }
 
     y -= 8;
@@ -174,7 +178,7 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
 
     keys.push_back({sx, y, 40, KEY_H, "OK", "OK"});
 
-    tft.fillScreen(TFT_WHITE);
+    // buildKeyboardLayout zeichnet nicht den Screen — caller zeichnet nach Bedarf
     return keys;
 }
 
@@ -200,8 +204,9 @@ String readString(const String &question = "", const String &defaultValue = "")
     int cursorLine = lines.size() - 1;
     int cursorCol = lines[cursorLine].length();
 
+    // initial screen clear + settings
     tft.fillScreen(0xFFFF);
-    tft.setTextSize(2);
+    tft.setTextSize(TEXT_SIZE_AREA);
     tft.setTextColor(0x0000);
 
     KbMode mode = KbMode::LOWER;
@@ -210,6 +215,7 @@ String readString(const String &question = "", const String &defaultValue = "")
     bool cursorVisible = true;
     unsigned long lastBlink = millis();
 
+    // initial draw
     drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, cursorVisible);
     drawKeyboard(tft, keys, -1);
 
@@ -217,12 +223,17 @@ String readString(const String &question = "", const String &defaultValue = "")
     int lastHighlighted = -1;
     bool prevPressed = false;
 
+    const int pad = 6;
+    const int charW = charWForSize(TEXT_SIZE_AREA);
+
     while (true)
     {
         if (question.length())
         {
             tft.setCursor(MARGIN, MARGIN);
+            tft.setTextSize(1); // question uses slightly larger font if desired
             tft.print(question);
+            tft.setTextSize(TEXT_SIZE_AREA);
         }
 
         auto pos = Screen::getTouchPos();
@@ -234,13 +245,12 @@ String readString(const String &question = "", const String &defaultValue = "")
             pos.y >= AREA_Y && pos.y < AREA_Y + AREA_H)
         {
             int relY = pos.y - AREA_Y;
-            int lineH = lineHForSize(1);
+            int lineH = lineHForSize(TEXT_SIZE_AREA);
             int clickedLine = scrollLine + relY / lineH;
             if (clickedLine < (int)lines.size())
             {
                 cursorLine = clickedLine;
-                int relX = pos.x - (AREA_X + 6);
-                int charW = charWForSize(1);
+                int relX = pos.x - (AREA_X + pad);
                 cursorCol = min(relX / charW, (int)lines[cursorLine].length());
                 drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
             }
@@ -277,12 +287,16 @@ String readString(const String &question = "", const String &defaultValue = "")
                 {
                     mode = (mode == KbMode::LOWER) ? KbMode::UPPER : KbMode::LOWER;
                     keys = buildKeyboardLayout(mode);
+                    tft.fillScreen(0xFFFF);
+                    drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
                     drawKeyboard(tft, keys, -1);
                 }
                 else if (val == "?123" || val == "ABC")
                 {
                     mode = (mode == KbMode::NUMSYM) ? KbMode::LOWER : KbMode::NUMSYM;
                     keys = buildKeyboardLayout(mode);
+                    tft.fillScreen(0xFFFF);
+                    drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
                     drawKeyboard(tft, keys, -1);
                 }
                 else if (val == "LEFT")
@@ -357,19 +371,47 @@ String readString(const String &question = "", const String &defaultValue = "")
                     }
                     return result;
                 }
+                else if (val == "\n")
+                {
+                    // newline: split current line at cursorCol
+                    String left = lines[cursorLine].substring(0, cursorCol);
+                    String right = lines[cursorLine].substring(cursorCol);
+                    lines[cursorLine] = left;
+                    lines.insert(lines.begin() + cursorLine + 1, right);
+                    cursorLine++;
+                    cursorCol = 0;
+                }
                 else
-                { // normal char
+                { // normal char insertion + auto-wrap if needed
                     lines[cursorLine] = lines[cursorLine].substring(0, cursorCol) + val + lines[cursorLine].substring(cursorCol);
                     cursorCol += val.length();
+
+                    // auto-wrap: wenn Zeile breiter ist als die Area, splitten
+                    int maxChars = (AREA_W - pad * 2) / charW;
+                    if (maxChars < 1)
+                        maxChars = 1;
+                    if ((int)lines[cursorLine].length() > maxChars)
+                    {
+                        String overflow = lines[cursorLine].substring(maxChars);
+                        lines[cursorLine] = lines[cursorLine].substring(0, maxChars);
+                        lines.insert(lines.begin() + cursorLine + 1, overflow);
+                        if (cursorCol > maxChars)
+                        {
+                            cursorLine++;
+                            cursorCol -= maxChars;
+                        }
+                    }
                 }
 
-                // Scroll anpassen
-                int visibleLines = AREA_H / lineHForSize(1);
+                // Scroll anpassen (line-wise)
+                int visibleLines = AREA_H / lineHForSize(TEXT_SIZE_AREA);
                 if (cursorLine < scrollLine)
                     scrollLine = cursorLine;
                 else if (cursorLine >= scrollLine + visibleLines)
                     scrollLine = cursorLine - visibleLines + 1;
 
+                // redraw
+                tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0xFFFF); // clear text area only
                 drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true);
             }
             pressedKey = -1;
