@@ -70,21 +70,22 @@ namespace Auth
 
                 // Clock display
                 auto time = UserTime::get();
-                if (time.tm_year > 124)
-                {
-                    String hour = String(time.tm_hour);
-                    String minute = String(time.tm_min);
-                    if (minute.length() < 2)
-                        minute = "0" + minute;
-                    if (hour.length() < 2)
-                        hour = "0" + hour;
+                String hour = String(time.tm_hour);
+                String minute = String(time.tm_min);
+                if (minute.length() < 2)
+                    minute = "0" + minute;
+                if (hour.length() < 2)
+                    hour = "0" + hour;
 
-                    // Clear previous clock
-                    tft.fillRect(55, 40, 210, 55, TFT_WHITE);
-                    tft.setTextSize(8);
-                    tft.setCursor(55, 40);
+                // Clear previous clock
+                tft.fillRect(55, 40, 210, 55, TFT_WHITE);
+                tft.setTextSize(8);
+                tft.setCursor(55, 40);
+
+                if (time.tm_year > 124)
                     tft.print(hour + ":" + minute);
-                }
+                else
+                    tft.print("..:..");
 
                 // Draw buttons with minimal color
                 tft.fillRoundRect(loginBtn.pos.x, loginBtn.pos.y, loginBtn.dimensions.x, loginBtn.dimensions.y, 10, RGB(255, 240, 255));
