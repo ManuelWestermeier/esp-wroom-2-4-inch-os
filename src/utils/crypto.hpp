@@ -125,7 +125,7 @@ namespace Crypto
 
     namespace HASH
     {
-        const String &sha256String(const String &text)
+        String sha256String(const String &text)
         {
             byte hash[32];
             mbedtls_sha256((const byte *)text.c_str(), text.length(), hash, 0);
@@ -136,7 +136,7 @@ namespace Crypto
                 sprintf(buf, "%02x", hash[i]);
                 out += String(buf);
             }
-            return out;
+            return out; // safe, returns by value
         }
     }
 }

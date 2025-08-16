@@ -34,19 +34,21 @@ namespace Auth
         return false;
     }
 
-    void createAccount(String user, String pass)
+    bool createAccount(String user, String pass)
     {
         if (exists(user))
-            return;
+            return false;
 
-        String userDir = "/" + Crypto::HASH::sha256String(user) + "/";
-        SD_FS::createDir(userDir);
+        String userDir = "/" + Crypto::HASH::sha256String(user);
+        bool SD_FS::createDir(userDir);
 
-        String authFile = userDir + Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
-        SD_FS::writeFile(authFile, "AUTH"); // placeholder
+        String authFile = userDir + "/" + Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
+        bool SD_FS::writeFile(authFile, "AUTH"); // placeholder
 
         username = user;
         password = pass;
+
+        return true;
     }
 
     void init()
@@ -56,11 +58,14 @@ namespace Auth
         tft.fillScreen(TFT_WHITE);
         tft.setTextColor(TFT_BLACK);
 
-        // Define vertical buttons with smaller font
-        Rect loginBtn{{60, 140}, {200, 40}}; // x,y pos; w,h
+        Rect loginBtn{{60, 140}, {200, 40}};
         Rect createBtn{{60, 190}, {200, 40}};
 
-        int render = 50; // control update speed
+        for (const auto f : SD_FS::readDir("/"))
+            if (f.isDirectory() && strcmp(f.name(), "System Volume Information") != 0)
+                Serial.println("USER: " + f.name());
+
+        int render = 50;
 
         while (true)
         {
@@ -77,30 +82,22 @@ namespace Auth
                 if (hour.length() < 2)
                     hour = "0" + hour;
 
-                // Clear previous clock
                 tft.fillRect(55, 40, 210, 55, TFT_WHITE);
                 tft.setTextSize(8);
                 tft.setCursor(55, 40);
+                tft.print(time.tm_year > 124 ? hour + ":" + minute : "..:..");
 
-                if (time.tm_year > 124)
-                    tft.print(hour + ":" + minute);
-                else
-                    tft.print("..:..");
-
-                // Draw buttons with minimal color
+                // Buttons
                 tft.fillRoundRect(loginBtn.pos.x, loginBtn.pos.y, loginBtn.dimensions.x, loginBtn.dimensions.y, 10, RGB(255, 240, 255));
                 tft.fillRoundRect(createBtn.pos.x, createBtn.pos.y, createBtn.dimensions.x, createBtn.dimensions.y, 10, RGB(255, 240, 255));
 
-                // Draw button text
-                tft.setTextSize(2); // smaller font
+                tft.setTextSize(2);
                 tft.setCursor(loginBtn.pos.x + 10, loginBtn.pos.y + 10);
                 tft.print("LOGIN");
-
                 tft.setCursor(createBtn.pos.x + 10, createBtn.pos.y + 10);
                 tft.print("CREATE ACCOUNT");
             }
 
-            // Handle touch
             TouchPos touch = getTouchPos();
             if (touch.clicked)
             {
@@ -110,19 +107,19 @@ namespace Auth
                 {
                     String user = readString("Username", "");
                     String pass = readString("Password", "");
+                    tft.fillScreen(TFT_WHITE);
+
                     if (login(user, pass))
                     {
-                        tft.fillScreen(TFT_WHITE);
                         tft.setCursor(50, 100);
                         tft.setTextSize(3);
                         tft.print("Login successful!");
                     }
                     else
                     {
-                        tft.fillScreen(TFT_WHITE);
                         tft.setCursor(50, 100);
                         tft.setTextSize(3);
-                        tft.print("Login failed!");
+                        tft.print("Login failed! User/pass incorrect.");
                     }
                     delay(1500);
                     tft.fillScreen(TFT_WHITE);
@@ -130,19 +127,71 @@ namespace Auth
                 else if (createBtn.isIn(point))
                 {
                     String user = readString("New Username", "");
-                    String pass = readString("New Password", "");
-                    createAccount(user, pass);
+                    if (exists(user))
+                    {
+                        // Ask user to confirm overwriting/fallback
+                        tft.fillScreen(TFT_WHITE);
+                        tft.setCursor(20, 80);
+                        tft.setTextSize(2);
+                        tft.print("Username exists! Continue?");
 
-                    tft.fillScreen(TFT_WHITE);
-                    tft.setCursor(50, 100);
-                    tft.setTextSize(3);
-                    tft.print("Account created!");
-                    delay(1500);
-                    tft.fillScreen(TFT_WHITE);
+                        // Yes/No buttons
+                        Rect yesBtn{{50, 140}, {80, 40}};
+                        Rect noBtn{{170, 140}, {80, 40}};
+                        tft.fillRoundRect(yesBtn.pos.x, yesBtn.pos.y, yesBtn.dimensions.x, yesBtn.dimensions.y, 10, RGB(200, 255, 200));
+                        tft.fillRoundRect(noBtn.pos.x, noBtn.pos.y, noBtn.dimensions.x, noBtn.dimensions.y, 10, RGB(255, 200, 200));
+                        tft.setCursor(yesBtn.pos.x + 10, yesBtn.pos.y + 10);
+                        tft.print("YES");
+                        tft.setCursor(noBtn.pos.x + 10, noBtn.pos.y + 10);
+                        tft.print("NO");
+
+                        while (true)
+                        {
+                            TouchPos t = getTouchPos();
+                            if (t.clicked)
+                            {
+                                Vec p{t.x, t.y};
+                                if (yesBtn.isIn(p))
+                                {
+                                    String pass = readString("New Password", "");
+                                    createAccount(user, pass);
+                                    tft.fillScreen(TFT_WHITE);
+                                    tft.setCursor(50, 100);
+                                    tft.setTextSize(3);
+                                    tft.print("Account updated!");
+                                    delay(1500);
+                                    tft.fillScreen(TFT_WHITE);
+                                    break;
+                                }
+                                else if (noBtn.isIn(p))
+                                {
+                                    tft.fillScreen(TFT_WHITE);
+                                    tft.setCursor(50, 100);
+                                    tft.setTextSize(3);
+                                    tft.print("Action cancelled.");
+                                    delay(1500);
+                                    tft.fillScreen(TFT_WHITE);
+                                    break;
+                                }
+                            }
+                            delay(50);
+                        }
+                    }
+                    else
+                    {
+                        String pass = readString("New Password", "");
+                        createAccount(user, pass);
+                        tft.fillScreen(TFT_WHITE);
+                        tft.setCursor(50, 100);
+                        tft.setTextSize(3);
+                        tft.print("Account created!");
+                        delay(1500);
+                        tft.fillScreen(TFT_WHITE);
+                    }
                 }
             }
 
-            delay(50); // slower main loop
+            delay(50);
         }
     }
 }
