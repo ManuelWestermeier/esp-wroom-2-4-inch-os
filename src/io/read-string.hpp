@@ -145,10 +145,10 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
         y += KEY_H + KEY_SP;
         addRow("!@#$%^&*()", y);
         y += KEY_H + KEY_SP;
-        addRow("[]{};:'\"", y, 0, 26, 4);
+        addRow("?[]{};:,.'\"", y, 0, 26, 4);
         y += KEY_H + KEY_SP;
-        addRow(",.<>/?\\|", y, 0, 26, 4);
-        y += KEY_H + KEY_SP;
+        // addRow(",.<>/?\\|", y, 0, 26, 4);
+        // y += KEY_H + KEY_SP;
     }
 
     y -= 8;
@@ -174,6 +174,7 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
 
     keys.push_back({sx, y, 40, KEY_H, "OK", "OK"});
 
+    tft.fillScreen(TFT_WHITE);
     return keys;
 }
 
@@ -203,12 +204,6 @@ String readString(const String &question = "", const String &defaultValue = "")
     tft.setTextSize(2);
     tft.setTextColor(0x0000);
 
-    if (question.length())
-    {
-        tft.setCursor(MARGIN, MARGIN);
-        tft.print(question);
-    }
-
     KbMode mode = KbMode::LOWER;
     auto keys = buildKeyboardLayout(mode);
 
@@ -224,6 +219,12 @@ String readString(const String &question = "", const String &defaultValue = "")
 
     while (true)
     {
+        if (question.length())
+        {
+            tft.setCursor(MARGIN, MARGIN);
+            tft.print(question);
+        }
+
         auto pos = Screen::getTouchPos();
         bool isPressed = pos.clicked;
 
