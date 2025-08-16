@@ -13,14 +13,20 @@ namespace Auth
     String username = "";
     String password = "";
 
+    // Check if a user exists by hashed directory
     bool exists(const String &user)
     {
-        String path = "/" + Crypto::HASH::sha256String(user) + "/";
+        if (user.isEmpty())
+            return false;
+        String path = "/" + Crypto::HASH::sha256String(user);
         return SD_FS::exists(path);
     }
 
+    // Attempt login with username and password
     bool login(const String &user, const String &pass)
     {
+        if (user.isEmpty() || pass.isEmpty())
+            return false;
         if (!exists(user))
             return false;
 
@@ -35,23 +41,28 @@ namespace Auth
         return false;
     }
 
+    // Create new account, returns false if user already exists
     bool createAccount(const String &user, const String &pass)
     {
+        if (user.isEmpty() || pass.isEmpty())
+            return false;
         if (exists(user))
             return false;
 
         String userDir = "/" + Crypto::HASH::sha256String(user);
-        SD_FS::createDir(userDir);
+        if (!SD_FS::createDir(userDir))
+            return false;
 
         String authFile = userDir + "/" + Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
-        SD_FS::writeFile(authFile, "AUTH"); // placeholder
+        if (!SD_FS::writeFile(authFile, "AUTH"))
+            return false; // store a placeholder
 
         username = user;
         password = pass;
-
         return true;
     }
 
+    // Main login/create account screen
     void init()
     {
         using namespace Screen;
@@ -62,9 +73,12 @@ namespace Auth
         Rect loginBtn{{60, 140}, {200, 40}};
         Rect createBtn{{60, 190}, {200, 40}};
 
-        for (auto &f : SD_FS::readDir("/")) // non-const reference
+        // Debug: list existing users
+        for (auto &f : SD_FS::readDir("/"))
+        {
             if (f.isDirectory() && strcmp(f.name(), "System Volume Information") != 0)
                 Serial.println("USER: " + String(f.name()));
+        }
 
         int render = 50;
 
@@ -74,14 +88,14 @@ namespace Auth
             {
                 render = 50;
 
-                // Clock display
+                // Display clock
                 auto time = UserTime::get();
                 String hour = String(time.tm_hour);
+                if (hour.length() < 2)
+                    hour = "0" + hour;
                 String minute = String(time.tm_min);
                 if (minute.length() < 2)
                     minute = "0" + minute;
-                if (hour.length() < 2)
-                    hour = "0" + hour;
 
                 tft.fillRect(55, 40, 210, 55, TFT_WHITE);
                 tft.setTextSize(8);
@@ -91,7 +105,6 @@ namespace Auth
                 // Draw buttons
                 tft.fillRoundRect(loginBtn.pos.x, loginBtn.pos.y, loginBtn.dimensions.x, loginBtn.dimensions.y, 10, RGB(255, 240, 255));
                 tft.fillRoundRect(createBtn.pos.x, createBtn.pos.y, createBtn.dimensions.x, createBtn.dimensions.y, 10, RGB(255, 240, 255));
-
                 tft.setTextSize(2);
                 tft.setCursor(loginBtn.pos.x + 10, loginBtn.pos.y + 10);
                 tft.print("LOGIN");
@@ -104,95 +117,74 @@ namespace Auth
             {
                 Vec point{touch.x, touch.y};
 
+                // LOGIN FLOW
                 if (loginBtn.isIn(point))
                 {
                     String user = readString("Username", "");
                     String pass = readString("Password", "");
                     tft.fillScreen(TFT_WHITE);
 
-                    if (login(user, pass))
+                    bool ok = login(user, pass);
+                    tft.setCursor(50, 100);
+                    tft.setTextSize(3);
+                    if (ok)
                     {
-                        tft.setCursor(50, 100);
-                        tft.setTextSize(3);
                         tft.print("Login successful!");
+                        Serial.println("LOGIN SUCCESS: " + user);
                     }
                     else
                     {
-                        tft.setCursor(50, 100);
-                        tft.setTextSize(3);
-                        tft.print("Login failed! User/pass incorrect.");
+                        tft.print("Login failed!");
+                        Serial.println("LOGIN FAILED: " + user);
                     }
+
                     delay(1500);
                     tft.fillScreen(TFT_WHITE);
+
+                    if (ok)
+                        return;
                 }
+                // CREATE ACCOUNT FLOW
                 else if (createBtn.isIn(point))
                 {
                     String user = readString("New Username", "");
+                    if (user.isEmpty())
+                        continue;
+
+                    tft.fillScreen(TFT_WHITE);
 
                     if (exists(user))
                     {
-                        // Ask user to confirm overwriting/fallback
-                        tft.fillScreen(TFT_WHITE);
+                        // Confirm overwrite
                         tft.setCursor(20, 80);
                         tft.setTextSize(2);
-                        tft.print("Username exists! Continue?");
-
-                        // Yes/No buttons
-                        Rect yesBtn{{50, 140}, {80, 40}};
-                        Rect noBtn{{170, 140}, {80, 40}};
-                        tft.fillRoundRect(yesBtn.pos.x, yesBtn.pos.y, yesBtn.dimensions.x, yesBtn.dimensions.y, 10, RGB(200, 255, 200));
-                        tft.fillRoundRect(noBtn.pos.x, noBtn.pos.y, noBtn.dimensions.x, noBtn.dimensions.y, 10, RGB(255, 200, 200));
-                        tft.setCursor(yesBtn.pos.x + 10, yesBtn.pos.y + 10);
-                        tft.print("YES");
-                        tft.setCursor(noBtn.pos.x + 10, noBtn.pos.y + 10);
-                        tft.print("NO");
-
-                        while (true)
-                        {
-                            TouchPos t = getTouchPos();
-                            if (t.clicked)
-                            {
-                                Vec p{t.x, t.y};
-                                if (yesBtn.isIn(p))
-                                {
-                                    String pass = readString("New Password", "");
-                                    createAccount(user, pass);
-                                    tft.fillScreen(TFT_WHITE);
-                                    tft.setCursor(50, 100);
-                                    tft.setTextSize(3);
-                                    tft.print("Account updated!");
-                                    delay(1500);
-                                    tft.fillScreen(TFT_WHITE);
-                                    break;
-                                }
-                                else if (noBtn.isIn(p))
-                                {
-                                    tft.fillScreen(TFT_WHITE);
-                                    tft.setCursor(50, 100);
-                                    tft.setTextSize(3);
-                                    tft.print("Action cancelled.");
-                                    delay(1500);
-                                    tft.fillScreen(TFT_WHITE);
-                                    break;
-                                }
-                            }
-                            delay(50);
-                        }
+                        tft.println("Username exists!");
+                        tft.println("Try an other name!");
+                        delay(1500);
                     }
                     else
                     {
                         String pass = readString("New Password", "");
-                        createAccount(user, pass);
-                        tft.fillScreen(TFT_WHITE);
+                        bool ok = !pass.isEmpty() && createAccount(user, pass);
                         tft.setCursor(50, 100);
                         tft.setTextSize(3);
-                        tft.print("Account created!");
+                        if (ok)
+                        {
+                            tft.print("Account created!");
+                            Serial.println("ACCOUNT CREATED: " + user);
+                        }
+                        else
+                        {
+                            tft.print("Creation failed!");
+                            Serial.println("ACCOUNT CREATION FAILED: " + user);
+                        }
                         delay(1500);
                         tft.fillScreen(TFT_WHITE);
+                        if (ok)
+                            return;
                     }
                 }
             }
-
             delay(50);
         }
     }
