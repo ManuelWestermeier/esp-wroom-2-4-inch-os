@@ -11,10 +11,16 @@ namespace Windows
     void add(WindowPtr w)
     {
         while (!canAccess)
-            delay(rand() % 5);
+        {
+            Serial.println("HLT");
+            delay(3);
+        }
 
         canAccess = false;
         apps.push_back(std::move(w));
+        Serial.println("Filling screen with background color...");
+        Screen::tft.fillScreen(RGB(245, 245, 255));
+        Serial.println("=== Window::init completed ===");
         canAccess = true;
     }
 
@@ -196,6 +202,12 @@ namespace Windows
 
     void loop()
     {
+        while (!canAccess)
+        {
+            Serial.println("HLT");
+            delay(3);
+        }
+
         canAccess = false;
         drawTime();
 

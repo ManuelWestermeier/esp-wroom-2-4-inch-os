@@ -33,5 +33,7 @@ void setup()
 void loop()
 {
     // debugTaskLog();
-    delay(3000);
+    // delay(3000);
+    Serial.println(Windows::canAccess);
+    delay(5);
 }
