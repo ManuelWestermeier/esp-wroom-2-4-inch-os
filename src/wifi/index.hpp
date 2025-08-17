@@ -2,31 +2,23 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <vector>
 
 #include "../fs/index.hpp"
 #include "../utils/time.hpp"
 
+#define LOG_ALL_WIFIS true
+
 namespace UserWiFi
 {
-    struct KnownWiFi
-    {
-        String ssid;
-        String password;
-    };
-
     TaskHandle_t WiFiConnectTaskHandle = NULL;
 
-    void WiFiConnectTask(void *)
+    void logAllWifis()
     {
         auto publicWiFiNames = SD_FS::readDir("/public/wifi");
-
-        std::vector<KnownWiFi> knownNetworks;
         for (File wifiFile : publicWiFiNames)
         {
             if (!wifiFile.isDirectory())
             {
-                KnownWiFi wifi;
                 String name = wifiFile.name();
 
                 if (name == "README.md")
@@ -38,21 +30,25 @@ namespace UserWiFi
                     name.remove(name.length() - 5);
                 }
 
-                wifi.ssid = name;
-                wifi.password = wifiFile.readString();
-
-                Serial.println("WIFI FOUND: " + wifi.ssid + " | " + wifi.password);
-
-                knownNetworks.push_back(wifi);
+                Serial.println("WIFI FOUND: " + name + " | " + wifiFile.readString());
             }
         }
+    }
+
+    void WiFiConnectTask(void *)
+    {
+#if LOG_ALL_WIFIS
+        logAllWifis();
+#endif
 
         for (;;)
         {
             if (WiFi.status() != WL_CONNECTED)
             {
-                Serial.println("\n[WiFi] Scanning for networks...");
-                int n = WiFi.scanNetworks();
+                Serial.println("\n[WiFi] Scanning...");
+                WiFi.scanDelete();
+                int n = WiFi.scanNetworks(); // async scan
+
                 if (n == 0)
                 {
                     Serial.println("[WiFi] No networks found.");
@@ -61,66 +57,55 @@ namespace UserWiFi
                 {
                     bool connected = false;
 
-                    // Try known networks first
-                    for (auto &net : knownNetworks)
+                    for (int i = 0; i < n && !connected; i++)
                     {
-                        if (connected)
-                            break;
-                        for (int j = 0; j < n; j++)
+                        String ssid = WiFi.SSID(i);
+
+                        if (LOG_ALL_WIFIS)
                         {
-                            if (WiFi.SSID(j) == net.ssid)
+                            Serial.printf("[WiFi] Found: %s (%s)\n",
+                                          ssid.c_str(),
+                                          WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "open" : "secured");
+                        }
+
+                        // Prüfen ob Datei für dieses WLAN existiert
+                        String wifiFile = "/public/wifi/" + ssid + ".wifi";
+                        if (SD_FS::exists(wifiFile))
+                        {
+                            String password = SD_FS::readFile(wifiFile);
+
+                            Serial.printf("[WiFi] Known network %s, connecting...\n", ssid.c_str());
+                            WiFi.begin(ssid.c_str(), password.c_str());
+
+                            if (WiFi.waitForConnectResult(8000) == WL_CONNECTED)
                             {
-                                Serial.printf("[WiFi] Found known network: %s, connecting...\n", net.ssid.c_str());
-                                WiFi.begin(net.ssid.c_str(), net.password.c_str());
-
-                                unsigned long start = millis();
-                                while (WiFi.status() != WL_CONNECTED && millis() - start < 8000)
-                                    delay(500);
-
-                                if (WiFi.status() == WL_CONNECTED)
-                                {
-                                    Serial.printf("[WiFi] Connected to %s\n", net.ssid.c_str());
-                                    connected = true;
-                                    break;
-                                }
+                                Serial.printf("[WiFi] Connected to %s\n", ssid.c_str());
+                                connected = true;
+                                break;
                             }
                         }
-                    }
-
-                    // If no known network, try open ones
-                    if (!connected)
-                    {
-                        for (int j = 0; j < n && !connected; j++)
+                        else if (WiFi.encryptionType(i) == WIFI_AUTH_OPEN)
                         {
-                            if (WiFi.encryptionType(j) == WIFI_AUTH_OPEN)
+                            Serial.printf("[WiFi] Trying open: %s\n", ssid.c_str());
+                            WiFi.begin(ssid.c_str());
+
+                            if (WiFi.waitForConnectResult(5000) == WL_CONNECTED)
                             {
-                                Serial.printf("[WiFi] Trying open network: %s\n", WiFi.SSID(j).c_str());
-                                WiFi.begin(WiFi.SSID(j).c_str());
-
-                                unsigned long start = millis();
-                                while (WiFi.status() != WL_CONNECTED && millis() - start < 5000)
-                                    delay(500);
-
-                                if (WiFi.status() == WL_CONNECTED)
-                                {
-                                    Serial.printf("[WiFi] Connected to open network: %s\n", WiFi.SSID(j).c_str());
-                                    connected = true;
-                                }
+                                Serial.printf("[WiFi] Connected to open network: %s\n", ssid.c_str());
+                                connected = true;
+                                break;
                             }
                         }
                     }
 
                     if (!connected)
-                    {
-                        Serial.println("[WiFi] Could not connect to any network.");
-                    }
-
-                    if (connected)
+                        Serial.println("[WiFi] Could not connect.");
+                    else
                         UserTime::set();
                 }
-                WiFi.scanDelete();
             }
-            delay(15000); // Scan every 15 seconds if disconnected
+
+            delay(15000); // Retry every 15s if disconnected
         }
     }
 
