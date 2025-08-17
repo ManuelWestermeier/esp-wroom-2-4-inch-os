@@ -2,8 +2,7 @@
 #include "sandbox.hpp"
 #include "functions.hpp"
 
-#include <FS.h>
-#include <SPIFFS.h>
+#include "../fs/index.hpp"
 
 extern "C"
 {
@@ -25,7 +24,7 @@ namespace LuaApps::Runtime
         return lua_error(L);
     }
 
-    int runApp(const char *path, const std::vector<String> &args)
+    int runApp(String path, const std::vector<String> &args)
     {
         lua_State *L = Sandbox::createRestrictedLuaState();
         lua_register(L, "exitApp", lua_exitApp);
@@ -39,11 +38,7 @@ namespace LuaApps::Runtime
         }
         lua_setglobal(L, "args");
 
-        File file = SPIFFS.open(path);
-        if (!file)
-            return -1;
-        String content = file.readString();
-        file.close();
+        String content = SD_FS::readFile(path);
 
         if (luaL_dostring(L, content.c_str()) != LUA_OK)
         {

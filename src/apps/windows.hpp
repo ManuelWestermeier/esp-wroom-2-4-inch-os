@@ -19,6 +19,7 @@ namespace Windows
     extern std::vector<WindowPtr> apps;
     extern bool isRendering;
     extern bool isUsingKeyBoard;
+    extern bool canAccess;
     extern Rect timeButton;
 
     // core API

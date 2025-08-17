@@ -5,11 +5,17 @@ namespace Windows
     std::vector<WindowPtr> apps;
     bool isRendering = true;
     bool isUsingKeyBoard = false;
+    bool canAccess = true;
     Rect timeButton{{320 - 42 - 5, 240 - 16 - 5}, {42, 16}};
 
     void add(WindowPtr w)
     {
+        while (!canAccess)
+            delay(rand() % 5);
+
+        canAccess = false;
         apps.push_back(std::move(w));
+        canAccess = true;
     }
 
     void removeAt(int idx)
@@ -190,6 +196,7 @@ namespace Windows
 
     void loop()
     {
+        canAccess = false;
         drawTime();
 
         static MouseState lastState = MouseState::Up;
@@ -214,6 +221,8 @@ namespace Windows
             drawWindows(pos, move, state);
         else
             drawMenu(pos, move, state);
+
+        canAccess = true;
     }
 
     void drawCloseX(int x, int y, uint16_t color)

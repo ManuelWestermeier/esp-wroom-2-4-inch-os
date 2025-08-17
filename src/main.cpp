@@ -22,11 +22,14 @@ void setup()
     UserWiFi::start();
     Screen::init();
 
-    // startAnimationMWOS();
+    startAnimationMWOS();
     Auth::init();
 
     LuaApps::initialize();
     startWindowRender();
+
+    delay(50);
+    executeApplication({"/public/programs/test.lua", "Arg1", "Hi"});
 }
 
 void loop()

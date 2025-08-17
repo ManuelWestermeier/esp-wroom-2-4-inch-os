@@ -48,15 +48,19 @@ namespace SD_FS
     String readFile(const String &path)
     {
         File file = SD.open(path);
+        String result = "";
+
         if (!file)
         {
             Serial.printf("❌ readFile: can't open %s\n", path.c_str());
-            return "";
+            return result;
         }
-        String result;
+
         while (file.available())
             result += (char)file.read();
+
         file.close();
+
         return result;
     }
 

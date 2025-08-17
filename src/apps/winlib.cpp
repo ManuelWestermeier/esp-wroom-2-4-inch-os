@@ -19,7 +19,7 @@ namespace LuaApps::WinLib
         int h = luaL_checkinteger(L, 4);
 
         auto win = Windows::WindowPtr(new Window());
-        win->init("LuaWindow", {x, y}, {w, h});
+        win->init("Win App", {x, y}, {w, h});
 
         int id = nextWindowId++;
 
