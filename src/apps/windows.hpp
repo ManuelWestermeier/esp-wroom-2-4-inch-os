@@ -3,7 +3,7 @@
 #include <vector>
 #include <memory>
 
-#include "../auth.hpp"
+#include "../auth/auth.hpp"
 #include "../screen/index.hpp"
 #include "../utils/time.hpp"
 #include "../utils/rect.hpp"

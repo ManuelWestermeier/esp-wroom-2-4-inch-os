@@ -45,8 +45,9 @@ namespace Auth
         String userDir = "/" + Crypto::HASH::sha256String(user);
         if (!SD_FS::createDir(userDir))
             return false;
+        userDir += "/";
 
-        String authFile = userDir + "/" + Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
+        String authFile = userDir + Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
         if (!SD_FS::writeFile(authFile, "AUTH"))
             return false;
 

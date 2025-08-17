@@ -9,7 +9,7 @@
 #include "wifi/index.hpp"
 
 #include "anim/entry.hpp"
-#include "auth.hpp"
+#include "auth/auth.hpp"
 
 using namespace Windows;
 
@@ -27,8 +27,6 @@ void setup()
 
     LuaApps::initialize();
     startWindowRender();
-
-    delay(50);
     executeApplication({"/public/programs/test.lua", "Arg1", "Hi"});
 }
 
