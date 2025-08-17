@@ -64,7 +64,7 @@ namespace Auth
 
         Rect loginBtn{{60, 140 - 30}, {200, 40}};
         Rect createBtn{{60, 190 - 30}, {200, 40}};
-        Rect messageArea{{30, 200}, {280, 30}};
+        Rect messageArea{{40, 200}, {280, 30}};
 
         for (auto &f : SD_FS::readDir("/"))
         {
@@ -77,6 +77,8 @@ namespace Auth
 
         auto drawUI = [&](const String &msg = "")
         {
+            tft.setTextColor(TFT_BLACK);
+
             auto time = UserTime::get();
             String hour = String(time.tm_hour);
             String minute = String(time.tm_min);
@@ -127,14 +129,14 @@ namespace Auth
                     if (user.isEmpty())
                     {
                         message = "Username required.";
-                        render = -1;
+                        drawUI(message);
                         continue;
                     }
 
                     if (!exists(user))
                     {
                         message = "Username not exits.";
-                        render = -1;
+                        drawUI(message);
                         continue;
                     }
 
@@ -143,20 +145,19 @@ namespace Auth
                     if (pass.isEmpty())
                     {
                         message = "Password required.";
-                        render = -1;
+                        drawUI(message);
                         continue;
                     }
 
-                    bool ok = login(user, pass);
-                    tft.setCursor(30, 100);
-                    tft.setTextSize(2);
-                    message = ok ? "Login successful!" : "Login failed!";
-                    tft.print(message);
-                    Serial.println((ok ? "LOGIN SUCCESS: " : "LOGIN FAILED: ") + user);
                     tft.fillScreen(TFT_WHITE);
+                    bool ok = login(user, pass);
+                    message = ok ? "Login successful!" : "Login failed!";
+                    Serial.println((ok ? "LOGIN SUCCESS: " : "LOGIN FAILED: ") + user);
+
                     if (ok)
                         return;
-                    render = -1;
+
+                    drawUI(message);
                 }
 
                 else if (createBtn.isIn(point))
@@ -166,14 +167,14 @@ namespace Auth
                     if (user.isEmpty())
                     {
                         message = "Username required.";
-                        render = -1;
+                        drawUI(message);
                         continue;
                     }
 
                     if (exists(user))
                     {
                         message = "Username exists. Try another.";
-                        render = -1;
+                        drawUI(message);
                         continue;
                     }
 
@@ -182,21 +183,19 @@ namespace Auth
                     if (pass.isEmpty())
                     {
                         message = "Password required.";
-                        render = -1;
+                        drawUI(message);
                         continue;
                     }
 
                     bool ok = createAccount(user, pass);
-                    tft.setCursor(50, 100);
-                    tft.setTextSize(3);
                     message = ok ? "Account created!" : "Creation failed!";
-                    tft.print(message);
                     Serial.println((ok ? "ACCOUNT CREATED: " : "ACCOUNT CREATION FAILED: ") + user);
-                    delay(1500);
                     tft.fillScreen(TFT_WHITE);
+
                     if (ok)
                         return;
-                    render = -1;
+
+                    drawUI(message);
                 }
             }
 
