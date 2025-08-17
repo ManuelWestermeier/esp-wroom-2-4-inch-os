@@ -22,6 +22,10 @@ namespace Auth
 
         String path = "/" + Crypto::HASH::sha256String(user) + "/" +
                       Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
+
+        for (const auto f : SD_FS::readDir("/" + Crypto::HASH::sha256String(user)))
+            Serial.println(String("FILE: ") + user + ": " + f.name());
+
         if (SD_FS::exists(path))
         {
             username = user;
@@ -58,9 +62,9 @@ namespace Auth
         tft.fillScreen(TFT_WHITE);
         tft.setTextColor(TFT_BLACK);
 
-        Rect loginBtn{{60, 140}, {200, 40}};
-        Rect createBtn{{60, 190}, {200, 40}};
-        Rect messageArea{{20, 250}, {280, 30}};
+        Rect loginBtn{{60, 140 - 30}, {200, 40}};
+        Rect createBtn{{60, 190 - 30}, {200, 40}};
+        Rect messageArea{{30, 200}, {280, 30}};
 
         for (auto &f : SD_FS::readDir("/"))
         {
@@ -118,59 +122,71 @@ namespace Auth
                 if (loginBtn.isIn(point))
                 {
                     String user = readString("Username", "");
+                    tft.fillScreen(TFT_WHITE);
+
                     if (user.isEmpty())
                     {
                         message = "Username required.";
+                        render = -1;
+                        continue;
+                    }
+
+                    if (!exists(user))
+                    {
+                        message = "Username not exits.";
+                        render = -1;
                         continue;
                     }
 
                     String pass = readString("Password", "");
+                    tft.fillScreen(TFT_WHITE);
                     if (pass.isEmpty())
                     {
                         message = "Password required.";
+                        render = -1;
                         continue;
                     }
 
-                    tft.fillScreen(TFT_WHITE);
                     bool ok = login(user, pass);
-                    tft.setCursor(50, 100);
-                    tft.setTextSize(3);
+                    tft.setCursor(30, 100);
+                    tft.setTextSize(2);
                     message = ok ? "Login successful!" : "Login failed!";
                     tft.print(message);
                     Serial.println((ok ? "LOGIN SUCCESS: " : "LOGIN FAILED: ") + user);
-                    delay(1500);
                     tft.fillScreen(TFT_WHITE);
                     if (ok)
                         return;
-                    drawUI(message);
+                    render = -1;
                 }
 
                 else if (createBtn.isIn(point))
                 {
                     String user = readString("New Username", "");
+                    tft.fillScreen(TFT_WHITE);
                     if (user.isEmpty())
                     {
                         message = "Username required.";
+                        render = -1;
                         continue;
                     }
 
                     if (exists(user))
                     {
                         message = "Username exists. Try another.";
-                        drawUI(message);
-                        delay(1500);
+                        render = -1;
                         continue;
                     }
 
                     String pass = readString("New Password", "");
+                    tft.fillScreen(TFT_WHITE);
                     if (pass.isEmpty())
                     {
                         message = "Password required.";
+                        render = -1;
                         continue;
                     }
 
                     bool ok = createAccount(user, pass);
-                    tft.fillScreen(TFT_WHITE);
                     tft.setCursor(50, 100);
                     tft.setTextSize(3);
                     message = ok ? "Account created!" : "Creation failed!";
@@ -180,7 +196,7 @@ namespace Auth
                     tft.fillScreen(TFT_WHITE);
                     if (ok)
                         return;
-                    drawUI(message);
+                    render = -1;
                 }
             }
 
