@@ -1,11 +1,8 @@
 #pragma once
 
 #include <Arduino.h>
-#include <vector>
-#include <string>
-
 #include "utils/crypto.hpp"
-#include "fs/enc-fs.hpp"
+#include "fs/index.hpp"
 #include "io/read-string.hpp"
 #include "screen/index.hpp"
 #include "utils/rect.hpp"
@@ -14,6 +11,7 @@
 namespace Auth
 {
     extern String username;
+    extern String name;
     extern String password;
 
     // Check if a user exists by hashed directory

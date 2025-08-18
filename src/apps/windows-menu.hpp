@@ -1,0 +1,53 @@
+#include "windows.hpp" // for Vec, MouseState, etc.
+
+// extern void executeApplication(const std::vector<String> &args);
+
+void Windows::drawMenu(Vec pos, Vec move, MouseState state)
+{
+    using Screen::tft;
+    Rect screen = {{0, 0}, {320, 240}};
+    static int scrollYOff = 10;
+    int itemHeight = 25;
+    int itemWidth = 200;
+    Rect topSelect = {{10, 0}, {320, 50}};
+    Rect programsView = {{programsView.pos.x, topSelect.dimensions.y + 10}, {itemWidth, screen.dimensions.y - topSelect.dimensions.y}};
+
+    auto apps = SD_FS::readDir("/public/programs/");
+
+    tft.fillRect(topSelect.pos.x, topSelect.pos.y, topSelect.dimensions.x, topSelect.dimensions.y, RGB(255, 240, 255));
+
+    tft.setTextSize(2);
+    int i = 0;
+    for (const auto app : apps)
+    {
+        i++;
+        Rect appRect = {{10, scrollYOff + i * itemHeight}, {itemWidth, itemHeight}};
+
+        if (appRect.intersects(topSelect))
+            continue;
+        if (!appRect.intersects(screen))
+            continue;
+
+        tft.fillRoundRect(appRect.pos.x, appRect.pos.y, appRect.dimensions.x, appRect.dimensions.y - 5, 5, RGB(255, 240, 255));
+
+        tft.setCursor(appRect.pos.x + 25, appRect.pos.y + 3);
+        tft.print(app.name());
+
+        Serial.println("Path: " + String(app.path()));
+        String path = String(app.path()) + "/icon-20x20.raw";
+        Screen::drawImageFromSD(path.c_str(), appRect.pos.x + 5, appRect.pos.y);
+
+        if (programsView.isIn(pos) && state == MouseState::Down)
+        {
+            executeApplication({String(app.path()) + "/", "Arg1", "Hi"});
+        }
+    }
+
+    if (programsView.isIn(pos) && state == MouseState::Held)
+    {
+        scrollYOff = max(0, scrollYOff + move.y);
+    }
+
+    drawTime();
+    delay(10);
+}

@@ -184,20 +184,7 @@ namespace Windows
         }
     }
 
-    void drawMenu(Vec pos, Vec move, MouseState state)
-    {
-        using Screen::tft;
-
-        tft.setCursor(10, 10);
-        tft.setTextSize(5);
-        tft.println("Menu");
-        tft.setTextSize(1);
-        tft.println(Auth::username);
-        tft.println(Auth::password);
-
-        drawTime();
-        delay(10);
-    }
+    void drawMenu(Vec pos, Vec move, MouseState state);
 
     void loop()
     {
@@ -359,3 +346,5 @@ namespace Windows
     }
 
 } // namespace Windows
+
+#include "windows-menu.hpp"

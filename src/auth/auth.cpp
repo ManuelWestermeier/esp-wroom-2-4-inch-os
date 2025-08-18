@@ -3,6 +3,7 @@
 namespace Auth
 {
     String username = "";
+    String name = "";
     String password = "";
 
     bool exists(const String &user)
@@ -30,84 +31,11 @@ namespace Auth
         {
             username = Crypto::HASH::sha256String(user);
             password = Crypto::HASH::sha256String(pass);
+            name = user;
             return true;
         }
+
         return false;
-    }
-
-    // Helper: convert String to vector<uint8_t>
-    std::vector<uint8_t> stringToBytes(const String &s)
-    {
-        return std::vector<uint8_t>(s.begin(), s.end());
-    }
-
-    // Helper: convert vector<uint8_t> to hex string
-    String bytesToHexString(const std::vector<uint8_t> &data)
-    {
-        String hex;
-        for (auto b : data)
-        {
-            if (b < 16)
-                hex += "0";
-            hex += String(b, HEX);
-        }
-        return hex;
-    }
-
-    // Helper: read file as bytes
-    std::vector<uint8_t> readFileBytes(const String &path)
-    {
-        String content = SD_FS::readFile(path);
-        return stringToBytes(content);
-    }
-
-    // Helper: separate files and directories
-    void listDir(const String &path, std::vector<String> &files, std::vector<String> &dirs)
-    {
-        auto entries = SD_FS::readDir(path);
-        for (auto &f : entries)
-        {
-            if (f.isDirectory())
-                dirs.push_back(f.name());
-            else
-                files.push_back(f.name());
-        }
-    }
-
-    bool copyAndEncryptDir(const String &srcDir, const String &dstDir, const std::vector<uint8_t> &key)
-    {
-        std::vector<String> files, dirs;
-        listDir(srcDir, files, dirs);
-
-        // Copy files
-        for (auto &file : files)
-        {
-            String srcFile = srcDir + "/" + file;
-            std::vector<uint8_t> fileBytes = readFileBytes(srcFile);
-
-            std::vector<uint8_t> encNameBytes = Crypto::AES::encrypt(stringToBytes(file), key);
-            String encFileName = bytesToHexString(encNameBytes);
-            String dstFile = dstDir + "/" + encFileName;
-
-            if (!SD_FS::writeFile(dstFile, String((const char *)fileBytes.data(), fileBytes.size())))
-                return false;
-        }
-
-        // Recurse into directories
-        for (auto &subdir : dirs)
-        {
-            std::vector<uint8_t> encNameBytes = Crypto::AES::encrypt(stringToBytes(subdir), key);
-            String encSubdir = bytesToHexString(encNameBytes);
-            String dstSubdir = dstDir + "/" + encSubdir;
-
-            if (!SD_FS::createDir(dstSubdir))
-                return false;
-
-            if (!copyAndEncryptDir(srcDir + "/" + subdir, dstSubdir, key))
-                return false;
-        }
-
-        return true;
     }
 
     bool createAccount(const String &user, const String &pass)
@@ -126,15 +54,10 @@ namespace Auth
         if (!SD_FS::writeFile(authFile, "AUTH"))
             return false;
 
-        // AES key for file/dir name encryption
-        std::vector<uint8_t> key = stringToBytes(Crypto::HASH::sha256String(user + pass));
-
-        // Copy and encrypt /public/
-        if (!copyAndEncryptDir("/public", userDir, key))
-            return false;
-
         username = Crypto::HASH::sha256String(user);
+        name = user;
         password = Crypto::HASH::sha256String(pass);
+
         return true;
     }
 

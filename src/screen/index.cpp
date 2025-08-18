@@ -71,3 +71,21 @@ Screen::TouchPos Screen::getTouchPos()
     }
     return pos;
 }
+
+void Screen::drawImageFromSD(const char *filename, int x, int y)
+{
+    File f = SD.open(filename, FILE_READ);
+    if (!f)
+        return;
+    uint16_t w = f.read() << 8 | f.read();
+    uint16_t h = f.read() << 8 | f.read();
+    for (int j = 0; j < h; j++)
+    {
+        for (int i = 0; i < w; i++)
+        {
+            uint16_t color = f.read() << 8 | f.read();
+            tft.drawPixel(x + i, y + j, color);
+        }
+    }
+    f.close();
+}

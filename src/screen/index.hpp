@@ -2,7 +2,9 @@
 
 #include "../utils/vec.hpp"
 #include "./config.h"
+
 #include <TFT_eSPI.h>
+#include <SD.h>
 
 namespace Screen
 {
@@ -27,4 +29,6 @@ namespace Screen
 
     // Read the current touch state
     TouchPos getTouchPos();
+
+    void drawImageFromSD(const char *filename, int x, int y);
 }

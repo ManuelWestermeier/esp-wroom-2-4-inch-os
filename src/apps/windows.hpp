@@ -38,3 +38,4 @@ namespace Windows
 }
 
 #include "window.hpp"
+#include "apps/index.hpp"
