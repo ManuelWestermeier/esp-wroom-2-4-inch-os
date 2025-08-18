@@ -100,7 +100,7 @@ namespace LuaApps::LuaFunctions
         }
         case 3:
         { // fs path
-            const char *filePath = luaL_checkstring(L, 2);
+            String filePath = scriptPath + luaL_checkstring(L, 2);
             if (!SD_FS::exists(filePath))
             {
                 err = "file not found: " + String(filePath);
@@ -118,7 +118,7 @@ namespace LuaApps::LuaFunctions
             break;
         }
         default:
-            err = "invalid mode for luaExec()";
+            err = "invalid mode for luaExec() use 1 libary-id, 2 https://raw.githubusercontent.com/+x, 3 programm relative path, 4 raw string execute;";
             break;
         }
 

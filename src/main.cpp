@@ -28,7 +28,7 @@ void setup()
     LuaApps::initialize();
     startWindowRender();
     delay(random(255));
-    executeApplication({"/public/programs/test.lua", "Arg1", "Hi"});
+    executeApplication({"/public/programs/painting", "Arg1", "Hi"});
 }
 
 void loop()

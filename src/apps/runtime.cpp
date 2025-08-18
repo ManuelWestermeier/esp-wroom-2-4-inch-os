@@ -38,7 +38,7 @@ namespace LuaApps::Runtime
         }
         lua_setglobal(L, "args");
 
-        String content = SD_FS::readFile(path);
+        String content = SD_FS::readFile(path + "entry.lua");
 
         if (luaL_dostring(L, content.c_str()) != LUA_OK)
         {
