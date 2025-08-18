@@ -12,7 +12,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     Rect topSelect = {{10, 0}, {320, 50}};
     Rect programsView = {{programsView.pos.x, topSelect.dimensions.y + 10}, {itemWidth, screen.dimensions.y - topSelect.dimensions.y}};
 
-    auto apps = SD_FS::readDir("/public/programs/");
+    auto apps = SD_FS::readDir("/public/programs");
 
     tft.fillRect(topSelect.pos.x, topSelect.pos.y, topSelect.dimensions.x, topSelect.dimensions.y, RGB(255, 240, 255));
 
@@ -30,12 +30,12 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
         tft.fillRoundRect(appRect.pos.x, appRect.pos.y, appRect.dimensions.x, appRect.dimensions.y - 5, 5, RGB(255, 240, 255));
 
-        tft.setCursor(appRect.pos.x + 25, appRect.pos.y + 3);
-        tft.print(app.name());
+        tft.setCursor(appRect.pos.x + 30, appRect.pos.y + 3);
+        String namePath = String(app.path()) + "/name.txt";
+        tft.print(SD_FS::readFile(namePath));
 
-        Serial.println("Path: " + String(app.path()));
-        String path = String(app.path()) + "/icon-20x20.raw";
-        Screen::drawImageFromSD(path.c_str(), appRect.pos.x + 5, appRect.pos.y);
+        String iconPath = String(app.path()) + "/icon-20x20.raw";
+        Screen::drawImageFromSD(iconPath.c_str(), appRect.pos.x + 5, appRect.pos.y);
 
         if (programsView.isIn(pos) && state == MouseState::Down)
         {

@@ -84,7 +84,8 @@ void Screen::drawImageFromSD(const char *filename, int x, int y)
         for (int i = 0; i < w; i++)
         {
             uint16_t color = f.read() << 8 | f.read();
-            tft.drawPixel(x + i, y + j, color);
+            if (color)
+                tft.drawPixel(x + i, y + j, color);
         }
     }
     f.close();
