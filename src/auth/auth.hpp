@@ -5,7 +5,7 @@
 #include <string>
 
 #include "utils/crypto.hpp"
-#include "fs/index.hpp"
+#include "fs/enc-fs.hpp"
 #include "io/read-string.hpp"
 #include "screen/index.hpp"
 #include "utils/rect.hpp"
