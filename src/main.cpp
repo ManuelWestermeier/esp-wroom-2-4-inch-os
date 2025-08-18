@@ -27,14 +27,14 @@ void setup()
 
     LuaApps::initialize();
     startWindowRender();
-    delay(random(255));
-    executeApplication({"/public/programs/painting", "Arg1", "Hi"});
+    // delay(random(255));
+    // executeApplication({"/public/programs/painting/", "Arg1", "Hi"});
 }
 
 void loop()
 {
     // debugTaskLog();
-    // delay(3000);
+    delay(3000);
     // Serial.println(Windows::canAccess);
     // delay(5);
 }

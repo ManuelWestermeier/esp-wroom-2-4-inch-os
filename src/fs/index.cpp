@@ -84,7 +84,7 @@ namespace SD_FS
         return true;
     }
 
-    vector<File> readDir(const String &path, uint8_t levels)
+    vector<File> readDir(const String &path)
     {
         vector<File> out;
         File root = SD.open(path);

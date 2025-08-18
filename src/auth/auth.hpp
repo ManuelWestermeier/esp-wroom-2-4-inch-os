@@ -1,6 +1,9 @@
 #pragma once
 
 #include <Arduino.h>
+#include <vector>
+#include <string>
+
 #include "utils/crypto.hpp"
 #include "fs/index.hpp"
 #include "io/read-string.hpp"

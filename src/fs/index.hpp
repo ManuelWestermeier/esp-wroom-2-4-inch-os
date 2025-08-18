@@ -20,7 +20,7 @@ namespace SD_FS
     bool deleteFile(const String &path);
     bool renameFile(const String &from, const String &to);
 
-    vector<File> readDir(const String &path, uint8_t levels = 1);
+    vector<File> readDir(const String &path);
     bool createDir(const String &path);
     bool deleteDir(const String &path);
 
