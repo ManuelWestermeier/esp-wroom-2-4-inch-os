@@ -12,7 +12,6 @@ namespace Windows
     {
         while (!canAccess)
         {
-            Serial.println("HLT");
             delay(3);
         }
 
@@ -204,7 +203,6 @@ namespace Windows
     {
         while (!canAccess)
         {
-            Serial.println("HLT");
             delay(3);
         }
 

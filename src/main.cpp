@@ -27,6 +27,7 @@ void setup()
 
     LuaApps::initialize();
     startWindowRender();
+    delay(random(255));
     executeApplication({"/public/programs/test.lua", "Arg1", "Hi"});
 }
 
@@ -34,6 +35,6 @@ void loop()
 {
     // debugTaskLog();
     // delay(3000);
-    Serial.println(Windows::canAccess);
-    delay(5);
+    // Serial.println(Windows::canAccess);
+    // delay(5);
 }

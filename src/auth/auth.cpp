@@ -122,6 +122,9 @@ namespace Auth
             {
                 Vec point{touch.x, touch.y};
 
+                while (getTouchPos().clicked)
+                    delay(5);
+
                 if (loginBtn.isIn(point))
                 {
                     String user = readString("Username", "");
