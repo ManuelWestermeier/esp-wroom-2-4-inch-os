@@ -28,8 +28,8 @@ namespace Auth
 
         if (SD_FS::exists(path))
         {
-            username = user;
-            password = pass;
+            username = Crypto::HASH::sha256String(user);
+            password = Crypto::HASH::sha256String(pass);
             return true;
         }
         return false;
@@ -51,8 +51,8 @@ namespace Auth
         if (!SD_FS::writeFile(authFile, "AUTH"))
             return false;
 
-        username = user;
-        password = pass;
+        username = Crypto::HASH::sha256String(user);
+        password = Crypto::HASH::sha256String(pass);
         return true;
     }
 

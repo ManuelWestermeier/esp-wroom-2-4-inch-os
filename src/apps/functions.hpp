@@ -14,15 +14,17 @@ extern "C"
 }
 
 #include "winlib.hpp"
+#include "../auth/auth.hpp"
+#include "../fs/index.hpp"
 
 namespace LuaApps::LuaFunctions
 {
     int luaPrintSerial(lua_State *L);
+    int luaExec(lua_State *L);
     int setLED(lua_State *L);
     int lua_RGB(lua_State *L);
     int luaDelay(lua_State *L);
     int luaHttpRequest(lua_State *L);
     int luaHttpsRequest(lua_State *L);
-    int connectToWofi(lua_State *L);
-    void register_default_functions(lua_State *L);
+    void register_default_functions(lua_State *L, const String &path);
 }

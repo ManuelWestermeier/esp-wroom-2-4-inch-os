@@ -24,9 +24,9 @@ namespace LuaApps::Runtime
         return lua_error(L);
     }
 
-    int runApp(String path, const std::vector<String> &args)
+    int runApp(const String &path, const std::vector<String> &args)
     {
-        lua_State *L = Sandbox::createRestrictedLuaState();
+        lua_State *L = Sandbox::createRestrictedLuaState(path);
         lua_register(L, "exitApp", lua_exitApp);
 
         lua_newtable(L);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Arduino.h>
+
 extern "C"
 {
 #include "lua.h"
@@ -9,5 +11,5 @@ extern "C"
 
 namespace LuaApps::Sandbox
 {
-    lua_State *createRestrictedLuaState();
+    lua_State *createRestrictedLuaState(const String &path);
 }

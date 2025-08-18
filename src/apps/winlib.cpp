@@ -226,7 +226,7 @@ namespace LuaApps::WinLib
         return 1;
     }
 
-    void register_win_functions(lua_State *L)
+    void register_win_functions(lua_State *L, const String &path)
     {
         lua_register(L, "createWindow", lua_createWindow);
         lua_register(L, "WIN_setName", lua_WIN_setName);

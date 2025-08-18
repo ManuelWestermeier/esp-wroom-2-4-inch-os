@@ -5,7 +5,12 @@ namespace LuaApps::LuaFunctions
 
     int luaPrintSerial(lua_State *L)
     {
+        // get hidden script path
+        String scriptPath = String(lua_tostring(L, lua_upvalueindex(1)));
+        Serial.println("PRINT: " + scriptPath);
+
         int nargs = lua_gettop(L);
+
         for (int i = 1; i <= nargs; ++i)
         {
             const char *msg = luaL_tolstring(L, i, NULL);
@@ -33,6 +38,115 @@ namespace LuaApps::LuaFunctions
             lua_pop(L, 1);
         }
         return 0;
+    }
+
+    int luaExec(lua_State *L)
+    {
+        // get hidden script path
+        String scriptPath = String(lua_tostring(L, lua_upvalueindex(1)));
+
+        Serial.println("scriptPath: " + scriptPath);
+
+        int mode = luaL_checkinteger(L, 1);
+        String code;
+        String err;
+
+        switch (mode)
+        {
+        case 1:
+        { // libraryId
+            const char *libId = luaL_checkstring(L, 2);
+            String path = "/" + String(Auth::username) + "/shared-libs/" + String(libId) + ".lua";
+            if (!SD_FS::exists(path))
+            {
+                err = "library not found: " + path;
+                lua_pushstring(L, err.c_str());
+                return 1;
+            }
+            code = SD_FS::readFile(path);
+            break;
+        }
+        case 2:
+        { // fetchUrl (GitHub shorthand)
+            const char *urlPath = luaL_checkstring(L, 2);
+            if (WiFi.isConnected())
+            {
+                String url = "https://raw.githubusercontent.com/" + String(urlPath);
+                url.replace(" ", ""); // sicherstellen kein whitespace
+                HTTPClient http;
+                if (http.begin(url))
+                {
+                    int httpCode = http.GET();
+                    if (httpCode == HTTP_CODE_OK)
+                    {
+                        code = http.getString();
+                    }
+                    else
+                    {
+                        err = "http error: " + String(httpCode);
+                    }
+                    http.end();
+                }
+                else
+                {
+                    err = "http begin failed";
+                }
+            }
+            else
+            {
+                err = "wifi not connected";
+            }
+            break;
+        }
+        case 3:
+        { // fs path
+            const char *filePath = luaL_checkstring(L, 2);
+            if (!SD_FS::exists(filePath))
+            {
+                err = "file not found: " + String(filePath);
+            }
+            else
+            {
+                code = SD_FS::readFile(filePath);
+            }
+            break;
+        }
+        case 4:
+        { // raw string
+            const char *strCode = luaL_checkstring(L, 2);
+            code = strCode;
+            break;
+        }
+        default:
+            err = "invalid mode for luaExec()";
+            break;
+        }
+
+        // wenn Fehler schon vorher
+        if (err.length())
+        {
+            lua_pushstring(L, err.c_str());
+            return 1;
+        }
+
+        // Lua Code ausführen
+        int status = luaL_dostring(L, code.c_str());
+        if (status != LUA_OK)
+        {
+            const char *luaErr = lua_tostring(L, -1);
+            if (luaErr)
+            {
+                lua_pushstring(L, luaErr);
+            }
+            else
+            {
+                lua_pushstring(L, "unknown lua error");
+            }
+            return 1;
+        }
+
+        lua_pushstring(L, "ok");
+        return 1;
     }
 
     int setLED(lua_State *L)
@@ -233,15 +347,26 @@ namespace LuaApps::LuaFunctions
         return 1;
     }
 
-    void register_default_functions(lua_State *L)
+    void register_default_functions(lua_State *L, const String &path)
     {
-        lua_register(L, "print", luaPrintSerial);
-        lua_register(L, "setLED", setLED);
-        lua_register(L, "delay", luaDelay);
-        lua_register(L, "httpReq", luaHttpRequest);
-        lua_register(L, "httpsReq", luaHttpsRequest);
-        lua_register(L, "RGB", lua_RGB);
-        LuaApps::WinLib::register_win_functions(L);
+        // push helper macro for registering with path as upvalue
+        auto register_with_path = [&](const char *name, lua_CFunction fn)
+        {
+            lua_pushstring(L, path.c_str()); // push path as upvalue
+            lua_pushcclosure(L, fn, 1);      // bind with 1 upvalue
+            lua_setglobal(L, name);          // assign global name
+        };
+
+        register_with_path("print", luaPrintSerial);
+        register_with_path("exec", luaExec);
+        register_with_path("setLED", setLED);
+        register_with_path("delay", luaDelay);
+        register_with_path("httpReq", luaHttpRequest);
+        register_with_path("httpsReq", luaHttpsRequest);
+        register_with_path("RGB", lua_RGB);
+
+        // window functions — we can extend LuaApps::WinLib::register_win_functions
+        LuaApps::WinLib::register_win_functions(L, path);
     }
 
 } // namespace LuaApps::LuaFunctions

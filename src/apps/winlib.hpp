@@ -1,5 +1,6 @@
 #pragma once
 #include <lua.hpp>
+#include <Arduino.h>
 
 namespace LuaApps::WinLib
 {
@@ -16,6 +17,6 @@ namespace LuaApps::WinLib
     int lua_WIN_drawImage(lua_State *L);
     int lua_WIN_isRendered(lua_State *L);
 
-    void register_win_functions(lua_State *L);
+    void register_win_functions(lua_State *L, const String &path);
 
 } // namespace LuaApps::WinLib

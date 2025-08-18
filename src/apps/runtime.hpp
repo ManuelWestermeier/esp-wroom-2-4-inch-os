@@ -5,5 +5,5 @@
 
 namespace LuaApps::Runtime
 {
-    int runApp(String path, const std::vector<String> &args);
+    int runApp(const String &path, const std::vector<String> &args);
 }
