@@ -183,6 +183,19 @@ namespace LuaApps::WinLib
         return 0;
     }
 
+    int lua_WIN_drawPixel(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        int screenId = luaL_checkinteger(L, 2);
+        int x = luaL_checkinteger(L, 3);
+        int y = luaL_checkinteger(L, 4);
+        int color = luaL_checkinteger(L, 5);
+
+        TFT_eSprite &spr = (screenId == 2) ? w->rightSprite : w->sprite;
+        spr.drawPixel(x, y, color);
+        return 0;
+    }
+
     int lua_WIN_drawImage(lua_State *L)
     {
         Window *w = getWindow(L, 1);
@@ -238,6 +251,7 @@ namespace LuaApps::WinLib
         lua_register(L, "WIN_writeRect", lua_WIN_writeRect);
         lua_register(L, "WIN_setIcon", lua_WIN_setIcon);
         lua_register(L, "WIN_drawImage", lua_WIN_drawImage);
+        lua_register(L, "WIN_drawPixel", lua_WIN_drawPixel);
         lua_register(L, "WIN_isRendering", lua_WIN_isRendered);
     }
 
