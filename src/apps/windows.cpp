@@ -304,8 +304,8 @@ namespace Windows
 
     void drawContent(Window &w)
     {
-        w.sprite.pushSprite(w.off.x, w.off.y);
-        w.rightSprite.pushSprite(w.off.x + w.size.x, w.off.y);
+        // w.sprite.pushSprite(w.off.x, w.off.y);
+        // w.rightSprite.pushSprite(w.off.x + w.size.x, w.off.y);
     }
 
     void drawResizeBox(Window &w)

@@ -33,7 +33,8 @@ void Window::init(const String &windowName, Vec position, Vec dimensions, uint16
     off = position;
     size = {
         constrain(dimensions.x, minSize.x, maxSize.x),
-        constrain(dimensions.y, minSize.y, maxSize.y)};
+        constrain(dimensions.y, minSize.y, maxSize.y),
+    };
 
     Serial.print("Constrained size: x=");
     Serial.print(size.x);
@@ -136,17 +137,17 @@ void Window::init(const String &windowName, Vec position, Vec dimensions, uint16
         Serial.println("No icon provided.");
     }
 
-    // Create sprites
-    Serial.println("Creating main sprite...");
-    sprite.createSprite(size.x, size.y);
-    Serial.println("Creating right sprite...");
-    rightSprite.createSprite(resizeBoxSize, size.y - resizeBoxSize);
+    // // Create sprites
+    // Serial.println("Creating main sprite...");
+    // sprite.createSprite(size.x, size.y);
+    // Serial.println("Creating right sprite...");
+    // rightSprite.createSprite(resizeBoxSize, size.y - resizeBoxSize);
 }
 
 void Window::resizeSprite()
 {
-    sprite.deleteSprite();
-    rightSprite.deleteSprite();
-    sprite.createSprite(size.x, size.y);
-    rightSprite.createSprite(resizeBoxSize, size.y - resizeBoxSize);
+    // sprite.deleteSprite();
+    // rightSprite.deleteSprite();
+    // sprite.createSprite(size.x, size.y);
+    // rightSprite.createSprite(resizeBoxSize, size.y - resizeBoxSize);
 }
