@@ -159,6 +159,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int color = luaL_checkinteger(L, 3);
         if (!w)
@@ -183,6 +185,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
@@ -225,6 +229,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
@@ -286,6 +292,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
@@ -313,6 +321,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
@@ -372,6 +382,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x0 = luaL_checkinteger(L, 3);
         int y0 = luaL_checkinteger(L, 4);
@@ -409,6 +421,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
@@ -441,6 +455,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x0 = luaL_checkinteger(L, 3);
         int y0 = luaL_checkinteger(L, 4);
@@ -481,6 +497,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x0 = luaL_checkinteger(L, 3);
         int y0 = luaL_checkinteger(L, 4);
@@ -521,6 +539,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
@@ -552,6 +572,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
@@ -583,6 +605,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
@@ -616,6 +640,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
@@ -649,6 +675,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
@@ -680,6 +708,8 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
+        if (w->closed)
+            return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
