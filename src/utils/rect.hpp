@@ -66,4 +66,12 @@ struct Rect
         out.dimensions.y -= x;
         return out;
     }
+
+    void print(String name = "Rect")
+    {
+        Serial.println("Rect: " + name);
+        pos.print();
+        dimensions.print();
+        Serial.println("-- Rect --");
+    }
 };

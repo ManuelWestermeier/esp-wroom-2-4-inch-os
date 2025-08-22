@@ -32,6 +32,7 @@ static void removeRunningTask(TaskHandle_t h)
 //
 void AppRunTask(void *pvParameters)
 {
+    esp_task_wdt_delete(NULL); // unregister this task
     auto taskArgsPtr = static_cast<std::vector<String> *>(pvParameters);
     std::vector<String> args = *taskArgsPtr;
     delete taskArgsPtr; // Übergabe-Speicher freigeben
@@ -94,7 +95,7 @@ void executeApplication(const std::vector<String> &args)
 void AppRenderTask(void *pvParameters)
 {
     (void)pvParameters;
-
+    esp_task_wdt_delete(NULL); // unregister this task
     // Render-Task in die Liste aufnehmen
     addRunningTask(xTaskGetCurrentTaskHandle());
 

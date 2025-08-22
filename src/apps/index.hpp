@@ -14,6 +14,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_task_wdt.h"
 // semphr.h wird nicht mehr benötigt, da wir keinen Mutex verwenden
 #include "esp_system.h"
 #include "windows.hpp"

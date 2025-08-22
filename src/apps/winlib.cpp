@@ -12,7 +12,7 @@ namespace LuaApps::WinLib
     static int nextWindowId = 1;
 
     // Hilfsfunktion: liefert das Fenster-Rechteck (Hauptfenster oder rechter Bereich)
-    static Rect getScreenRect(Window *w, int screenId)
+    static Rect _getScreenRect(Window *w, int screenId)
     {
         if (screenId == 2)
         {
@@ -24,6 +24,17 @@ namespace LuaApps::WinLib
         {
             return Rect{w->off, w->size};
         }
+    }
+
+    static Rect getScreenRect(Window *w, int screenId)
+    {
+        auto r = _getScreenRect(w, screenId);
+        if (screenId == 2 && Windows::isRendering)
+        {
+            r.print();
+            Screen::tft.drawRect(r.pos.x, r.pos.y, r.dimensions.x, r.dimensions.y, rand() % 10000 + 30000);
+        }
+        return r;
     }
 
     // Clipping-Helfer: Rechtecke
@@ -145,6 +156,8 @@ namespace LuaApps::WinLib
 
     int lua_WIN_fillBg(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int color = luaL_checkinteger(L, 3);
@@ -160,12 +173,15 @@ namespace LuaApps::WinLib
         Rect rect = getScreenRect(w, screenId);
         Screen::tft.fillRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, color);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
 
     int lua_WIN_writeText(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -199,12 +215,15 @@ namespace LuaApps::WinLib
         if (clipped.length() > 0)
             Screen::tft.print(clipped);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
 
     int lua_WIN_writeRect(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -226,6 +245,7 @@ namespace LuaApps::WinLib
         Windows::canAccess = false;
         Screen::tft.fillRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, color);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
@@ -263,6 +283,8 @@ namespace LuaApps::WinLib
 
     int lua_WIN_drawPixel(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -288,6 +310,8 @@ namespace LuaApps::WinLib
 
     int lua_WIN_drawImage(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -323,6 +347,7 @@ namespace LuaApps::WinLib
                               rect.dimensions.x, rect.dimensions.y,
                               buffer.get());
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
@@ -344,6 +369,8 @@ namespace LuaApps::WinLib
     // drawLine(windowId, screenId, x0,y0, x1,y1, color)
     int lua_WIN_drawLine(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x0 = luaL_checkinteger(L, 3);
@@ -371,6 +398,7 @@ namespace LuaApps::WinLib
         Windows::canAccess = false;
         Screen::tft.drawLine(w->off.x + x0, w->off.y + y0, w->off.x + x1, w->off.y + y1, color);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
@@ -378,6 +406,8 @@ namespace LuaApps::WinLib
     // drawRect(windowId, screenId, x,y, w,h, color) - outline
     int lua_WIN_drawRect(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -400,6 +430,7 @@ namespace LuaApps::WinLib
         Windows::canAccess = false;
         Screen::tft.drawRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, color);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
@@ -407,6 +438,8 @@ namespace LuaApps::WinLib
     // drawTriangle(windowId, screenId, x0,y0, x1,y1, x2,y2, color)
     int lua_WIN_drawTriangle(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x0 = luaL_checkinteger(L, 3);
@@ -437,6 +470,7 @@ namespace LuaApps::WinLib
                                  w->off.x + x1, w->off.y + y1,
                                  w->off.x + x2, w->off.y + y2, color);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
@@ -444,6 +478,8 @@ namespace LuaApps::WinLib
     // fillTriangle(windowId, screenId, x0,y0, x1,y1, x2,y2, color)
     int lua_WIN_fillTriangle(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x0 = luaL_checkinteger(L, 3);
@@ -474,6 +510,7 @@ namespace LuaApps::WinLib
                                  w->off.x + x1, w->off.y + y1,
                                  w->off.x + x2, w->off.y + y2, color);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
@@ -481,6 +518,8 @@ namespace LuaApps::WinLib
     // drawCircle(windowId, screenId, x,y, radius, color)
     int lua_WIN_drawCircle(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -502,6 +541,7 @@ namespace LuaApps::WinLib
         Windows::canAccess = false;
         Screen::tft.drawCircle(w->off.x + x, w->off.y + y, r, color);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
@@ -509,6 +549,8 @@ namespace LuaApps::WinLib
     // fillCircle(windowId, screenId, x,y, radius, color)
     int lua_WIN_fillCircle(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -530,6 +572,7 @@ namespace LuaApps::WinLib
         Windows::canAccess = false;
         Screen::tft.fillCircle(w->off.x + x, w->off.y + y, r, color);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
@@ -537,6 +580,8 @@ namespace LuaApps::WinLib
     // drawRoundRect(windowId, screenId, x,y, w,h, radius, color)
     int lua_WIN_drawRoundRect(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -560,6 +605,7 @@ namespace LuaApps::WinLib
         Windows::canAccess = false;
         Screen::tft.drawRoundRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, radius, color);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
@@ -567,6 +613,8 @@ namespace LuaApps::WinLib
     // fillRoundRect(windowId, screenId, x,y, w,h, radius, color)
     int lua_WIN_fillRoundRect(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -590,6 +638,7 @@ namespace LuaApps::WinLib
         Windows::canAccess = false;
         Screen::tft.fillRoundRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, radius, color);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
@@ -597,6 +646,8 @@ namespace LuaApps::WinLib
     // drawFastVLine(windowId, screenId, x,y, h, color)
     int lua_WIN_drawFastVLine(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -618,6 +669,7 @@ namespace LuaApps::WinLib
         Windows::canAccess = false;
         Screen::tft.drawFastVLine(w->off.x + x, w->off.y + y, h, color);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
@@ -625,6 +677,8 @@ namespace LuaApps::WinLib
     // drawFastHLine(windowId, screenId, x,y, w, color)
     int lua_WIN_drawFastHLine(lua_State *L)
     {
+        if (!Windows::isRendering)
+            return 0;
         Window *w = getWindow(L, 1);
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -646,6 +700,7 @@ namespace LuaApps::WinLib
         Windows::canAccess = false;
         Screen::tft.drawFastHLine(w->off.x + x, w->off.y + y, wdt, color);
         Windows::canAccess = true;
+        delay(10);
 
         return 0;
     }
@@ -662,6 +717,7 @@ namespace LuaApps::WinLib
         lua_register(L, "WIN_fillBg", lua_WIN_fillBg);
         lua_register(L, "WIN_writeText", lua_WIN_writeText);
         lua_register(L, "WIN_writeRect", lua_WIN_writeRect);
+        lua_register(L, "WIN_fillRect", lua_WIN_writeRect);
         lua_register(L, "WIN_setIcon", lua_WIN_setIcon);
         lua_register(L, "WIN_drawImage", lua_WIN_drawImage);
         lua_register(L, "WIN_drawPixel", lua_WIN_drawPixel);

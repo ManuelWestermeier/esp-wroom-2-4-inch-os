@@ -35,7 +35,7 @@ struct Window
 #include "icon.hpp"
 
     static constexpr Vec minSize = {40, 30};
-    static constexpr Vec maxSize = {240, 160};
+    static constexpr Vec maxSize = {320, 240};
     static constexpr int titleBarHeight = 12;
     static constexpr int closeBtnSize = 12;
     static constexpr int resizeBoxSize = 12;

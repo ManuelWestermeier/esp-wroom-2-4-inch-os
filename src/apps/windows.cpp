@@ -50,6 +50,7 @@ namespace Windows
                 apps.erase(it); // this deletes the Window automatically
         }
 
+        Screen::tft.fillScreen(RGB(245, 245, 255));
         canAccess = true;
     }
 
