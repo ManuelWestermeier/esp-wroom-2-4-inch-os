@@ -151,8 +151,15 @@ namespace LuaApps::WinLib
         if (!w)
             return 0;
 
+        // Warte bis freigegeben
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
         Rect rect = getScreenRect(w, screenId);
         Screen::tft.fillRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, color);
+        Windows::canAccess = true;
 
         return 0;
     }
@@ -172,6 +179,12 @@ namespace LuaApps::WinLib
         if (!clipPoint(bounds, pos))
             return 0;
 
+        // Warte bis freigegeben
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
         Screen::tft.setTextSize(fontSize);
         Screen::tft.setTextColor(color, TFT_BLACK);
         Screen::tft.setCursor(pos.x, pos.y);
@@ -185,6 +198,7 @@ namespace LuaApps::WinLib
 
         if (clipped.length() > 0)
             Screen::tft.print(clipped);
+        Windows::canAccess = true;
 
         return 0;
     }
@@ -204,7 +218,14 @@ namespace LuaApps::WinLib
         if (!clipRect(bounds, rect))
             return 0;
 
+        // Warte bis freigegeben
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
         Screen::tft.fillRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, color);
+        Windows::canAccess = true;
 
         return 0;
     }
@@ -253,7 +274,15 @@ namespace LuaApps::WinLib
         if (!clipPoint(bounds, p))
             return 0;
 
+        // Warte bis freigegeben
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
         Screen::tft.drawPixel(p.x, p.y, color);
+        Windows::canAccess = true;
+
         return 0;
     }
 
@@ -284,9 +313,16 @@ namespace LuaApps::WinLib
             lua_pop(L, 1);
         }
 
+        // Warte bis freigegeben
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
         Screen::tft.pushImage(rect.pos.x, rect.pos.y,
                               rect.dimensions.x, rect.dimensions.y,
                               buffer.get());
+        Windows::canAccess = true;
 
         return 0;
     }
