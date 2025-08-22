@@ -11,6 +11,9 @@ namespace LuaApps::WinLib
     static std::unordered_map<int, Window *> rawWindows;
     static int nextWindowId = 1;
 
+    // main sprite (id=1) = (w.off.x, w.off.y), (w.size.x, w.size.y);
+    // right sprite (id=2) = (w.off.x + w.size.x, w.off.y), (w.resizeBoxSize, w.size.y - w.resizeBoxSize);
+
     int lua_createWindow(lua_State *L)
     {
         int x = luaL_checkinteger(L, 1);
