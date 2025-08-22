@@ -186,7 +186,7 @@ namespace LuaApps::WinLib
         }
         Windows::canAccess = false;
         Screen::tft.setTextSize(fontSize);
-        Screen::tft.setTextColor(color, TFT_BLACK);
+        Screen::tft.setTextColor(color);
         Screen::tft.setCursor(pos.x, pos.y);
 
         int maxWidth = bounds.pos.x + bounds.dimensions.x - pos.x;
