@@ -4,7 +4,7 @@
 
 namespace LuaApps::WinLib
 {
-
+    // Lua window management bindings
     int lua_createWindow(lua_State *L);
     int lua_WIN_setName(lua_State *L);
     int lua_WIN_getRect(lua_State *L);
@@ -20,6 +20,7 @@ namespace LuaApps::WinLib
     int lua_WIN_canAccess(lua_State *L);
     int lua_WIN_isRendered(lua_State *L);
 
+    // Registration of functions to Lua
     void register_win_functions(lua_State *L, const String &path);
 
 } // namespace LuaApps::WinLib

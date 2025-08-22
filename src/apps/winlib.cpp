@@ -11,9 +11,36 @@ namespace LuaApps::WinLib
     static std::unordered_map<int, Window *> rawWindows;
     static int nextWindowId = 1;
 
-    // w = Window
-    // main sprite (id=1) = (w.off.x, w.off.y), (w.size.x, w.size.y);
-    // right sprite (id=2) = (w.off.x + w.size.x, w.off.y), (w.resizeBoxSize, w.size.y - w.resizeBoxSize);
+    // Hilfsfunktion: liefert das Fenster-Rechteck (Hauptfenster oder rechter Bereich)
+    static Rect getScreenRect(Window *w, int screenId)
+    {
+        if (screenId == 2)
+        {
+            return Rect{
+                Vec{w->off.x + w->size.x, w->off.y},
+                Vec{w->resizeBoxSize, w->size.y - w->resizeBoxSize}};
+        }
+        else
+        {
+            return Rect{w->off, w->size};
+        }
+    }
+
+    // Clipping-Helfer: Rechtecke
+    static bool clipRect(const Rect &bounds, Rect &r)
+    {
+        Rect inter = r.intersection(bounds);
+        if (inter.dimensions.x <= 0 || inter.dimensions.y <= 0)
+            return false;
+        r = inter;
+        return true;
+    }
+
+    // Clipping-Helfer: Punkte
+    static bool clipPoint(const Rect &bounds, Vec &p)
+    {
+        return bounds.isIn(p);
+    }
 
     int lua_createWindow(lua_State *L)
     {
@@ -27,15 +54,13 @@ namespace LuaApps::WinLib
 
         int id = nextWindowId++;
 
-        // Temporär speichern, um danach Pointer zu extrahieren
         Windows::WindowPtr localWin = std::move(win);
         Window *raw = localWin.get();
 
-        // In globale Maps eintragen
         windows[id] = std::move(localWin);
-        Windows::add(std::move(windows[id])); // Übergabe an Windows::apps
+        Windows::add(std::move(windows[id]));
 
-        rawWindows[id] = Windows::apps.back().get(); // Zugriff auf endgültigen Pointer
+        rawWindows[id] = Windows::apps.back().get();
 
         lua_gc(L, LUA_GCCOLLECT, 0);
 
@@ -115,7 +140,6 @@ namespace LuaApps::WinLib
             return 0;
 
         Windows::remove(w);
-
         return 0;
     }
 
@@ -127,10 +151,8 @@ namespace LuaApps::WinLib
         if (!w)
             return 0;
 
-        if (screenId == 2)
-            w->rightSprite.fillSprite(color);
-        else
-            w->sprite.fillSprite(color);
+        Rect rect = getScreenRect(w, screenId);
+        Screen::tft.fillRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, color);
 
         return 0;
     }
@@ -145,10 +167,24 @@ namespace LuaApps::WinLib
         int fontSize = luaL_checkinteger(L, 6);
         int color = luaL_checkinteger(L, 7);
 
-        TFT_eSprite &spr = (screenId == 2) ? w->rightSprite : w->sprite;
-        spr.setTextColor(color);
-        spr.setTextSize(fontSize);
-        spr.drawString(String(text), x, y);
+        Rect bounds = getScreenRect(w, screenId);
+        Vec pos = {w->off.x + x, w->off.y + y};
+        if (!clipPoint(bounds, pos))
+            return 0;
+
+        Screen::tft.setTextSize(fontSize);
+        Screen::tft.setTextColor(color, TFT_BLACK);
+        Screen::tft.setCursor(pos.x, pos.y);
+
+        int maxWidth = bounds.pos.x + bounds.dimensions.x - pos.x;
+        String clipped = String(text);
+        while (Screen::tft.textWidth(clipped) > maxWidth && clipped.length() > 0)
+        {
+            clipped.remove(clipped.length() - 1);
+        }
+
+        if (clipped.length() > 0)
+            Screen::tft.print(clipped);
 
         return 0;
     }
@@ -163,8 +199,12 @@ namespace LuaApps::WinLib
         int hgt = luaL_checkinteger(L, 6);
         int color = luaL_checkinteger(L, 7);
 
-        TFT_eSprite &spr = (screenId == 2) ? w->rightSprite : w->sprite;
-        spr.fillRect(x, y, wdt, hgt, color);
+        Rect bounds = getScreenRect(w, screenId);
+        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{wdt, hgt}};
+        if (!clipRect(bounds, rect))
+            return 0;
+
+        Screen::tft.fillRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, color);
 
         return 0;
     }
@@ -177,7 +217,7 @@ namespace LuaApps::WinLib
 
         luaL_checktype(L, 2, LUA_TTABLE);
 
-        constexpr size_t iconSize = sizeof(w->icon) / sizeof(w->icon[0]); // 144
+        constexpr size_t iconSize = sizeof(w->icon) / sizeof(w->icon[0]);
 
         for (size_t i = 0; i < iconSize; ++i)
         {
@@ -208,8 +248,12 @@ namespace LuaApps::WinLib
         int y = luaL_checkinteger(L, 4);
         int color = luaL_checkinteger(L, 5);
 
-        TFT_eSprite &spr = (screenId == 2) ? w->rightSprite : w->sprite;
-        spr.drawPixel(x, y, color);
+        Rect bounds = getScreenRect(w, screenId);
+        Vec p{w->off.x + x, w->off.y + y};
+        if (!clipPoint(bounds, p))
+            return 0;
+
+        Screen::tft.drawPixel(p.x, p.y, color);
         return 0;
     }
 
@@ -222,31 +266,28 @@ namespace LuaApps::WinLib
         int width = luaL_checkinteger(L, 5);
         int height = luaL_checkinteger(L, 6);
 
-        luaL_checktype(L, 7, LUA_TTABLE); // Bilddaten sind Tabelle
+        luaL_checktype(L, 7, LUA_TTABLE);
+
+        Rect bounds = getScreenRect(w, screenId);
+        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{width, height}};
+        if (!clipRect(bounds, rect))
+            return 0;
 
         size_t pixelCount = width * height;
         std::unique_ptr<uint16_t[]> buffer(new uint16_t[pixelCount]);
 
         for (size_t i = 0; i < pixelCount; ++i)
         {
-            lua_rawgeti(L, 7, i + 1); // Lua-Arrays sind 1-indiziert
-            if (!lua_isinteger(L, -1))
-            {
-                luaL_error(L, "Expected integer at index %zu in image array", i + 1);
-                return 0;
-            }
+            lua_rawgeti(L, 7, i + 1);
             int val = lua_tointeger(L, -1);
-            if (val < 0 || val > 0xFFFF)
-            {
-                luaL_error(L, "Pixel value out of range at index %zu", i + 1);
-                return 0;
-            }
             buffer[i] = static_cast<uint16_t>(val);
             lua_pop(L, 1);
         }
 
-        TFT_eSprite &spr = (screenId == 2) ? w->rightSprite : w->sprite;
-        spr.pushImage(x, y, width, height, buffer.get());
+        Screen::tft.pushImage(rect.pos.x, rect.pos.y,
+                              rect.dimensions.x, rect.dimensions.y,
+                              buffer.get());
+
         return 0;
     }
 

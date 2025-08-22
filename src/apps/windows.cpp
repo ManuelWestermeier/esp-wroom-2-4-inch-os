@@ -34,13 +34,23 @@ namespace Windows
     {
         while (!canAccess)
             delay(rand() % 3);
+        canAccess = false;
+
         if (!win->closed)
         {
             win->closed = true;
-            auto it = std::find(apps.begin(), apps.end(), win);
+
+            auto it = std::find_if(apps.begin(), apps.end(),
+                                   [&](const WindowPtr &ptr)
+                                   {
+                                       return ptr.get() == win;
+                                   });
+
             if (it != apps.end())
-                apps.erase(it);
+                apps.erase(it); // this deletes the Window automatically
         }
+
+        canAccess = true;
     }
 
     void bringToFront(int idx)
@@ -203,7 +213,7 @@ namespace Windows
     {
         while (!canAccess)
         {
-            delay(3);
+            delay(5);
         }
 
         canAccess = false;
