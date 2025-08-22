@@ -10,6 +10,7 @@ namespace LuaApps::WinLib
     int lua_WIN_getRect(lua_State *L);
     int lua_WIN_getLastEvent(lua_State *L);
     int lua_WIN_closed(lua_State *L);
+    int lua_WIN_close(lua_State *L);
     int lua_WIN_fillBg(lua_State *L);
     int lua_WIN_writeText(lua_State *L);
     int lua_WIN_writeRect(lua_State *L);

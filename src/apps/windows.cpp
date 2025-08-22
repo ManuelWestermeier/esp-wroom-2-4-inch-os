@@ -30,6 +30,19 @@ namespace Windows
             apps.erase(apps.begin() + idx);
     }
 
+    void remove(Window *win)
+    {
+        while (!canAccess)
+            delay(rand() % 3);
+        if (!win->closed)
+        {
+            win->closed = true;
+            auto it = std::find(apps.begin(), apps.end(), win);
+            if (it != apps.end())
+                apps.erase(it);
+        }
+    }
+
     void bringToFront(int idx)
     {
         if (idx < 0 || idx >= (int)apps.size())

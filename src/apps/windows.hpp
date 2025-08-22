@@ -25,6 +25,7 @@ namespace Windows
     // core API
     void add(WindowPtr w);
     void removeAt(int idx);
+    void remove(Window *win);
     void bringToFront(int idx);
     void drawWindows(Vec pos, Vec move, MouseState state);
     void drawMenu(Vec pos, Vec move, MouseState state);
