@@ -20,6 +20,19 @@ namespace LuaApps::WinLib
     int lua_WIN_canAccess(lua_State *L);
     int lua_WIN_isRendered(lua_State *L);
 
+    // --- Neue TFT/TFT_eSPI Zeichen-Funktionen ---
+    int lua_WIN_drawLine(lua_State *L);
+    int lua_WIN_drawRect(lua_State *L); // Outline-Rect
+    int lua_WIN_drawTriangle(lua_State *L);
+    int lua_WIN_fillTriangle(lua_State *L);
+    int lua_WIN_drawCircle(lua_State *L);
+    int lua_WIN_fillCircle(lua_State *L);
+    int lua_WIN_drawRoundRect(lua_State *L);
+    int lua_WIN_fillRoundRect(lua_State *L);
+    int lua_WIN_drawFastVLine(lua_State *L);
+    int lua_WIN_drawFastHLine(lua_State *L);
+    // --- Ende neue Funktionen ---
+
     // Registration of functions to Lua
     void register_win_functions(lua_State *L, const String &path);
 

@@ -339,6 +339,319 @@ namespace LuaApps::WinLib
         return 1;
     }
 
+    // --- NEW: TFT_eSPI drawing helpers exposed to Lua ---
+
+    // drawLine(windowId, screenId, x0,y0, x1,y1, color)
+    int lua_WIN_drawLine(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        int screenId = luaL_checkinteger(L, 2);
+        int x0 = luaL_checkinteger(L, 3);
+        int y0 = luaL_checkinteger(L, 4);
+        int x1 = luaL_checkinteger(L, 5);
+        int y1 = luaL_checkinteger(L, 6);
+        int color = luaL_checkinteger(L, 7);
+        if (!w)
+            return 0;
+
+        int minx = std::min(x0, x1);
+        int miny = std::min(y0, y1);
+        int wdt = abs(x1 - x0) + 1;
+        int hgt = abs(y1 - y0) + 1;
+
+        Rect bounds = getScreenRect(w, screenId);
+        Rect rect{Vec{w->off.x + minx, w->off.y + miny}, Vec{wdt, hgt}};
+        if (!clipRect(bounds, rect))
+            return 0;
+
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
+        Screen::tft.drawLine(w->off.x + x0, w->off.y + y0, w->off.x + x1, w->off.y + y1, color);
+        Windows::canAccess = true;
+
+        return 0;
+    }
+
+    // drawRect(windowId, screenId, x,y, w,h, color) - outline
+    int lua_WIN_drawRect(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        int screenId = luaL_checkinteger(L, 2);
+        int x = luaL_checkinteger(L, 3);
+        int y = luaL_checkinteger(L, 4);
+        int wdt = luaL_checkinteger(L, 5);
+        int hgt = luaL_checkinteger(L, 6);
+        int color = luaL_checkinteger(L, 7);
+        if (!w)
+            return 0;
+
+        Rect bounds = getScreenRect(w, screenId);
+        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{wdt, hgt}};
+        if (!clipRect(bounds, rect))
+            return 0;
+
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
+        Screen::tft.drawRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, color);
+        Windows::canAccess = true;
+
+        return 0;
+    }
+
+    // drawTriangle(windowId, screenId, x0,y0, x1,y1, x2,y2, color)
+    int lua_WIN_drawTriangle(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        int screenId = luaL_checkinteger(L, 2);
+        int x0 = luaL_checkinteger(L, 3);
+        int y0 = luaL_checkinteger(L, 4);
+        int x1 = luaL_checkinteger(L, 5);
+        int y1 = luaL_checkinteger(L, 6);
+        int x2 = luaL_checkinteger(L, 7);
+        int y2 = luaL_checkinteger(L, 8);
+        int color = luaL_checkinteger(L, 9);
+        if (!w)
+            return 0;
+
+        int minx = std::min({x0, x1, x2});
+        int miny = std::min({y0, y1, y2});
+        int maxx = std::max({x0, x1, x2});
+        int maxy = std::max({y0, y1, y2});
+        Rect bounds = getScreenRect(w, screenId);
+        Rect rect{Vec{w->off.x + minx, w->off.y + miny}, Vec{maxx - minx + 1, maxy - miny + 1}};
+        if (!clipRect(bounds, rect))
+            return 0;
+
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
+        Screen::tft.drawTriangle(w->off.x + x0, w->off.y + y0,
+                                 w->off.x + x1, w->off.y + y1,
+                                 w->off.x + x2, w->off.y + y2, color);
+        Windows::canAccess = true;
+
+        return 0;
+    }
+
+    // fillTriangle(windowId, screenId, x0,y0, x1,y1, x2,y2, color)
+    int lua_WIN_fillTriangle(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        int screenId = luaL_checkinteger(L, 2);
+        int x0 = luaL_checkinteger(L, 3);
+        int y0 = luaL_checkinteger(L, 4);
+        int x1 = luaL_checkinteger(L, 5);
+        int y1 = luaL_checkinteger(L, 6);
+        int x2 = luaL_checkinteger(L, 7);
+        int y2 = luaL_checkinteger(L, 8);
+        int color = luaL_checkinteger(L, 9);
+        if (!w)
+            return 0;
+
+        int minx = std::min({x0, x1, x2});
+        int miny = std::min({y0, y1, y2});
+        int maxx = std::max({x0, x1, x2});
+        int maxy = std::max({y0, y1, y2});
+        Rect bounds = getScreenRect(w, screenId);
+        Rect rect{Vec{w->off.x + minx, w->off.y + miny}, Vec{maxx - minx + 1, maxy - miny + 1}};
+        if (!clipRect(bounds, rect))
+            return 0;
+
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
+        Screen::tft.fillTriangle(w->off.x + x0, w->off.y + y0,
+                                 w->off.x + x1, w->off.y + y1,
+                                 w->off.x + x2, w->off.y + y2, color);
+        Windows::canAccess = true;
+
+        return 0;
+    }
+
+    // drawCircle(windowId, screenId, x,y, radius, color)
+    int lua_WIN_drawCircle(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        int screenId = luaL_checkinteger(L, 2);
+        int x = luaL_checkinteger(L, 3);
+        int y = luaL_checkinteger(L, 4);
+        int r = luaL_checkinteger(L, 5);
+        int color = luaL_checkinteger(L, 6);
+        if (!w)
+            return 0;
+
+        Rect bounds = getScreenRect(w, screenId);
+        Rect rect{Vec{w->off.x + x - r, w->off.y + y - r}, Vec{2 * r + 1, 2 * r + 1}};
+        if (!clipRect(bounds, rect))
+            return 0;
+
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
+        Screen::tft.drawCircle(w->off.x + x, w->off.y + y, r, color);
+        Windows::canAccess = true;
+
+        return 0;
+    }
+
+    // fillCircle(windowId, screenId, x,y, radius, color)
+    int lua_WIN_fillCircle(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        int screenId = luaL_checkinteger(L, 2);
+        int x = luaL_checkinteger(L, 3);
+        int y = luaL_checkinteger(L, 4);
+        int r = luaL_checkinteger(L, 5);
+        int color = luaL_checkinteger(L, 6);
+        if (!w)
+            return 0;
+
+        Rect bounds = getScreenRect(w, screenId);
+        Rect rect{Vec{w->off.x + x - r, w->off.y + y - r}, Vec{2 * r + 1, 2 * r + 1}};
+        if (!clipRect(bounds, rect))
+            return 0;
+
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
+        Screen::tft.fillCircle(w->off.x + x, w->off.y + y, r, color);
+        Windows::canAccess = true;
+
+        return 0;
+    }
+
+    // drawRoundRect(windowId, screenId, x,y, w,h, radius, color)
+    int lua_WIN_drawRoundRect(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        int screenId = luaL_checkinteger(L, 2);
+        int x = luaL_checkinteger(L, 3);
+        int y = luaL_checkinteger(L, 4);
+        int wdt = luaL_checkinteger(L, 5);
+        int hgt = luaL_checkinteger(L, 6);
+        int radius = luaL_checkinteger(L, 7);
+        int color = luaL_checkinteger(L, 8);
+        if (!w)
+            return 0;
+
+        Rect bounds = getScreenRect(w, screenId);
+        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{wdt, hgt}};
+        if (!clipRect(bounds, rect))
+            return 0;
+
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
+        Screen::tft.drawRoundRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, radius, color);
+        Windows::canAccess = true;
+
+        return 0;
+    }
+
+    // fillRoundRect(windowId, screenId, x,y, w,h, radius, color)
+    int lua_WIN_fillRoundRect(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        int screenId = luaL_checkinteger(L, 2);
+        int x = luaL_checkinteger(L, 3);
+        int y = luaL_checkinteger(L, 4);
+        int wdt = luaL_checkinteger(L, 5);
+        int hgt = luaL_checkinteger(L, 6);
+        int radius = luaL_checkinteger(L, 7);
+        int color = luaL_checkinteger(L, 8);
+        if (!w)
+            return 0;
+
+        Rect bounds = getScreenRect(w, screenId);
+        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{wdt, hgt}};
+        if (!clipRect(bounds, rect))
+            return 0;
+
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
+        Screen::tft.fillRoundRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, radius, color);
+        Windows::canAccess = true;
+
+        return 0;
+    }
+
+    // drawFastVLine(windowId, screenId, x,y, h, color)
+    int lua_WIN_drawFastVLine(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        int screenId = luaL_checkinteger(L, 2);
+        int x = luaL_checkinteger(L, 3);
+        int y = luaL_checkinteger(L, 4);
+        int h = luaL_checkinteger(L, 5);
+        int color = luaL_checkinteger(L, 6);
+        if (!w)
+            return 0;
+
+        Rect bounds = getScreenRect(w, screenId);
+        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{1, h}};
+        if (!clipRect(bounds, rect))
+            return 0;
+
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
+        Screen::tft.drawFastVLine(w->off.x + x, w->off.y + y, h, color);
+        Windows::canAccess = true;
+
+        return 0;
+    }
+
+    // drawFastHLine(windowId, screenId, x,y, w, color)
+    int lua_WIN_drawFastHLine(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        int screenId = luaL_checkinteger(L, 2);
+        int x = luaL_checkinteger(L, 3);
+        int y = luaL_checkinteger(L, 4);
+        int wdt = luaL_checkinteger(L, 5);
+        int color = luaL_checkinteger(L, 6);
+        if (!w)
+            return 0;
+
+        Rect bounds = getScreenRect(w, screenId);
+        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{wdt, 1}};
+        if (!clipRect(bounds, rect))
+            return 0;
+
+        while (!Windows::canAccess)
+        {
+            delay(rand() % 2);
+        }
+        Windows::canAccess = false;
+        Screen::tft.drawFastHLine(w->off.x + x, w->off.y + y, wdt, color);
+        Windows::canAccess = true;
+
+        return 0;
+    }
+
+    // --- end new drawing helpers ---
+
     void register_win_functions(lua_State *L, const String &path)
     {
         lua_register(L, "createWindow", lua_createWindow);
@@ -354,6 +667,18 @@ namespace LuaApps::WinLib
         lua_register(L, "WIN_drawPixel", lua_WIN_drawPixel);
         lua_register(L, "WIN_isRendering", lua_WIN_isRendered);
         lua_register(L, "WIN_canAccess", lua_WIN_canAccess);
+
+        // Register new TFT drawing functions
+        lua_register(L, "WIN_drawLine", lua_WIN_drawLine);
+        lua_register(L, "WIN_drawRect", lua_WIN_drawRect);
+        lua_register(L, "WIN_drawTriangle", lua_WIN_drawTriangle);
+        lua_register(L, "WIN_fillTriangle", lua_WIN_fillTriangle);
+        lua_register(L, "WIN_drawCircle", lua_WIN_drawCircle);
+        lua_register(L, "WIN_fillCircle", lua_WIN_fillCircle);
+        lua_register(L, "WIN_drawRoundRect", lua_WIN_drawRoundRect);
+        lua_register(L, "WIN_fillRoundRect", lua_WIN_fillRoundRect);
+        lua_register(L, "WIN_drawFastVLine", lua_WIN_drawFastVLine);
+        lua_register(L, "WIN_drawFastHLine", lua_WIN_drawFastHLine);
     }
 
 } // namespace LuaApps::WinLib
