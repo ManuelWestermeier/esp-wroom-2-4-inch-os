@@ -6,6 +6,8 @@
 #include <SPI.h>
 #include <vector>
 
+#include "../screen/index.hpp"
+
 using std::vector;
 
 namespace SD_FS

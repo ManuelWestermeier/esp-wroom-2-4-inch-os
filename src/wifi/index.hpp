@@ -3,6 +3,10 @@
 #include <Arduino.h>
 #include <WiFi.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_task_wdt.h"
+
 #include "../fs/index.hpp"
 #include "../utils/time.hpp"
 

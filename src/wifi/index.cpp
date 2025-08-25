@@ -29,6 +29,8 @@ namespace UserWiFi
 
     void WiFiConnectTask(void *)
     {
+    esp_task_wdt_delete(NULL); // unregister this task
+
 #if LOG_ALL_WIFIS
         logAllWifis();
 #endif

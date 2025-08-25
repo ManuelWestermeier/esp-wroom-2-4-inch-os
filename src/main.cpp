@@ -18,11 +18,12 @@ void setup()
     Serial.begin(115200);
     Serial.println("Booting MW 2.4i OS...\n");
 
+    Screen::init();
     SD_FS::init();
     UserWiFi::start();
-    Screen::init();
 
     startAnimationMWOS();
+
     Auth::init();
 
     LuaApps::initialize();

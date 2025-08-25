@@ -37,22 +37,6 @@ namespace LuaApps::WinLib
         return r;
     }
 
-    // Clipping-Helfer: Rechtecke
-    static bool clipRect(const Rect &bounds, Rect &r)
-    {
-        Rect inter = r.intersection(bounds);
-        if (inter.dimensions.x <= 0 || inter.dimensions.y <= 0)
-            return false;
-        r = inter;
-        return true;
-    }
-
-    // Clipping-Helfer: Punkte
-    static bool clipPoint(const Rect &bounds, Vec &p)
-    {
-        return bounds.isIn(p);
-    }
-
     int lua_createWindow(lua_State *L)
     {
         int x = luaL_checkinteger(L, 1);
@@ -159,12 +143,12 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int color = luaL_checkinteger(L, 3);
-        if (!w)
-            return 0;
+
+        Rect rect = getScreenRect(w, screenId);
 
         // Warte bis freigegeben
         while (!Windows::canAccess)
@@ -172,8 +156,12 @@ namespace LuaApps::WinLib
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Rect rect = getScreenRect(w, screenId);
-        Screen::tft.fillRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, color);
+
+        // Viewport ON, coordinates inside viewport are relative (0..w-1, 0..h-1)
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.fillRect(0, 0, rect.dimensions.x, rect.dimensions.y, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 
@@ -185,7 +173,7 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -194,30 +182,22 @@ namespace LuaApps::WinLib
         int fontSize = luaL_checkinteger(L, 6);
         int color = luaL_checkinteger(L, 7);
 
-        Rect bounds = getScreenRect(w, screenId);
-        Vec pos = {w->off.x + x, w->off.y + y};
-        if (!clipPoint(bounds, pos))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
-        // Warte bis freigegeben
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
         Screen::tft.setTextSize(fontSize);
         Screen::tft.setTextColor(color);
-        Screen::tft.setCursor(pos.x, pos.y);
+        // cursor is relative to viewport now
+        Screen::tft.setCursor(x, y);
+        Screen::tft.print(text);
+        Screen::tft.resetViewport();
 
-        int maxWidth = bounds.pos.x + bounds.dimensions.x - pos.x;
-        String clipped = String(text);
-        while (Screen::tft.textWidth(clipped) > maxWidth && clipped.length() > 0)
-        {
-            clipped.remove(clipped.length() - 1);
-        }
-
-        if (clipped.length() > 0)
-            Screen::tft.print(clipped);
         Windows::canAccess = true;
         delay(10);
 
@@ -229,7 +209,7 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -238,18 +218,18 @@ namespace LuaApps::WinLib
         int hgt = luaL_checkinteger(L, 6);
         int color = luaL_checkinteger(L, 7);
 
-        Rect bounds = getScreenRect(w, screenId);
-        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{wdt, hgt}};
-        if (!clipRect(bounds, rect))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
-        // Warte bis freigegeben
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.fillRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, color);
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.fillRect(x, y, wdt, hgt, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 
@@ -292,25 +272,25 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
         int color = luaL_checkinteger(L, 5);
 
-        Rect bounds = getScreenRect(w, screenId);
-        Vec p{w->off.x + x, w->off.y + y};
-        if (!clipPoint(bounds, p))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
-        // Warte bis freigegeben
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.drawPixel(p.x, p.y, color);
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.drawPixel(x, y, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
 
         return 0;
@@ -321,7 +301,7 @@ namespace LuaApps::WinLib
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -331,12 +311,7 @@ namespace LuaApps::WinLib
 
         luaL_checktype(L, 7, LUA_TTABLE);
 
-        Rect bounds = getScreenRect(w, screenId);
-        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{width, height}};
-        if (!clipRect(bounds, rect))
-            return 0;
-
-        size_t pixelCount = width * height;
+        size_t pixelCount = (size_t)width * (size_t)height;
         std::unique_ptr<uint16_t[]> buffer(new uint16_t[pixelCount]);
 
         for (size_t i = 0; i < pixelCount; ++i)
@@ -347,15 +322,18 @@ namespace LuaApps::WinLib
             lua_pop(L, 1);
         }
 
-        // Warte bis freigegeben
+        Rect rect = getScreenRect(w, screenId);
+
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.pushImage(rect.pos.x, rect.pos.y,
-                              rect.dimensions.x, rect.dimensions.y,
-                              buffer.get());
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.pushImage(x, y, width, height, buffer.get());
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 
@@ -374,15 +352,14 @@ namespace LuaApps::WinLib
         return 1;
     }
 
-    // --- NEW: TFT_eSPI drawing helpers exposed to Lua ---
+    // --- NEW: TFT_eSPI drawing helpers exposed to Lua (viewport-wrapped, relative coords) ---
 
-    // drawLine(windowId, screenId, x0,y0, x1,y1, color)
     int lua_WIN_drawLine(lua_State *L)
     {
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x0 = luaL_checkinteger(L, 3);
@@ -390,38 +367,31 @@ namespace LuaApps::WinLib
         int x1 = luaL_checkinteger(L, 5);
         int y1 = luaL_checkinteger(L, 6);
         int color = luaL_checkinteger(L, 7);
-        if (!w)
-            return 0;
 
-        int minx = std::min(x0, x1);
-        int miny = std::min(y0, y1);
-        int wdt = abs(x1 - x0) + 1;
-        int hgt = abs(y1 - y0) + 1;
-
-        Rect bounds = getScreenRect(w, screenId);
-        Rect rect{Vec{w->off.x + minx, w->off.y + miny}, Vec{wdt, hgt}};
-        if (!clipRect(bounds, rect))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.drawLine(w->off.x + x0, w->off.y + y0, w->off.x + x1, w->off.y + y1, color);
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.drawLine(x0, y0, x1, y1, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 
         return 0;
     }
 
-    // drawRect(windowId, screenId, x,y, w,h, color) - outline
     int lua_WIN_drawRect(lua_State *L)
     {
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -429,33 +399,31 @@ namespace LuaApps::WinLib
         int wdt = luaL_checkinteger(L, 5);
         int hgt = luaL_checkinteger(L, 6);
         int color = luaL_checkinteger(L, 7);
-        if (!w)
-            return 0;
 
-        Rect bounds = getScreenRect(w, screenId);
-        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{wdt, hgt}};
-        if (!clipRect(bounds, rect))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.drawRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, color);
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.drawRect(x, y, wdt, hgt, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 
         return 0;
     }
 
-    // drawTriangle(windowId, screenId, x0,y0, x1,y1, x2,y2, color)
     int lua_WIN_drawTriangle(lua_State *L)
     {
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x0 = luaL_checkinteger(L, 3);
@@ -465,39 +433,31 @@ namespace LuaApps::WinLib
         int x2 = luaL_checkinteger(L, 7);
         int y2 = luaL_checkinteger(L, 8);
         int color = luaL_checkinteger(L, 9);
-        if (!w)
-            return 0;
 
-        int minx = std::min({x0, x1, x2});
-        int miny = std::min({y0, y1, y2});
-        int maxx = std::max({x0, x1, x2});
-        int maxy = std::max({y0, y1, y2});
-        Rect bounds = getScreenRect(w, screenId);
-        Rect rect{Vec{w->off.x + minx, w->off.y + miny}, Vec{maxx - minx + 1, maxy - miny + 1}};
-        if (!clipRect(bounds, rect))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.drawTriangle(w->off.x + x0, w->off.y + y0,
-                                 w->off.x + x1, w->off.y + y1,
-                                 w->off.x + x2, w->off.y + y2, color);
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.drawTriangle(x0, y0, x1, y1, x2, y2, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 
         return 0;
     }
 
-    // fillTriangle(windowId, screenId, x0,y0, x1,y1, x2,y2, color)
     int lua_WIN_fillTriangle(lua_State *L)
     {
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x0 = luaL_checkinteger(L, 3);
@@ -507,105 +467,93 @@ namespace LuaApps::WinLib
         int x2 = luaL_checkinteger(L, 7);
         int y2 = luaL_checkinteger(L, 8);
         int color = luaL_checkinteger(L, 9);
-        if (!w)
-            return 0;
 
-        int minx = std::min({x0, x1, x2});
-        int miny = std::min({y0, y1, y2});
-        int maxx = std::max({x0, x1, x2});
-        int maxy = std::max({y0, y1, y2});
-        Rect bounds = getScreenRect(w, screenId);
-        Rect rect{Vec{w->off.x + minx, w->off.y + miny}, Vec{maxx - minx + 1, maxy - miny + 1}};
-        if (!clipRect(bounds, rect))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.fillTriangle(w->off.x + x0, w->off.y + y0,
-                                 w->off.x + x1, w->off.y + y1,
-                                 w->off.x + x2, w->off.y + y2, color);
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.fillTriangle(x0, y0, x1, y1, x2, y2, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 
         return 0;
     }
 
-    // drawCircle(windowId, screenId, x,y, radius, color)
     int lua_WIN_drawCircle(lua_State *L)
     {
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
         int r = luaL_checkinteger(L, 5);
         int color = luaL_checkinteger(L, 6);
-        if (!w)
-            return 0;
 
-        Rect bounds = getScreenRect(w, screenId);
-        Rect rect{Vec{w->off.x + x - r, w->off.y + y - r}, Vec{2 * r + 1, 2 * r + 1}};
-        if (!clipRect(bounds, rect))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.drawCircle(w->off.x + x, w->off.y + y, r, color);
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.drawCircle(x, y, r, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 
         return 0;
     }
 
-    // fillCircle(windowId, screenId, x,y, radius, color)
     int lua_WIN_fillCircle(lua_State *L)
     {
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
         int r = luaL_checkinteger(L, 5);
         int color = luaL_checkinteger(L, 6);
-        if (!w)
-            return 0;
 
-        Rect bounds = getScreenRect(w, screenId);
-        Rect rect{Vec{w->off.x + x - r, w->off.y + y - r}, Vec{2 * r + 1, 2 * r + 1}};
-        if (!clipRect(bounds, rect))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.fillCircle(w->off.x + x, w->off.y + y, r, color);
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.fillCircle(x, y, r, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 
         return 0;
     }
 
-    // drawRoundRect(windowId, screenId, x,y, w,h, radius, color)
     int lua_WIN_drawRoundRect(lua_State *L)
     {
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -614,33 +562,31 @@ namespace LuaApps::WinLib
         int hgt = luaL_checkinteger(L, 6);
         int radius = luaL_checkinteger(L, 7);
         int color = luaL_checkinteger(L, 8);
-        if (!w)
-            return 0;
 
-        Rect bounds = getScreenRect(w, screenId);
-        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{wdt, hgt}};
-        if (!clipRect(bounds, rect))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.drawRoundRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, radius, color);
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.drawRoundRect(x, y, wdt, hgt, radius, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 
         return 0;
     }
 
-    // fillRoundRect(windowId, screenId, x,y, w,h, radius, color)
     int lua_WIN_fillRoundRect(lua_State *L)
     {
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
@@ -649,86 +595,81 @@ namespace LuaApps::WinLib
         int hgt = luaL_checkinteger(L, 6);
         int radius = luaL_checkinteger(L, 7);
         int color = luaL_checkinteger(L, 8);
-        if (!w)
-            return 0;
 
-        Rect bounds = getScreenRect(w, screenId);
-        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{wdt, hgt}};
-        if (!clipRect(bounds, rect))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.fillRoundRect(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, radius, color);
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.fillRoundRect(x, y, wdt, hgt, radius, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 
         return 0;
     }
 
-    // drawFastVLine(windowId, screenId, x,y, h, color)
     int lua_WIN_drawFastVLine(lua_State *L)
     {
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
         int h = luaL_checkinteger(L, 5);
         int color = luaL_checkinteger(L, 6);
-        if (!w)
-            return 0;
 
-        Rect bounds = getScreenRect(w, screenId);
-        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{1, h}};
-        if (!clipRect(bounds, rect))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.drawFastVLine(w->off.x + x, w->off.y + y, h, color);
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.drawFastVLine(x, y, h, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 
         return 0;
     }
 
-    // drawFastHLine(windowId, screenId, x,y, w, color)
     int lua_WIN_drawFastHLine(lua_State *L)
     {
         if (!Windows::isRendering)
             return 0;
         Window *w = getWindow(L, 1);
-        if (w->closed)
+        if (!w || w->closed)
             return 0;
         int screenId = luaL_checkinteger(L, 2);
         int x = luaL_checkinteger(L, 3);
         int y = luaL_checkinteger(L, 4);
         int wdt = luaL_checkinteger(L, 5);
         int color = luaL_checkinteger(L, 6);
-        if (!w)
-            return 0;
 
-        Rect bounds = getScreenRect(w, screenId);
-        Rect rect{Vec{w->off.x + x, w->off.y + y}, Vec{wdt, 1}};
-        if (!clipRect(bounds, rect))
-            return 0;
+        Rect rect = getScreenRect(w, screenId);
 
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
-        Screen::tft.drawFastHLine(w->off.x + x, w->off.y + y, wdt, color);
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        Screen::tft.drawFastHLine(x, y, wdt, color);
+        Screen::tft.resetViewport();
+
         Windows::canAccess = true;
         delay(10);
 

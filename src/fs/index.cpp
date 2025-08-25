@@ -2,17 +2,36 @@
 
 namespace SD_FS
 {
+
     bool init(uint8_t csPin)
     {
         if (!SD.begin(csPin))
         {
             Serial.println("❌ SD card initialization failed!");
-            return false;
+            Screen::tft.fillScreen(RGB(100, 255, 200));
+            Screen::tft.setCursor(20, 20);
+            Screen::tft.setTextSize(3);
+            Screen::tft.setTextColor(TFT_BLACK);
+
+            Screen::tft.println("SD card initialization failed!");
+            Screen::tft.println("Please add a SD-Card");
+
+            delay(1000);
+            return init(csPin);
         }
         if (!SD.exists("/"))
         {
+            Screen::tft.fillScreen(RGB(100, 255, 200));
+            Screen::tft.setCursor(20, 20);
+            Screen::tft.setTextSize(3);
+            Screen::tft.setTextColor(TFT_BLACK);
+
+            Screen::tft.println("SD mounted, but root not accessible");
+            Screen::tft.println("Please fix your SD-Card");
+
             Serial.println("⚠️ SD mounted, but root not accessible");
-            return false;
+            delay(1000);
+            return init(csPin);
         }
         return true;
     }
