@@ -1,5 +1,4 @@
 #pragma once
-
 #include <Arduino.h>
 #include "driver/dac.h"
 #include <cstring>
@@ -12,28 +11,29 @@ namespace Audio
     constexpr int BUFFER_SIZE = int(SAMPLE_RATE * BUFFER_DURATION);
 
     // Internal state
-    static uint8_t buffer[BUFFER_SIZE]{}; // global/static OK
+    static uint8_t buffer[BUFFER_SIZE]{};
     static int readIndex = 0;
-    static int trackLength = 0; // actual bytes to play
+    static int trackLength = 0;
     static bool playing = false;
     static uint8_t volume = 255;
     static hw_timer_t *timer = nullptr;
 
-    // Timer callback
+    // Timer ISR: output 8-bit DAC sample
     static void IRAM_ATTR onTimer()
     {
         if (readIndex < trackLength)
         {
-            uint16_t val = (buffer[readIndex] * volume) / 255;
-            dac_output_voltage(DAC_CH, (uint8_t)val);
+            // Centered volume scaling: 128 = silence
+            int16_t s = (int16_t)buffer[readIndex] - 128;
+            int16_t scaled = (s * (int32_t)volume) / 255;
+            uint8_t out = (uint8_t)(scaled + 128);
+            dac_output_voltage(DAC_CH, out);
             readIndex++;
         }
         else
         {
-            // stop playback
-            dac_output_voltage(DAC_CH, 0);
+            dac_output_voltage(DAC_CH, 128); // silence
             playing = false;
-
             if (timer)
             {
                 timerAlarmDisable(timer);
@@ -44,20 +44,15 @@ namespace Audio
         }
     }
 
-    // Initialize DAC
     void init()
     {
         dac_output_enable(DAC_CH);
-        dac_output_voltage(DAC_CH, 0);
+        dac_output_voltage(DAC_CH, 128); // silence
     }
 
-    // Try to add a track to the buffer (safely copy `len` bytes)
-    // returns true if accepted (not currently playing)
     bool tryToAddTrack(const uint8_t *data, int len)
     {
-        if (playing)
-            return false;
-        if (len <= 0)
+        if (playing || len <= 0)
             return false;
         if (len > BUFFER_SIZE)
             len = BUFFER_SIZE;
@@ -66,30 +61,19 @@ namespace Audio
         return true;
     }
 
-    // Start playback
     void trackLoop()
     {
         if (playing)
             return;
-
         readIndex = 0;
         playing = true;
 
-        // Configure timer: timer 0, prescaler 80 -> 1 MHz clock
         timer = timerBegin(0, 80, true);
         timerAttachInterrupt(timer, &Audio::onTimer, true);
-        timerAlarmWrite(timer, 1000000 / SAMPLE_RATE, true); // period in microseconds
+        timerAlarmWrite(timer, 1000000 / SAMPLE_RATE, true);
         timerAlarmEnable(timer);
     }
 
-    // Set volume 0-255
-    void setVolume(uint8_t vol)
-    {
-        volume = vol;
-    }
-
-    bool isPlaying()
-    {
-        return playing;
-    }
+    void setVolume(uint8_t vol) { volume = vol; }
+    bool isPlaying() { return playing; }
 }
