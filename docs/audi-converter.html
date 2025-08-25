@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Audio → test.wav (16-bit PCM mono 44.1 kHz)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        font: 16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu,
+          Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji",
+          "Segoe UI Emoji";
+      }
+      body {
+        margin: 0;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        background: #0b1020;
+        color: #e7ecf7;
+      }
+      .card {
+        width: min(720px, 92vw);
+        background: #12192e;
+        border-radius: 18px;
+        padding: 24px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 1.2rem;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+      }
+      p {
+        margin: 0 0 14px;
+        color: #b9c3d6;
+      }
+      label[for="file"] {
+        display: inline-block;
+        margin: 14px 0 8px;
+        color: #cdd7ea;
+      }
+      input[type="file"] {
+        width: 100%;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px dashed #3a4360;
+        background: #0e1528;
+        color: #cdd7ea;
+      }
+      button {
+        margin-top: 14px;
+        padding: 12px 16px;
+        border: 0;
+        border-radius: 12px;
+        background: #3b82f6;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .row {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
+          "Liberation Mono", monospace;
+        font-size: 0.95rem;
+        color: #9fb2d9;
+      }
+      progress {
+        width: 220px;
+        height: 10px;
+        accent-color: #3b82f6;
+      }
+      .hint {
+        font-size: 0.9rem;
+        color: #93a3c6;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Convert to ESP32-friendly WAV</h1>
+      <p>
+        Output format: <span class="mono">16-bit PCM • mono • 44,100 Hz</span>.
+        The file will download as <span class="mono">test.wav</span>.
+      </p>
+
+      <label for="file">Choose an audio file (MP3, WAV, AAC, FLAC, etc.)</label>
+      <input id="file" type="file" accept="audio/*" />
+
+      <div class="row">
+        <button id="convert" disabled>Convert & Download</button>
+        <progress id="prog" max="100" value="0" hidden></progress>
+        <span id="status" class="hint"></span>
+      </div>
+    </div>
+
+    <script>
+      // Target output format
+      const OUT_SAMPLE_RATE = 44100; // Hz
+      const OUT_CHANNELS = 1; // mono
+      const OUT_BITS = 16; // 16-bit PCM
+
+      const $file = document.getElementById("file");
+      const $btn = document.getElementById("convert");
+      const $prog = document.getElementById("prog");
+      const $status = document.getElementById("status");
+
+      let selectedFile = null;
+
+      $file.addEventListener("change", () => {
+        selectedFile = $file.files && $file.files[0] ? $file.files[0] : null;
+        $btn.disabled = !selectedFile;
+        $status.textContent = selectedFile
+          ? `Selected: ${selectedFile.name}`
+          : "";
+      });
+
+      $btn.addEventListener("click", async () => {
+        if (!selectedFile) return;
+
+        try {
+          $btn.disabled = true;
+          $prog.hidden = false;
+          $prog.value = 0;
+          $status.textContent = "Decoding…";
+
+          // Read file into ArrayBuffer
+          const arrayBuf = await selectedFile.arrayBuffer();
+
+          // Decode with Web Audio
+          // Use a throwaway AudioContext for decoding (sample-rate agnostic)
+          const decodeCtx = new (window.AudioContext ||
+            window.webkitAudioContext)();
+          const decoded = await decodeCtx.decodeAudioData(arrayBuf);
+          await decodeCtx.close();
+
+          // Resample + downmix to mono with OfflineAudioContext
+          const lengthInFrames = Math.ceil(decoded.duration * OUT_SAMPLE_RATE);
+          const offline = new OfflineAudioContext(
+            OUT_CHANNELS,
+            lengthInFrames,
+            OUT_SAMPLE_RATE
+          );
+
+          const src = offline.createBufferSource();
+          src.buffer = decoded;
+
+          // Optional: smooth normalization (mild gain to avoid clipping on downmix)
+          const gain = offline.createGain();
+          gain.gain.value = 0.9;
+
+          // Connect: source -> gain -> destination (downmix happens automatically to 1ch)
+          src.connect(gain).connect(offline.destination);
+          src.start(0);
+
+          // Render (no progress callback available; show spinner/status only)
+          $status.textContent = "Resampling & mixing to mono…";
+          const rendered = await offline.startRendering();
+
+          // Extract mono PCM
+          const chData = rendered.getChannelData(0); // Float32 [-1, 1]
+          // Convert to 16-bit PCM little-endian
+          const pcmBuffer = new ArrayBuffer(chData.length * 2);
+          const view = new DataView(pcmBuffer);
+          for (let i = 0; i < chData.length; i++) {
+            let s = Math.max(-1, Math.min(1, chData[i]));
+            view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+            // crude progress update for very long files
+            if ((i & 0xffff) === 0) {
+              $prog.value = Math.min(
+                100,
+                Math.round((i / chData.length) * 100)
+              );
+            }
+          }
+
+          // Build WAV container (RIFF/WAVE, fmt chunk, data chunk)
+          const wavBytes = buildWavFile(pcmBuffer, {
+            sampleRate: OUT_SAMPLE_RATE,
+            numChannels: OUT_CHANNELS,
+            bitsPerSample: OUT_BITS,
+          });
+
+          const blob = new Blob([wavBytes], { type: "audio/wav" });
+
+          // Trigger download as test.wav
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "test.wav";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+
+          $prog.value = 100;
+          $status.textContent = "Done. Downloaded as test.wav";
+        } catch (err) {
+          console.error(err);
+          alert("Conversion failed: " + err.message);
+          $status.textContent = "Error.";
+        } finally {
+          $btn.disabled = false;
+          setTimeout(() => {
+            $prog.hidden = true;
+            $prog.value = 0;
+          }, 1000);
+        }
+      });
+
+      function buildWavFile(
+        pcmBuffer,
+        { sampleRate, numChannels, bitsPerSample }
+      ) {
+        const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+        const blockAlign = numChannels * (bitsPerSample / 8);
+        const dataSize = pcmBuffer.byteLength;
+        const headerSize = 44;
+        const totalSize = headerSize + dataSize;
+
+        const buf = new ArrayBuffer(totalSize);
+        const dv = new DataView(buf);
+
+        // RIFF chunk descriptor
+        writeString(dv, 0, "RIFF");
+        dv.setUint32(4, totalSize - 8, true); // ChunkSize
+        writeString(dv, 8, "WAVE");
+
+        // fmt sub-chunk
+        writeString(dv, 12, "fmt ");
+        dv.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+        dv.setUint16(20, 1, true); // AudioFormat = 1 (PCM)
+        dv.setUint16(22, numChannels, true); // NumChannels
+        dv.setUint32(24, sampleRate, true); // SampleRate
+        dv.setUint32(28, byteRate, true); // ByteRate
+        dv.setUint16(32, blockAlign, true); // BlockAlign
+        dv.setUint16(34, bitsPerSample, true); // BitsPerSample
+
+        // data sub-chunk
+        writeString(dv, 36, "data");
+        dv.setUint32(40, dataSize, true); // Subchunk2Size
+
+        // Copy PCM data
+        new Uint8Array(buf, 44).set(new Uint8Array(pcmBuffer));
+
+        return buf;
+      }
+
+      function writeString(dv, offset, str) {
+        for (let i = 0; i < str.length; i++) {
+          dv.setUint8(offset + i, str.charCodeAt(i));
+        }
+      }
+    </script>
+  </body>
+</html>
