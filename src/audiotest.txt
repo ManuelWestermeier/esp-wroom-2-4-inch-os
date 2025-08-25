@@ -1,0 +1,63 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <Arduino.h>
+
+const char *ssid = "io";
+const char *password = "hhhhhh90";
+
+const char *audioUrl = "https://manuelwestermeier.github.io/audio.data";
+
+const int audioPin = 26; // PWM output
+
+WiFiClient client;
+
+void setup()
+{
+    Serial.begin(115200);
+    WiFi.begin(ssid, password);
+    Serial.print("Connecting to WiFi");
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\nWiFi connected!");
+    pinMode(audioPin, OUTPUT);
+}
+
+void loop()
+{
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        Serial.println("WiFi lost, reconnecting...");
+        WiFi.begin(ssid, password);
+        while (WiFi.status() != WL_CONNECTED)
+            delay(500);
+    }
+
+    HTTPClient http;
+    http.begin(audioUrl);
+    int httpCode = http.GET();
+
+    if (httpCode == HTTP_CODE_OK)
+    {
+        Serial.println("Streaming audio...");
+
+        WiFiClient *stream = http.getStreamPtr();
+        while (http.connected() && stream->available())
+        {
+            int byteRead = stream->read(); // 8-bit sample
+            digitalWrite(audioPin, byteRead);
+            delayMicroseconds(20);
+        }
+
+        Serial.println("Playback finished.");
+    }
+    else
+    {
+        Serial.printf("HTTP GET failed, code: %d\n", httpCode);
+    }
+
+    http.end();
+    delay(5000); // wait 5s before next attempt
+}
