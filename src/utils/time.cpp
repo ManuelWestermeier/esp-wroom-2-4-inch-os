@@ -1,6 +1,4 @@
 #include "time.hpp"
-#include <WiFi.h>
-#include <time.h>
 
 namespace UserTime
 {
@@ -10,7 +8,11 @@ namespace UserTime
     {
         if (isConfigured == off)
             return;
+
         if (WiFi.status() != WL_CONNECTED)
+            return;
+
+        if (!UserWiFi::hasInternet)
             return;
 
         configTime(off, off, "pool.ntp.org");
@@ -23,8 +25,12 @@ namespace UserTime
         timeinfo.tm_hour = 0;
         timeinfo.tm_min = 0;
         timeinfo.tm_year = 0;
-        if (isConfigured != -1)
+
+        if (isConfigured != -1 &&
+            WiFi.status() == WL_CONNECTED &&
+            UserWiFi::hasInternet)
             getLocalTime(&timeinfo);
+
         return timeinfo;
     }
 }

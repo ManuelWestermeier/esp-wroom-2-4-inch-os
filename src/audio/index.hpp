@@ -6,6 +6,7 @@
 namespace Audio
 {
 #define DAC_CHANNEL DAC_CHANNEL_2 // GPIO26
+
     void init()
     {
         dac_output_enable(DAC_CHANNEL);

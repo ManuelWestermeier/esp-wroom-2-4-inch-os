@@ -3,6 +3,7 @@
 #include "freertos/task.h"
 
 #include "fs/index.hpp"
+#include "audio/index.hpp"
 #include "screen/index.hpp"
 #include "apps/windows.hpp"
 #include "apps/index.hpp"
@@ -18,6 +19,7 @@ void setup()
     Serial.begin(115200);
     Serial.println("Booting MW 2.4i OS...\n");
 
+    Audio::init();
     Screen::init();
     SD_FS::init();
     UserWiFi::start();

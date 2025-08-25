@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <HTTPClient.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -15,7 +16,9 @@
 namespace UserWiFi
 {
     extern TaskHandle_t WiFiConnectTaskHandle; // nur Deklaration!
+    extern bool hasInternet;
 
+    bool hasInternetFn();
     void logAllWifis(); // Funktions-Signaturen
     void WiFiConnectTask(void *param);
     void start();

@@ -3,6 +3,25 @@
 namespace UserWiFi
 {
     TaskHandle_t WiFiConnectTaskHandle = NULL; // nur EINMAL definieren
+    bool hasInternet = false;
+
+    bool hasInternetFn()
+    {
+        if (WiFi.status() != WL_CONNECTED)
+        {
+            hasInternet = false;
+            return false;
+        }
+
+        HTTPClient http;
+        http.begin("http://clients3.google.com/generate_204"); // lightweight endpoint
+        int httpCode = http.GET();
+        http.end();
+
+        hasInternet = httpCode == 204; // returns 204 if Internet is available
+
+        return hasInternet;
+    }
 
     void logAllWifis()
     {
@@ -29,7 +48,7 @@ namespace UserWiFi
 
     void WiFiConnectTask(void *)
     {
-    esp_task_wdt_delete(NULL); // unregister this task
+        esp_task_wdt_delete(NULL); // unregister this task
 
 #if LOG_ALL_WIFIS
         logAllWifis();
@@ -94,8 +113,10 @@ namespace UserWiFi
 
                     if (!connected)
                         Serial.println("[WiFi] Could not connect.");
-                    else
+                    else if (hasInternetFn())
+                    {
                         UserTime::set();
+                    }
                 }
             }
 

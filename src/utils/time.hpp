@@ -1,6 +1,9 @@
 #pragma once
 
+#include <WiFi.h>
 #include <time.h>
+
+#include "../wifi/index.hpp"
 
 namespace UserTime
 {
