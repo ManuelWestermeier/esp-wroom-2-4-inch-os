@@ -43,8 +43,9 @@ namespace Audio
         }
     }
 
-    void init()
+    void init(byte vol = 50)
     {
+        volume = vol;
         dac_output_enable(DAC_CH);
         // for (int i = 0; i < 16; i++)
         // {

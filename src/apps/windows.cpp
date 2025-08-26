@@ -232,7 +232,7 @@ namespace Windows
         lastState = state;
 
         // time button toglls rendering
-        if (timeButton.isIn(pos) && state == MouseState::Down)
+        if ((timeButton.isIn(pos) && state == MouseState::Down) || digitalRead(0) == LOW)
         {
             Screen::tft.fillScreen(RGB(245, 245, 255));
             isRendering = !isRendering;
