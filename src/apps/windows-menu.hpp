@@ -8,20 +8,17 @@ struct AppRenderData
 {
     String name;
     String path;
-    uint16_t icon[20 * 20];         // Roh-Icon (falls geladen)
-    uint16_t roundedIcon[20 * 20];  // Vorbereitetes, abgerundetes Icon (kein Stack)
+    uint16_t icon[20 * 20]; // nur ein Icon-Buffer
     bool hasIcon = false;
-    bool roundedReady = false;
 
-    bool loadIcon(const String &filename, uint16_t bgColor = RGB(255, 240, 255), uint8_t radius = 5)
+    bool loadIcon(const String &filename, uint16_t bgColor = RGB(255, 240, 255), uint8_t radius = 10)
     {
         File f = SD.open(filename, FILE_READ);
         if (!f)
             return false;
 
         // defensive: prüfen, ob mindestens 4 bytes für w/h da sind
-        int hb = f.available();
-        if (hb < 4)
+        if (f.available() < 4)
         {
             f.close();
             return false;
@@ -37,11 +34,11 @@ struct AppRenderData
             return false;
         }
 
+        // Bilddaten einlesen
         for (int j = 0; j < 20; j++)
         {
             for (int i = 0; i < 20; i++)
             {
-                // defensive: falls Datei kürzer ist, f.read() liefert -1 -> wir behandeln als bgColor
                 int hi = f.read();
                 int lo = f.read();
                 if (hi < 0 || lo < 0)
@@ -53,15 +50,15 @@ struct AppRenderData
         f.close();
         hasIcon = true;
 
-        // Bereite das gerundete Icon sofort vor (kein Stack-Buffer nötig)
-        prepareRounded(bgColor, radius);
+        // Rundung sofort einfügen → überschreibt Ecken mit bgColor
+        applyRoundMask(bgColor, radius);
         return true;
     }
 
-    // Bereitet roundedIcon vor und setzt roundedReady
-    void prepareRounded(uint16_t bgColor = RGB(255, 240, 255), uint8_t radius = 5)
+    void applyRoundMask(uint16_t bgColor = RGB(255, 240, 255), uint8_t radius = 5)
     {
-        // radius darf nicht größer als 10 sein (20/2)
+        if (!hasIcon)
+            return;
         if (radius > 10)
             radius = 10;
 
@@ -104,32 +101,16 @@ struct AppRenderData
                         pixelVisible = false;
                 }
 
-                if (pixelVisible && hasIcon)
-                    roundedIcon[j * 20 + i] = icon[j * 20 + i];
-                else
-                    roundedIcon[j * 20 + i] = bgColor;
+                if (!pixelVisible)
+                    icon[j * 20 + i] = bgColor;
             }
         }
-        roundedReady = true;
     }
 
-    // Zeichnet das bereits vorbereitete roundedIcon (keine großen Stack-Arrays)
-    void drawIconRounded(int x, int y)
+    void drawIcon(int x, int y)
     {
-        if (roundedReady)
-        {
-            Screen::tft.pushImage(x, y, 20, 20, roundedIcon);
-        }
-        else if (hasIcon)
-        {
-            // Fallback: falls prepareRounded nicht gelaufen ist (sollte selten sein)
-            prepareRounded();
-            Screen::tft.pushImage(x, y, 20, 20, roundedIcon);
-        }
-        else
-        {
-            // Nichts (oder caller zeichnet Platzhalter)
-        }
+        if (hasIcon)
+            Screen::tft.pushImage(x, y, 20, 20, icon);
     }
 
     bool operator==(const AppRenderData &o) const
@@ -172,14 +153,12 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         if (newPaths != lastPaths) // Änderung erkannt
         {
             apps.clear();
-            // Direkt in den Vector emplace_back, damit kein großes lokales Objekt auf dem Stack liegt
             for (auto &p : newPaths)
             {
-                apps.emplace_back();                   // erstellt ein neues AppRenderData im Heap-Speicher des Vectors
-                AppRenderData &app = apps.back();      // Referenz auf das gerade eingefügte Element
+                apps.emplace_back();
+                AppRenderData &app = apps.back();
                 app.path = p;
                 app.name = SD_FS::readFile(app.path + "/name.txt");
-                // Versuche Icon zu laden (prepareRounded wird dort aufgerufen)
                 app.loadIcon(app.path + "/icon-20x20.raw");
             }
             lastPaths = newPaths;
@@ -187,7 +166,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         }
     }
 
-    // --- Scrollverhalten (sofort anwenden, sorgt für redraw) ---
+    // --- Scrollverhalten ---
     if (programsView.isIn(pos) && state == MouseState::Held)
     {
         int newScroll = max(0, scrollYOff + move.y);
@@ -198,33 +177,29 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         }
     }
 
-    // Wenn Anzahl Apps beim ersten Mal 0 ist, erzwinge Render
     if (lastMenuRender == 0)
         needRedraw = true;
 
-    // Wenn Apps geändert => redraw
     if (appsChanged)
         needRedraw = true;
 
-    // Aktualisiere Time-Display spätestens jede 1s (sonst kein redraw)
     if (millis() - lastMenuRender > 1000)
         needRedraw = true;
 
-    // Falls nichts zu tun: nur Klicks behandeln (App-Start) und Rückkehren
     if (!needRedraw)
     {
-        // Klick → App starten (auch wenn wir gerade nicht redrawen)
+        // Klick → App starten
         if (state == MouseState::Down)
         {
             int i = 0;
             for (auto &app : apps)
             {
                 i++;
-                Rect appRect = {{10, scrollYOff + i * itemHeight},
+                Rect appRect = {{10, scrollYOff + (i + 1) * itemHeight},
                                 {itemWidth, itemHeight}};
                 if (appRect.isIn(pos))
                 {
-                    executeApplication({app.path + "/", "Arg1", "Hi"});
+                    executeApplication({app.path + "/"});
                     Windows::isRendering = true;
                     break;
                 }
@@ -233,20 +208,19 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         return;
     }
 
-    // --- Eigentliche Render-Phase (nur wenn needRedraw) ---
-    // Hintergrund oben (Header)
+    // --- Render ---
+    tft.fillScreen(TFT_WHITE);
     tft.fillRect(topSelect.pos.x, topSelect.pos.y,
                  topSelect.dimensions.x, topSelect.dimensions.y,
                  RGB(255, 240, 255));
 
     tft.setTextSize(2);
 
-    // Liste zeichnen
     int i = 0;
     for (auto &app : apps)
     {
         i++;
-        Rect appRect = {{10, scrollYOff + i * itemHeight},
+        Rect appRect = {{10, scrollYOff + (i + 1) * itemHeight},
                         {itemWidth, itemHeight}};
 
         if (appRect.intersects(topSelect))
@@ -254,20 +228,20 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         if (!appRect.intersects(screen))
             continue;
 
-        // Hintergrund für App-Eintrag (rounded)
         tft.fillRoundRect(appRect.pos.x, appRect.pos.y,
                           appRect.dimensions.x, appRect.dimensions.y - 5,
                           5, RGB(255, 240, 255));
 
-        // Icon links zeichnen (mit vorgefertigtem Rounded-Icon)
-        if (app.hasIcon && app.roundedReady)
+        // Icon zeichnen
+        if (app.hasIcon)
         {
-            app.drawIconRounded(appRect.pos.x + 5, appRect.pos.y + 5);
+            app.drawIcon(appRect.pos.x + 5, appRect.pos.y + 5);
         }
         else
         {
-            // Platzhalter: abgerundetes Kästchen
-            tft.fillRoundRect(appRect.pos.x + 5, appRect.pos.y + 5, 20, 20, 5, RGB(200, 200, 200));
+            // Platzhalter
+            tft.fillRoundRect(appRect.pos.x + 5, appRect.pos.y + 5,
+                              20, 20, 5, RGB(200, 200, 200));
         }
 
         // Name daneben
@@ -277,17 +251,12 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         // Klick → App starten
         if (appRect.isIn(pos) && state == MouseState::Down)
         {
-            executeApplication({app.path + "/", "Arg1", "Hi"});
+            executeApplication({app.path + "/"});
             Windows::isRendering = true;
         }
     }
 
-    // Zeit/Status (wird bei Bedarf jede Sekunde neu gezeichnet)
     drawTime();
-
-    // letzte Render-Zustände updaten
     lastMenuRender = millis();
-
-    // kleine Pause wie vorher (optional)
     delay(10);
 }
