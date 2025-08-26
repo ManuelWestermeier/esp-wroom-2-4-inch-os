@@ -94,8 +94,8 @@ void executeApplication(const std::vector<String> &args)
 // ---------------------- Persistent Render Task ----------------------
 void AppRenderTask(void *pvParameters)
 {
-    (void)pvParameters;
     esp_task_wdt_delete(NULL); // unregister this task
+    (void)pvParameters;
     // Render-Task in die Liste aufnehmen
     addRunningTask(xTaskGetCurrentTaskHandle());
 

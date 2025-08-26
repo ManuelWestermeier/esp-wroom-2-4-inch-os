@@ -29,11 +29,8 @@ namespace LuaApps::WinLib
     static Rect getScreenRect(Window *w, int screenId)
     {
         auto r = _getScreenRect(w, screenId);
-        if (screenId == 2 && Windows::isRendering)
-        {
-            r.print();
-            Screen::tft.drawRect(r.pos.x, r.pos.y, r.dimensions.x, r.dimensions.y, rand() % 10000 + 30000);
-        }
+        if (!(Rect{{0, 0}, {320, 240}}.intersects(r)))
+            return {r.pos, {0, 0}};
         return r;
     }
 
