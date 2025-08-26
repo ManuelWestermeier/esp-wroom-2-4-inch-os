@@ -19,10 +19,13 @@ void setup()
     Serial.begin(115200);
     Serial.println("Booting MW 2.4i OS...\n");
     pinMode(0, INPUT_PULLUP); // Button is active LOW
-    
+
     Audio::init(60);
     Screen::init();
+    
     SD_FS::init();
+    SD_FS::copyFileFromSPIFFS("/test.lua", "/public/programs/a-paint/entry.lua");
+    
     UserWiFi::start();
 
     startAnimationMWOS();

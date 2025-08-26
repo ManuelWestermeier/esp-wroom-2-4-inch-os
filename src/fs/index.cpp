@@ -5,6 +5,10 @@ namespace SD_FS
 
     bool init(uint8_t csPin)
     {
+        if (!SPIFFS.begin(true))
+        {
+            Serial.println("SPIFFS konnte nicht gemountet werden");
+        }
         if (!SD.begin(csPin))
         {
             Serial.println("❌ SD card initialization failed!");
@@ -197,6 +201,21 @@ namespace SD_FS
             Serial.printf("❌ Datei %s nicht gefunden.\n", path.c_str());
         if (f)
             f.close();
+    }
+
+    void copyFileFromSPIFFS(const char *spiffsPath, const char *sdPath)
+    {
+        File f = SPIFFS.open(spiffsPath, "r");
+        if (!f)
+        {
+            Serial.printf("Fehler beim Öffnen von %s in SPIFFS\n", spiffsPath);
+            return;
+        }
+
+        String content = f.readString(); // ganzen Inhalt als String einlesen
+        f.close();
+
+        writeFile(sdPath, content); // auf SD schreiben
     }
 
     uint64_t getCardSize() { return SD.cardSize(); }

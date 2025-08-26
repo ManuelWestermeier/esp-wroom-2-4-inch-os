@@ -36,4 +36,6 @@ namespace SD_FS
     uint64_t getUsedBytes();
     uint64_t getFreeBytes();
     void getUsageSummary();
+
+    void copyFileFromSPIFFS(const char *spiffsPath, const char *sdPath);
 }
