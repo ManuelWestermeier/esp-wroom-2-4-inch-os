@@ -64,7 +64,7 @@ void setup()
     Serial.begin(115200);
     Serial.println("\nStarting WAV Stream...");
     Audio::init();
-    Audio::setVolume(100);
+    Audio::setVolume(50);
     connectWiFi();
 
     HTTPClient http;
@@ -168,9 +168,8 @@ void setup()
 
         while (!Audio::tryToAddTrack(outBuf, (int)framesToRead))
             delay(1);
+
         Audio::trackLoop();
-        while (Audio::isPlaying())
-            delay(1);
     }
 
     http.end();

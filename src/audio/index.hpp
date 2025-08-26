@@ -7,7 +7,7 @@ namespace Audio
 {
     constexpr dac_channel_t DAC_CH = DAC_CHANNEL_2; // GPIO26
     constexpr int SAMPLE_RATE = 44100;
-    constexpr float BUFFER_DURATION = 0.2f;
+    constexpr float BUFFER_DURATION = 0.25f;
     constexpr int BUFFER_SIZE = int(SAMPLE_RATE * BUFFER_DURATION);
 
     // Internal state
@@ -15,7 +15,7 @@ namespace Audio
     static int readIndex = 0;
     static int trackLength = 0;
     static bool playing = false;
-    static uint8_t volume = 255;
+    static uint8_t volume = 50;
     static hw_timer_t *timer = nullptr;
 
     // Timer ISR: output 8-bit DAC sample
@@ -24,11 +24,10 @@ namespace Audio
         if (readIndex < trackLength)
         {
             // Centered volume scaling: 128 = silence
-            int16_t s = (int16_t)buffer[readIndex] - 128;
+            int16_t s = (int16_t)buffer[readIndex++] - 128;
             int16_t scaled = (s * (int32_t)volume) / 255;
             uint8_t out = (uint8_t)(scaled + 128);
             dac_output_voltage(DAC_CH, out);
-            readIndex++;
         }
         else
         {
@@ -47,6 +46,10 @@ namespace Audio
     void init()
     {
         dac_output_enable(DAC_CH);
+        dac_output_voltage(DAC_CH, 40); // silence
+        delay(10);
+        dac_output_voltage(DAC_CH, 60); // silence
+        delay(10);
         dac_output_voltage(DAC_CH, 128); // silence
     }
 
