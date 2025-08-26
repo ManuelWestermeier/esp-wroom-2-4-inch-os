@@ -46,10 +46,11 @@ namespace Audio
     void init()
     {
         dac_output_enable(DAC_CH);
-        dac_output_voltage(DAC_CH, 40); // silence
-        delay(10);
-        dac_output_voltage(DAC_CH, 60); // silence
-        delay(10);
+        // for (int i = 0; i < 16; i++)
+        // {
+        //     dac_output_voltage(DAC_CH, 8 * i); // silence
+        //     delay(80);
+        // }
         dac_output_voltage(DAC_CH, 128); // silence
     }
 
