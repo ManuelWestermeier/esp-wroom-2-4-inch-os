@@ -17,36 +17,40 @@ Rect Window::resizeArea() const
 
 void Window::init(const String &windowName, Vec position, Vec dimensions, uint16_t *_icon)
 {
+    // name
     name = windowName;
-
     // Constrain size
     size = {
         constrain(dimensions.x, minSize.x, maxSize.x),
-        constrain(dimensions.y, minSize.y, maxSize.y)};
+        constrain(dimensions.y, minSize.y, maxSize.y),
+    };
 
-    // Screen center
-    Vec screenCenter{240, 320}; // Example for 480x640 screen; adjust to your actual TFT size
-    off = screenCenter - Vec{size.x / 2, size.y / 2};
+    off = {
+        constrain(position.x, 0, 320 - size.x),
+        constrain(position.y, 0, 240 - size.y),
+    };
+    // Copy icon if provided
+    if (_icon != nullptr)
+    {
+        memcpy(icon, _icon, sizeof(icon)); // 288 bytes
+    }
 
     // Lambda to get bounding rect
-    auto getBoundingRect = [&](Vec pos)
+    auto getBoundingRect = [&](Vec pos, Vec size)
     {
         return Rect{pos + Vec{-1, -13}, size + Vec{14, 13}};
     };
 
-    const int stepY = 14;
-    const int maxTries = 5600 / stepY;
-    int tries = 0;
-
-    while (tries < maxTries)
+    const int step = 20;
+    while (1)
     {
         bool collides = false;
-        Rect thisRect = getBoundingRect(off);
+        Rect thisRect = getBoundingRect(off, size);
 
         for (auto &p : Windows::apps)
         {
             Window &w = *p;
-            if (thisRect.intersects(getBoundingRect(w.off)))
+            if (thisRect.intersects(getBoundingRect(w.off, w.size)))
             {
                 collides = true;
                 break;
@@ -56,21 +60,10 @@ void Window::init(const String &windowName, Vec position, Vec dimensions, uint16
         if (!collides)
             break;
 
-        // Move down if collision
-        off.y += stepY;
-        tries++;
-    }
-
-    // Optional: warn if no free space
-    if (tries == maxTries)
-    {
-        Serial.println("Warning: could not find a non-colliding position!");
-    }
-
-    // Copy icon if provided
-    if (_icon != nullptr)
-    {
-        memcpy(icon, _icon, sizeof(icon)); // 288 bytes
+        for (auto &p : Windows::apps)
+        {
+            p->off.y -= step;
+        }
     }
 }
 
