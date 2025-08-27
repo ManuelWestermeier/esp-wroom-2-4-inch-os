@@ -21,7 +21,7 @@ void setup()
     pinMode(0, INPUT_PULLUP); // Button is active LOW
 
     Audio::init(60);
-    Screen::init();
+    Screen::init(150);
     
     SD_FS::init();
     SD_FS::copyFileFromSPIFFS("/test.lua", "/public/programs/a-paint/entry.lua");

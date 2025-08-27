@@ -15,10 +15,10 @@ namespace Screen
     extern int MOVEMENT_TIME_THRESHOLD;
 
     // Set backlight brightness (0–255)
-    void setBrightness(int x);
+    void setBrightness(int b = 255);
 
     // Initialize display and touch
-    void init();
+    void init(byte b = 200);
 
     // Touch data: absolute position + movement delta
     struct TouchPos : Vec
