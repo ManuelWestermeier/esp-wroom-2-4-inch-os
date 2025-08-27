@@ -129,9 +129,9 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     int itemWidth = 250;
 
     Rect screen = {{0, 0}, {320, 240}};
-    Rect topSelect = {{10, 0}, {320, 50}};
-    Rect programsView = {{10, topSelect.dimensions.y + 10},
-                         {itemWidth, screen.dimensions.y - topSelect.dimensions.y}};
+    Rect topSelect = {{10, 10}, {300, 60}};
+    Rect programsView = {{10, topSelect.pos.y + topSelect.dimensions.y},
+                         {300, screen.dimensions.y - topSelect.dimensions.y - topSelect.pos.y}};
 
     // Persistente App-Liste
     static std::vector<AppRenderData> apps;
@@ -169,7 +169,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     // --- Scrollverhalten ---
     if (programsView.isIn(pos) && state == MouseState::Held)
     {
-        int newScroll = max(0, scrollYOff + move.y);
+        int newScroll = max(10, scrollYOff + move.y);
         if (newScroll != scrollYOff)
         {
             scrollYOff = newScroll;
@@ -195,13 +195,19 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
             for (auto &app : apps)
             {
                 i++;
-                Rect appRect = {{10, scrollYOff + (i + 1) * itemHeight},
+                Rect appRect = {{10, (scrollYOff + (i + 1) * itemHeight)},
                                 {itemWidth, itemHeight}};
-                if (appRect.isIn(pos))
+                if (!appRect.intersects(programsView))
+                    continue;
+
+                if (programsView.isIn(pos))
                 {
-                    executeApplication({app.path + "/"});
-                    Windows::isRendering = true;
-                    break;
+                    if (appRect.isIn(pos))
+                    {
+                        executeApplication({app.path + "/"});
+                        Windows::isRendering = true;
+                        break;
+                    }
                 }
             }
         }
@@ -210,22 +216,22 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
     // --- Render ---
     tft.fillScreen(TFT_WHITE);
-    tft.fillRect(topSelect.pos.x, topSelect.pos.y,
-                 topSelect.dimensions.x, topSelect.dimensions.y,
-                 RGB(255, 240, 255));
+    tft.fillRoundRect(topSelect.pos.x, topSelect.pos.y,
+                      topSelect.dimensions.x, topSelect.dimensions.y, 5,
+                      RGB(255, 240, 255));
 
     tft.setTextSize(2);
+
+    tft.setViewport(programsView.pos.x, programsView.pos.y, programsView.dimensions.x, programsView.dimensions.y, false);
 
     int i = 0;
     for (auto &app : apps)
     {
         i++;
-        Rect appRect = {{10, scrollYOff + (i + 1) * itemHeight},
+        Rect appRect = {{10, (scrollYOff + (i + 1) * itemHeight)},
                         {itemWidth, itemHeight}};
 
-        if (appRect.intersects(topSelect))
-            continue;
-        if (!appRect.intersects(screen))
+        if (!appRect.intersects(programsView))
             continue;
 
         tft.fillRoundRect(appRect.pos.x, appRect.pos.y,
@@ -248,13 +254,18 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         tft.setCursor(appRect.pos.x + 30, appRect.pos.y + 8);
         tft.print(app.name);
 
-        // Klick → App starten
-        if (appRect.isIn(pos) && state == MouseState::Down)
+        if (programsView.isIn(pos))
         {
-            executeApplication({app.path + "/"});
-            Windows::isRendering = true;
+            if (appRect.isIn(pos))
+            {
+                executeApplication({app.path + "/"});
+                Windows::isRendering = true;
+                break;
+            }
         }
     }
+
+    Screen::tft.resetViewport();
 
     drawTime();
     lastMenuRender = millis();
