@@ -121,10 +121,12 @@ struct AppRenderData
 
 unsigned long menuUpdateTime = 0;
 
+#define SCROLL_OFF_MENU_START 20
+
 void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 {
     using Screen::tft;
-    static int scrollYOff = 10;
+    static int scrollYOff = SCROLL_OFF_MENU_START;
     int itemHeight = 30; // mehr Platz, damit Icon+Text passen
     int itemWidth = 250;
 
@@ -169,7 +171,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     // --- Scrollverhalten ---
     if (programsView.isIn(pos) && state == MouseState::Held)
     {
-        int newScroll = max(10, scrollYOff + move.y);
+        int newScroll = max(SCROLL_OFF_MENU_START, scrollYOff + move.y);
         if (newScroll != scrollYOff)
         {
             scrollYOff = newScroll;
