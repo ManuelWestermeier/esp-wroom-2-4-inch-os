@@ -72,12 +72,12 @@ void executeApplication(const std::vector<String> &args)
 
     TaskHandle_t WindowAppRunHandle = NULL;
     BaseType_t res = xTaskCreate(
-        AppRunTask,         // task function
-        "AppRunTask",       // name
-        2048 * 6,           // stack (words) -> erhöht für Stabilität
-        taskArgsPtr,        // parameter (heap-allocated copy)
-        1,                  // priority
-        &WindowAppRunHandle // task handle (optional)
+        AppRunTask,                                 // task function
+        (String("App>>") + args[0]).c_str(), // name
+        16384,                                      // stack (words) -> erhöht für Stabilität
+        taskArgsPtr,                                // parameter (heap-allocated copy)
+        1,                                          // priority
+        &WindowAppRunHandle                         // task handle (optional)
     );
 
     if (res != pdPASS)
