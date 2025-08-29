@@ -38,6 +38,11 @@ namespace Auth
         return false;
     }
 
+    void copyPublicDir()
+    {
+       
+    }
+
     bool createAccount(const String &user, const String &pass)
     {
         if (user.isEmpty() || pass.isEmpty())
@@ -57,6 +62,8 @@ namespace Auth
         username = Crypto::HASH::sha256String(user);
         name = user;
         password = Crypto::HASH::sha256String(pass);
+
+        copyPublicDir();
 
         return true;
     }

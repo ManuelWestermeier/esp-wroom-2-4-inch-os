@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include "utils/crypto.hpp"
 #include "fs/index.hpp"
+#include "fs/enc-fs.hpp"
 #include "io/read-string.hpp"
 #include "screen/index.hpp"
 #include "utils/rect.hpp"
@@ -20,6 +21,7 @@ namespace Auth
     // Attempt login with username and password
     bool login(const String &user, const String &pass);
 
+    void copyPublicDir();
     // Create new account, returns false if user already exists
     bool createAccount(const String &user, const String &pass);
 
