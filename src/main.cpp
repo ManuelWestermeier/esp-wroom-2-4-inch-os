@@ -3,6 +3,7 @@
 #include "freertos/task.h"
 
 #include "fs/index.hpp"
+#include "fs/debug/tree.hpp"
 #include "audio/index.hpp"
 #include "screen/index.hpp"
 #include "apps/windows.hpp"
@@ -22,10 +23,11 @@ void setup()
 
     Audio::init(60);
     Screen::init(150);
-    
+
     SD_FS::init();
+    tree();
     SD_FS::copyFileFromSPIFFS("/test.lua", "/public/programs/a-paint/entry.lua");
-    
+
     UserWiFi::start();
 
     startAnimationMWOS();
