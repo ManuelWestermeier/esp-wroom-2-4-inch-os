@@ -82,7 +82,7 @@ namespace UserWiFi
                         }
 
                         // Check for known WiFi file
-                        String wifiFile = "/public/wifi/" + ssid + ".wifi";
+                        String wifiFile = "/public/wifi/" + toHex(ssid) + ".wifi";
                         if (SD_FS::exists(wifiFile))
                         {
                             String password = SD_FS::readFile(wifiFile);
@@ -128,5 +128,10 @@ namespace UserWiFi
     {
         WiFi.mode(WIFI_STA);
         xTaskCreate(WiFiConnectTask, "WiFiConnectTask", 8192, NULL, 1, &WiFiConnectTaskHandle);
+    }
+
+    void addPublicWifi(String ssid, String pass)
+    {
+        SD_FS::writeFile("/public/wifi/" + toHex(ssid) + ".wifi", pass);
     }
 }

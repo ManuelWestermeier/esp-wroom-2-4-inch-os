@@ -4,6 +4,7 @@
 
 #include "fs/index.hpp"
 #include "fs/debug/tree.hpp"
+#include "fs/debug/hex-folder-rename.hpp"
 #include "audio/index.hpp"
 #include "screen/index.hpp"
 #include "apps/windows.hpp"
@@ -25,9 +26,10 @@ void setup()
     Screen::init(150);
 
     SD_FS::init();
-    tree();
+    // tree();
     SD_FS::copyFileFromSPIFFS("/test.lua", "/public/programs/a-paint/entry.lua");
-
+    
+    UserWiFi::addPublicWifi("io", "hhhhhh90");
     UserWiFi::start();
 
     startAnimationMWOS();

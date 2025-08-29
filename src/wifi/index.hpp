@@ -10,6 +10,7 @@
 
 #include "../fs/index.hpp"
 #include "../utils/time.hpp"
+#include "../utils/hex.hpp"
 
 #define LOG_ALL_WIFIS true
 
@@ -22,4 +23,5 @@ namespace UserWiFi
     void logAllWifis(); // Funktions-Signaturen
     void WiFiConnectTask(void *param);
     void start();
+    void addPublicWifi(String ssid, String pass);
 }
