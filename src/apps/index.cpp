@@ -47,7 +47,8 @@ void AppRunTask(void *pvParameters)
         appArgs.assign(args.begin() + 1, args.end());
 
     // App ausführen
-    int result = LuaApps::runApp(args[0], appArgs);
+    LuaApps::App app(args[0], appArgs);
+    int result = app.run();
     Serial.printf("Lua App exited with code: %d\n", result);
 
     // Sich selbst aus der Liste entfernen und beenden
@@ -72,12 +73,12 @@ void executeApplication(const std::vector<String> &args)
 
     TaskHandle_t WindowAppRunHandle = NULL;
     BaseType_t res = xTaskCreate(
-        AppRunTask,                                 // task function
+        AppRunTask,                          // task function
         (String("App>>") + args[0]).c_str(), // name
-        16384,                                      // stack (words) -> erhöht für Stabilität
-        taskArgsPtr,                                // parameter (heap-allocated copy)
-        1,                                          // priority
-        &WindowAppRunHandle                         // task handle (optional)
+        16384,                               // stack (words) -> erhöht für Stabilität
+        taskArgsPtr,                         // parameter (heap-allocated copy)
+        1,                                   // priority
+        &WindowAppRunHandle                  // task handle (optional)
     );
 
     if (res != pdPASS)

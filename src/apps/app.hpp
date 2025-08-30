@@ -3,21 +3,33 @@
 #include <vector>
 #include <WString.h>
 
+#include "functions.hpp"
+
+#include "../fs/index.hpp"
+
+extern "C"
+{
+#include "lua.h"
+#include "lauxlib.h"
+#include "lualib.h"
+}
+
 namespace LuaApps
 {
+    static lua_State *createRestrictedLuaState(const String &path);
+
+    static int lua_exitApp(lua_State *L);
 
     class App
     {
     public:
-        App(const String &name, const String &fromPath, const std::vector<String> &args);
+        App(const String &name,  const std::vector<String> &args);
         int run();
         int exitCode() const;
 
     private:
         String path;
-        String origin;
         std::vector<String> arguments;
-        int result = 0;
+        int lastExitCode = 0;
     };
-
 }

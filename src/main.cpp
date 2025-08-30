@@ -19,6 +19,7 @@ using namespace Windows;
 
 void setup()
 {
+    // esp_task_wdt_delete(NULL); // unregister this task
     Serial.begin(115200);
     Serial.println("Booting MW 2.4i OS...\n");
     pinMode(0, INPUT_PULLUP); // Button is active LOW
@@ -38,8 +39,6 @@ void setup()
     Auth::init();
     // ENC_FS::lsDirSerial(ENC_FS::str2Path(""));
     // filePicker();
-
-    LuaApps::initialize();
     startWindowRender();
 }
 
