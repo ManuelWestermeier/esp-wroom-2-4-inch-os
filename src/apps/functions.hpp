@@ -16,6 +16,7 @@ extern "C"
 #include "winlib.hpp"
 #include "../auth/auth.hpp"
 #include "../fs/index.hpp"
+#include "index.hpp"
 
 namespace LuaApps::LuaFunctions
 {
@@ -26,5 +27,5 @@ namespace LuaApps::LuaFunctions
     int luaDelay(lua_State *L);
     int luaHttpRequest(lua_State *L);
     int luaHttpsRequest(lua_State *L);
-    void register_default_functions(lua_State *L, const String &path);
+    void register_default_functions(lua_State *L);
 }

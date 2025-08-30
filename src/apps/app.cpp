@@ -2,7 +2,7 @@
 
 namespace LuaApps
 {
-    static lua_State *createRestrictedLuaState(const String &path)
+    static lua_State *createRestrictedLuaState()
     {
         lua_State *L = luaL_newstate();
 
@@ -33,22 +33,13 @@ namespace LuaApps
         lua_setglobal(L, "loadstring");
 
         // Register safe functions
-        LuaFunctions::register_default_functions(L, path);
+        LuaFunctions::register_default_functions(L);
 
         return L;
     }
 
     App::App(const String &name, const std::vector<String> &args)
         : path(name), arguments(args), lastExitCode(0) {}
-
-    // Helper to get the current App* from Lua registry
-    static App *getApp(lua_State *L)
-    {
-        lua_getfield(L, LUA_REGISTRYINDEX, "__APP_PTR");
-        App *app = reinterpret_cast<App *>(lua_touserdata(L, -1));
-        lua_pop(L, 1);
-        return app;
-    }
 
     // Lua function to exit the app with a code
     static int lua_exitApp(lua_State *L)
@@ -64,7 +55,7 @@ namespace LuaApps
 
     int App::run()
     {
-        lua_State *L = createRestrictedLuaState(path);
+        lua_State *L = createRestrictedLuaState();
 
         // Store the App* in the registry for all C functions to access
         lua_pushlightuserdata(L, this);
@@ -102,4 +93,13 @@ namespace LuaApps
     }
 
     int App::exitCode() const { return lastExitCode; }
+
+    // Helper to get the current App* from Lua registry
+    App *getApp(lua_State *L)
+    {
+        lua_getfield(L, LUA_REGISTRYINDEX, "__APP_PTR");
+        App *app = reinterpret_cast<App *>(lua_touserdata(L, -1));
+        lua_pop(L, 1);
+        return app;
+    }
 }

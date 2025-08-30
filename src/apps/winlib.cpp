@@ -675,7 +675,7 @@ namespace LuaApps::WinLib
 
     // --- end new drawing helpers ---
 
-    void register_win_functions(lua_State *L, const String &path)
+    void register_win_functions(lua_State *L)
     {
         lua_register(L, "createWindow", lua_createWindow);
         lua_register(L, "WIN_setName", lua_WIN_setName);

@@ -6,7 +6,7 @@ namespace LuaApps::LuaFunctions
     int luaPrintSerial(lua_State *L)
     {
         // get hidden script path
-        String scriptPath = String(lua_tostring(L, lua_upvalueindex(1)));
+        String scriptPath = LuaApps::getApp(L)->path;
         Serial.println("PRINT: " + scriptPath);
 
         int nargs = lua_gettop(L);
@@ -43,7 +43,7 @@ namespace LuaApps::LuaFunctions
     int luaExec(lua_State *L)
     {
         // get hidden script path
-        String scriptPath = String(lua_tostring(L, lua_upvalueindex(1)));
+        String scriptPath = LuaApps::getApp(L)->path;
 
         Serial.println("scriptPath: " + scriptPath);
 
@@ -347,26 +347,17 @@ namespace LuaApps::LuaFunctions
         return 1;
     }
 
-    void register_default_functions(lua_State *L, const String &path)
+    void register_default_functions(lua_State *L)
     {
-        // push helper macro for registering with path as upvalue
-        auto register_with_path = [&](const char *name, lua_CFunction fn)
-        {
-            lua_pushstring(L, path.c_str()); // push path as upvalue
-            lua_pushcclosure(L, fn, 1);      // bind with 1 upvalue
-            lua_setglobal(L, name);          // assign global name
-        };
+        lua_register(L, "print", luaPrintSerial);
+        lua_register(L, "exec", luaExec);
+        lua_register(L, "setLED", setLED);
+        lua_register(L, "delay", luaDelay);
+        lua_register(L, "httpReq", luaHttpRequest);
+        lua_register(L, "httpsReq", luaHttpsRequest);
+        lua_register(L, "RGB", lua_RGB);
 
-        register_with_path("print", luaPrintSerial);
-        register_with_path("exec", luaExec);
-        register_with_path("setLED", setLED);
-        register_with_path("delay", luaDelay);
-        register_with_path("httpReq", luaHttpRequest);
-        register_with_path("httpsReq", luaHttpsRequest);
-        register_with_path("RGB", lua_RGB);
-
-        // window functions — we can extend LuaApps::WinLib::register_win_functions
-        LuaApps::WinLib::register_win_functions(L, path);
+        // window functions — we can extend WinLib::register_win_functions
+        LuaApps::WinLib::register_win_functions(L);
     }
-
-} // namespace LuaApps::LuaFunctions
+} // namespace LuaFunctions

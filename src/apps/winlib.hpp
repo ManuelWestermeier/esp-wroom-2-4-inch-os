@@ -34,6 +34,6 @@ namespace LuaApps::WinLib
     // --- Ende neue Funktionen ---
 
     // Registration of functions to Lua
-    void register_win_functions(lua_State *L, const String &path);
+    void register_win_functions(lua_State *L);
 
 } // namespace LuaApps::WinLib

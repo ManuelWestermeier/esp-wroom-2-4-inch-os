@@ -16,7 +16,12 @@ extern "C"
 
 namespace LuaApps
 {
-    static lua_State *createRestrictedLuaState(const String &path);
+    namespace LuaFunctions
+    {
+        void register_default_functions(lua_State *L);
+    };
+
+    static lua_State *createRestrictedLuaState();
 
     static int lua_exitApp(lua_State *L);
 
@@ -31,5 +36,5 @@ namespace LuaApps
         std::vector<String> arguments;
     };
 
-    static App *getApp(lua_State *L);
+    App *getApp(lua_State *L);
 }
