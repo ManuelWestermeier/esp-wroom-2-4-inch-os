@@ -38,9 +38,26 @@ namespace Auth
         return false;
     }
 
-    void copyPublicDir()
+    void copyPublicDir(String path)
     {
-       
+        auto files = SD_FS::readDir(path);
+
+        for (auto &f : files) // besser const &
+        {
+            String fp = String(f.path()).substring(7); // remove "/public"
+
+            if (f.isDirectory())
+            {
+                ENC_FS::mkDir(ENC_FS::str2Path(fp));
+                copyPublicDir(f.path()); // <-- WICHTIG: ins Unterverzeichnis gehen
+            }
+            else
+            {
+                ENC_FS::writeFileString(
+                    ENC_FS::str2Path(fp),
+                    SD_FS::readFile(f.path()));
+            }
+        }
     }
 
     bool createAccount(const String &user, const String &pass)

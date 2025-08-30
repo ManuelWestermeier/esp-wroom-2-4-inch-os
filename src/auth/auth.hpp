@@ -21,7 +21,7 @@ namespace Auth
     // Attempt login with username and password
     bool login(const String &user, const String &pass);
 
-    void copyPublicDir();
+    void copyPublicDir(String path = "/public");
     // Create new account, returns false if user already exists
     bool createAccount(const String &user, const String &pass);
 

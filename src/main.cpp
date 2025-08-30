@@ -3,6 +3,7 @@
 #include "freertos/task.h"
 
 #include "fs/index.hpp"
+#include "sys-apps/file-picker.hpp"
 #include "fs/debug/tree.hpp"
 #include "fs/debug/hex-folder-rename.hpp"
 #include "audio/index.hpp"
@@ -28,13 +29,14 @@ void setup()
     SD_FS::init();
     // tree();
     SD_FS::copyFileFromSPIFFS("/test.lua", "/public/programs/a-paint/entry.lua");
-    
+
     UserWiFi::addPublicWifi("io", "hhhhhh90");
     UserWiFi::start();
 
     startAnimationMWOS();
 
     Auth::init();
+    filePicker();
 
     LuaApps::initialize();
     startWindowRender();
