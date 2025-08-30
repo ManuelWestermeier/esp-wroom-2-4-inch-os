@@ -3,6 +3,7 @@
 #include <vector>
 #include <WString.h>
 
+#include "window.hpp"
 #include "functions.hpp"
 
 #include "../fs/index.hpp"
@@ -32,8 +33,11 @@ namespace LuaApps
         int run();
         int exitCode() const;
         int lastExitCode = 0;
+
         String path;
         std::vector<String> arguments;
+
+        std::vector<Window> windows;
     };
 
     App *getApp(lua_State *L);
