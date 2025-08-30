@@ -23,13 +23,13 @@ namespace LuaApps
     class App
     {
     public:
-        App(const String &name,  const std::vector<String> &args);
+        App(const String &name, const std::vector<String> &args);
         int run();
         int exitCode() const;
-
-    private:
+        int lastExitCode = 0;
         String path;
         std::vector<String> arguments;
-        int lastExitCode = 0;
     };
+
+    static App *getApp(lua_State *L);
 }

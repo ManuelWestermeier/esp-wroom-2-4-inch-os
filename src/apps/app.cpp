@@ -20,7 +20,7 @@ namespace LuaApps
         luaL_requiref(L, "utf8", luaopen_utf8, 1);
         lua_pop(L, 1);
 
-        // remove unwanted base functions
+        // Remove unwanted base functions
         lua_pushnil(L);
         lua_setglobal(L, "print");
         lua_pushnil(L);
@@ -32,7 +32,7 @@ namespace LuaApps
         lua_pushnil(L);
         lua_setglobal(L, "loadstring");
 
-        // Registriere sichere Funktionen
+        // Register safe functions
         LuaFunctions::register_default_functions(L, path);
 
         return L;
@@ -41,22 +41,39 @@ namespace LuaApps
     App::App(const String &name, const std::vector<String> &args)
         : path(name), arguments(args), lastExitCode(0) {}
 
+    // Helper to get the current App* from Lua registry
+    static App *getApp(lua_State *L)
+    {
+        lua_getfield(L, LUA_REGISTRYINDEX, "__APP_PTR");
+        App *app = reinterpret_cast<App *>(lua_touserdata(L, -1));
+        lua_pop(L, 1);
+        return app;
+    }
+
+    // Lua function to exit the app with a code
+    static int lua_exitApp(lua_State *L)
+    {
+        int code = luaL_checkinteger(L, 1);
+        App *app = getApp(L);
+        if (app)
+            app->lastExitCode = code;
+
+        lua_pushstring(L, (String("exit with code: ") + code).c_str());
+        return lua_error(L); // stops Lua execution
+    }
+
     int App::run()
     {
         lua_State *L = createRestrictedLuaState(path);
 
-        // Pass "this" to lua_exitApp
+        // Store the App* in the registry for all C functions to access
         lua_pushlightuserdata(L, this);
-        
-        lua_pushcclosure(L, [](lua_State *L) -> int
-                         {
-            int code = luaL_checkinteger(L, 1);
-            App* app = reinterpret_cast<App*>(lua_touserdata(L, lua_upvalueindex(1)));
-            if (app) app->lastExitCode = code;
-            lua_pushstring(L, (String("exit with code: ") + code).c_str());
-            return lua_error(L); }, 1);
-        lua_setglobal(L, "exitApp");
+        lua_setfield(L, LUA_REGISTRYINDEX, "__APP_PTR");
 
+        // Register exitApp
+        lua_register(L, "exitApp", lua_exitApp);
+
+        // Create args table
         lua_newtable(L);
         for (size_t i = 0; i < arguments.size(); ++i)
         {
@@ -66,6 +83,7 @@ namespace LuaApps
         }
         lua_setglobal(L, "args");
 
+        // Load and run Lua script
         String content = SD_FS::readFile(path + "entry.lua");
         Serial.println("RUNNING: " + path + "entry.lua");
 
