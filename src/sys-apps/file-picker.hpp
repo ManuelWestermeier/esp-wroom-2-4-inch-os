@@ -2,6 +2,7 @@
 // file: file-picker.hpp
 // A simple white file/folder picker UI for 320x240 TFT using ENC_FS and Screen
 // Returns the selected plain path as "/foo/bar.txt" or empty String if cancelled.
+// All returned paths start with '/' and folder paths (except root "/") do NOT end with '/'.
 
 #include <Arduino.h>
 #include <vector>
@@ -37,22 +38,48 @@ namespace FilePicker
     static const uint16_t FP_COL_GRAY = 0x8410;
 
     // ---- Helpers ----
+
+    // Normalize an incoming path string so:
+    //  - it always starts with '/'
+    //  - it never ends with '/' unless it is the root "/"
+    static String normalizePathString(const String &in)
+    {
+        if (in.length() == 0)
+            return String("/");
+
+        String s = in;
+        // ensure leading slash
+        if (!s.startsWith("/"))
+            s = String("/") + s;
+
+        // remove trailing slashes except keep single "/" for root
+        while (s.length() > 1 && s.endsWith("/"))
+            s.remove(s.length() - 1);
+
+        return s;
+    }
+
+    // Convert Path vector to normalized string: "/" or "/a/b" (no trailing slash for folders)
     static String pathToString(const Path &p)
     {
         if (p.empty())
             return String("/");
+
         String out;
         for (size_t i = 0; i < p.size(); ++i)
         {
             out += "/";
             out += p[i];
         }
+        // no trailing slash added
         return out;
     }
 
+    // Convert string start path -> ENC_FS::Path using normalized string
     static Path stringToPath(const String &s)
     {
-        return ENC_FS::str2Path(s);
+        String norm = normalizePathString(s);
+        return ENC_FS::str2Path(norm);
     }
 
     // draw a simple back arrow in header
@@ -164,8 +191,10 @@ namespace FilePicker
     // The main file picker function (exposed)
     static String filePickerImpl(String startPath = "/")
     {
-        Path curPath = stringToPath(startPath);
-        String curPathStr = pathToString(curPath);
+        // normalize incoming start path and convert to Path
+        String normStart = normalizePathString(startPath);
+        Path curPath = stringToPath(normStart);
+        String curPathStr = pathToString(curPath); // always normalized representation
 
         vector<String> entries;
         vector<bool> entriesIsDir;
@@ -241,13 +270,14 @@ namespace FilePicker
                 return String(""); // cancelled
             }
 
-            // Footer Select button area
+            // Footer Select button area -> return CURRENT FOLDER path (normalized, no trailing slash except root)
             Rect selectRect{Vec{FP_SCREEN_W - 78, FP_SCREEN_H - FP_FOOTER_H + 6}, Vec{70, FP_FOOTER_H - 12}};
             if (selectRect.isIn(t))
             {
                 while (Screen::getTouchPos().clicked)
                     delay(5);
-                return curPathStr; // return current folder path
+                // curPathStr produced by pathToString already ensures leading '/' and no trailing '/'
+                return curPathStr;
             }
 
             // Page left/right areas
@@ -295,7 +325,7 @@ namespace FilePicker
                     if (entriesIsDir[globalIndex])
                     {
                         curPath.push_back(entries[globalIndex]);
-                        curPathStr = pathToString(curPath);
+                        curPathStr = pathToString(curPath); // normalized
                         readEntries(curPath, entries, entriesIsDir);
                         page = 0;
                         totalPages = std::max(1, (int)((entries.size() + FP_VISIBLE_ITEMS - 1) / FP_VISIBLE_ITEMS));
@@ -306,7 +336,7 @@ namespace FilePicker
                     {
                         Path chosen = curPath;
                         chosen.push_back(entries[globalIndex]);
-                        String chosenStr = pathToString(chosen);
+                        String chosenStr = pathToString(chosen); // e.g. "/dir/file.txt"
                         return chosenStr;
                     }
                 }
