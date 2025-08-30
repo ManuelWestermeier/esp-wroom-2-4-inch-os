@@ -38,26 +38,29 @@ namespace LuaApps
         return L;
     }
 
-    static int lua_exitApp(lua_State *L)
-    {
-        int code = luaL_checkinteger(L, 1);
-        // lastExitCode = code;
-        lua_pushstring(L, (String("exit with code: ") + code).c_str());
-        return lua_error(L);
-    }
-
     App::App(const String &name, const std::vector<String> &args)
-        : path(name), arguments(args) {}
+        : path(name), arguments(args), lastExitCode(0) {}
 
     int App::run()
     {
         lua_State *L = createRestrictedLuaState(path);
-        lua_register(L, "exitApp", lua_exitApp);
+
+        // Pass "this" to lua_exitApp
+        lua_pushlightuserdata(L, this);
+        
+        lua_pushcclosure(L, [](lua_State *L) -> int
+                         {
+            int code = luaL_checkinteger(L, 1);
+            App* app = reinterpret_cast<App*>(lua_touserdata(L, lua_upvalueindex(1)));
+            if (app) app->lastExitCode = code;
+            lua_pushstring(L, (String("exit with code: ") + code).c_str());
+            return lua_error(L); }, 1);
+        lua_setglobal(L, "exitApp");
 
         lua_newtable(L);
         for (size_t i = 0; i < arguments.size(); ++i)
         {
-            lua_pushnumber(L, i + 1);
+            lua_pushinteger(L, i + 1);
             lua_pushstring(L, arguments[i].c_str());
             lua_settable(L, -3);
         }
@@ -77,12 +80,8 @@ namespace LuaApps
         }
 
         lua_close(L);
-
         return lastExitCode;
     }
 
-    int App::exitCode() const
-    {
-        return lastExitCode;
-    }
+    int App::exitCode() const { return lastExitCode; }
 }
