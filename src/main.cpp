@@ -27,7 +27,7 @@ void setup()
     Screen::init(150);
 
     SD_FS::init();
-    tree();
+    // tree();
     SD_FS::copyFileFromSPIFFS("/test.lua", "/public/programs/a-paint/entry.lua");
 
     UserWiFi::addPublicWifi("io", "hhhhhh90");
@@ -36,7 +36,8 @@ void setup()
     startAnimationMWOS();
 
     Auth::init();
-    filePicker();
+    // ENC_FS::lsDirSerial(ENC_FS::str2Path(""));
+    // filePicker();
 
     LuaApps::initialize();
     startWindowRender();
