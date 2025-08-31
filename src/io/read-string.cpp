@@ -45,7 +45,14 @@ static void drawKey(TFT_eSPI &tft, const KeyRect &k, bool pressed)
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(fg);
     tft.setTextSize(1);
-    tft.drawString(k.label, k.x + k.w / 2, k.y + k.h / 2);
+    if (k.label == "space")
+    {
+        tft.pushImage(k.x + 12, k.y + 5, 15, 15, pixil_frame_15_space);
+    }
+    else
+    {
+        tft.drawString(k.label, k.x + k.w / 2, k.y + k.h / 2);
+    }
 }
 
 static void drawKeyboard(TFT_eSPI &tft, const std::vector<KeyRect> &keys, int pressedIndex)

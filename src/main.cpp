@@ -26,6 +26,7 @@ void setup()
 
     Audio::init(60);
     Screen::init(150);
+    readString("what is you age?", "14");
 
     SD_FS::init();
     // tree();
