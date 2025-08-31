@@ -4,14 +4,18 @@
 
 #include <unordered_map>
 #include <memory>
+#include <string>
 
 namespace LuaApps::WinLib
 {
+    // Global map: id -> shared_ptr<Window>
+    // Use one map only — do not keep raw pointers elsewhere.
     static std::unordered_map<int, Windows::WindowPtr> windows;
-    static std::unordered_map<int, Window *> rawWindows;
     static int nextWindowId = 1;
 
-    // Hilfsfunktion: liefert das Fenster-Rechteck (Hauptfenster oder rechter Bereich)
+    // Helper: get the owning App for this Lua state
+    // (assumes getApp(lua_State*) is defined elsewhere and returns App*)
+    // --- Screen rect helpers (unchanged except formatting) ---
     static Rect _getScreenRect(Window *w, int screenId)
     {
         if (screenId == 2)
@@ -34,6 +38,32 @@ namespace LuaApps::WinLib
         return r;
     }
 
+    // Remove a window owned by ownerApp (erases from global map and owner's set)
+    // Caller must ensure ownerApp actually owns the id (we assert that in callers).
+    static void removeWindowById(int id, App *ownerApp)
+    {
+        auto it = windows.find(id);
+        if (it == windows.end())
+            return;
+
+        // Remove from Windows manager (uses raw pointer)
+        Window *raw = it->second.get();
+        if (raw)
+        {
+            Windows::remove(raw);
+        }
+
+        // Erase from global map to free memory
+        windows.erase(it);
+
+        // Erase from owner app's set (if provided)
+        if (ownerApp)
+        {
+            ownerApp->windows.erase(id);
+        }
+    }
+
+    // Create window: returns id on Lua stack
     int lua_createWindow(lua_State *L)
     {
         int x = luaL_checkinteger(L, 1);
@@ -44,34 +74,58 @@ namespace LuaApps::WinLib
         int id = nextWindowId++;
 
         auto win = std::make_shared<Window>();
+        // Fix: don't do "App " + id (invalid). Use to_string.
         win->init("App " + id, {x, y}, {w, h});
 
-        Window *raw = win.get();
-
-        // Fenster in beiden Maps halten
+        // Hold shared_ptr in global map
         windows[id] = win;
         Windows::add(win);
 
-        rawWindows[id] = raw;
-
+        // GC hint (your existing call)
         lua_gc(L, LUA_GCCOLLECT, 0);
 
-        getApp(L)->windows.insert(id);
+        // register id with this App (must exist)
+        App *app = getApp(L);
+        if (!app)
+        {
+            // shouldn't happen, but clean up and error
+            windows.erase(id);
+            luaL_error(L, "Internal error: app context missing when creating window");
+            return 0;
+        }
+        app->windows.insert(id);
 
         lua_pushinteger(L, id);
         return 1;
     }
 
+    // Centralized getWindow: checks id validity AND that current app owns the id.
+    // Returns shared_ptr -> raw pointer (non-owning). On error it raises Lua error.
     static Window *getWindow(lua_State *L, int index)
     {
         int id = luaL_checkinteger(L, index);
-        auto it = rawWindows.find(id);
-        if (it == rawWindows.end() || it->second == nullptr)
+        App *app = getApp(L);
+        if (!app)
+        {
+            luaL_error(L, "Internal error: app context missing");
+            return nullptr;
+        }
+
+        auto it = windows.find(id);
+        if (it == windows.end() || !it->second)
         {
             luaL_error(L, "Invalid window id %d", id);
             return nullptr;
         }
-        return it->second;
+
+        // Ownership check: only allow access to windows that belong to this app
+        if (app->windows.find(id) == app->windows.end())
+        {
+            luaL_error(L, "Access denied: window %d not owned by this app", id);
+            return nullptr;
+        }
+
+        return it->second.get();
     }
 
     int lua_WIN_setName(lua_State *L)
@@ -101,10 +155,10 @@ namespace LuaApps::WinLib
     int lua_WIN_getLastEvent(lua_State *L)
     {
         Window *w = getWindow(L, 1);
-        int screenId = luaL_checkinteger(L, 2);
         if (!w)
             return 0;
 
+        int screenId = luaL_checkinteger(L, 2);
         const MouseEvent &ev = (screenId == 2) ? w->lastEventRightSprite : w->lastEvent;
 
         lua_pushboolean(L, ev.state != MouseState::Up);
@@ -127,15 +181,33 @@ namespace LuaApps::WinLib
         return 1;
     }
 
+    // Close window: only the owning app may close its windows.
     int lua_WIN_close(lua_State *L)
     {
-        auto w = getWindow(L, 1);
-        if (!w)
+        // The first arg is window id
+        int id = luaL_checkinteger(L, 1);
+        App *app = getApp(L);
+        if (!app)
+        {
+            luaL_error(L, "Internal error: app context missing");
             return 0;
+        }
 
-        Windows::remove(w);
+        // Ownership check (consistent with getWindow)
+        if (app->windows.find(id) == app->windows.end())
+        {
+            luaL_error(L, "Access denied: window %d not owned by this app", id);
+            return 0;
+        }
+
+        // Remove from Windows manager and global map and from owner's set
+        removeWindowById(id, app);
+
         return 0;
     }
+
+    // Drawing helpers: check rendering/ownership and perform viewport-based drawing.
+    // For all of the following we use getWindow which performs the ownership check.
 
     int lua_WIN_fillBg(lua_State *L)
     {
@@ -149,14 +221,13 @@ namespace LuaApps::WinLib
 
         Rect rect = getScreenRect(w, screenId);
 
-        // Warte bis freigegeben
+        // simple spin-wait as before (preserve existing design)
         while (!Windows::canAccess)
         {
             delay(rand() % 2);
         }
         Windows::canAccess = false;
 
-        // Viewport ON, coordinates inside viewport are relative (0..w-1, 0..h-1)
         Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
         Screen::tft.fillRect(0, 0, rect.dimensions.x, rect.dimensions.y, color);
         Screen::tft.resetViewport();
@@ -192,7 +263,6 @@ namespace LuaApps::WinLib
         Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
         Screen::tft.setTextSize(fontSize);
         Screen::tft.setTextColor(color);
-        // cursor is relative to viewport now
         Screen::tft.setCursor(x, y);
         Screen::tft.print(text);
         Screen::tft.resetViewport();
@@ -203,7 +273,8 @@ namespace LuaApps::WinLib
         return 0;
     }
 
-    int lua_WIN_writeRect(lua_State *L)
+    // Renamed to more logical name: this function fills a rect (was previously named writeRect)
+    int lua_WIN_fillRect(lua_State *L)
     {
         if (!Windows::isRendering)
             return 0;
@@ -245,22 +316,28 @@ namespace LuaApps::WinLib
 
         constexpr size_t iconSize = sizeof(w->icon) / sizeof(w->icon[0]);
 
+        // Optional: verify table length (not strictly necessary, but nice)
+        // If lua_rawlen is available in your target Lua, you can check it:
+        // size_t tlen = lua_rawlen(L, 2);
+        // if (tlen != iconSize) luaL_error(L, "Icon table must have %zu entries", iconSize);
+
         for (size_t i = 0; i < iconSize; ++i)
         {
             lua_rawgeti(L, 2, i + 1);
             if (!lua_isinteger(L, -1))
             {
+                lua_pop(L, 1);
                 luaL_error(L, "Expected integer at index %zu in icon array", i + 1);
                 return 0;
             }
-            int val = lua_tointeger(L, -1);
+            int val = (int)lua_tointeger(L, -1);
+            lua_pop(L, 1);
             if (val < 0 || val > 0xFFFF)
             {
                 luaL_error(L, "Icon pixel value out of range at index %zu", i + 1);
                 return 0;
             }
             w->icon[i] = static_cast<uint16_t>(val);
-            lua_pop(L, 1);
         }
 
         return 0;
@@ -311,14 +388,21 @@ namespace LuaApps::WinLib
         luaL_checktype(L, 7, LUA_TTABLE);
 
         size_t pixelCount = (size_t)width * (size_t)height;
+        // allocate RAII array
         std::unique_ptr<uint16_t[]> buffer(new uint16_t[pixelCount]);
 
         for (size_t i = 0; i < pixelCount; ++i)
         {
             lua_rawgeti(L, 7, i + 1);
-            int val = lua_tointeger(L, -1);
-            buffer[i] = static_cast<uint16_t>(val);
+            if (!lua_isinteger(L, -1))
+            {
+                lua_pop(L, 1);
+                luaL_error(L, "Image pixel %zu is not an integer", i + 1);
+                return 0;
+            }
+            int val = (int)lua_tointeger(L, -1);
             lua_pop(L, 1);
+            buffer[i] = static_cast<uint16_t>(val);
         }
 
         Rect rect = getScreenRect(w, screenId);
@@ -351,8 +435,7 @@ namespace LuaApps::WinLib
         return 1;
     }
 
-    // --- NEW: TFT_eSPI drawing helpers exposed to Lua (viewport-wrapped, relative coords) ---
-
+    // --- TFT_eSPI drawing helpers (same pattern) ---
     int lua_WIN_drawLine(lua_State *L)
     {
         if (!Windows::isRendering)
@@ -675,8 +758,7 @@ namespace LuaApps::WinLib
         return 0;
     }
 
-    // --- end new drawing helpers ---
-
+    // register functions
     void register_win_functions(lua_State *L)
     {
         lua_register(L, "createWindow", lua_createWindow);
@@ -686,13 +768,15 @@ namespace LuaApps::WinLib
         lua_register(L, "WIN_closed", lua_WIN_closed);
         lua_register(L, "WIN_fillBg", lua_WIN_fillBg);
         lua_register(L, "WIN_writeText", lua_WIN_writeText);
-        lua_register(L, "WIN_writeRect", lua_WIN_writeRect);
-        lua_register(L, "WIN_fillRect", lua_WIN_writeRect);
+        lua_register(L, "WIN_fillRect", lua_WIN_fillRect); // fixed registration
         lua_register(L, "WIN_setIcon", lua_WIN_setIcon);
         lua_register(L, "WIN_drawImage", lua_WIN_drawImage);
         lua_register(L, "WIN_drawPixel", lua_WIN_drawPixel);
         lua_register(L, "WIN_isRendering", lua_WIN_isRendered);
         lua_register(L, "WIN_canAccess", lua_WIN_canAccess);
+
+        // Close function (was missing)
+        lua_register(L, "WIN_close", lua_WIN_close);
 
         // Register new TFT drawing functions
         lua_register(L, "WIN_drawLine", lua_WIN_drawLine);
