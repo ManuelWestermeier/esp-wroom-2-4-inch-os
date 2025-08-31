@@ -16,7 +16,7 @@ enum class MouseState;
 namespace Windows
 {
 
-    typedef std::unique_ptr<Window> WindowPtr;
+    typedef std::shared_ptr<Window> WindowPtr;
     extern std::vector<WindowPtr> apps;
     extern bool isRendering;
     extern bool isUsingKeyBoard;

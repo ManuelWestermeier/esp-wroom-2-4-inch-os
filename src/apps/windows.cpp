@@ -167,7 +167,6 @@ namespace Windows
                 if (!collides)
                 {
                     w.size = proposedSize;
-                    w.resizeSprite();
                     Screen::tft.fillScreen(RGB(245, 245, 255));
                 }
             }

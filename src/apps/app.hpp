@@ -1,6 +1,6 @@
 #pragma once
 
-#include <vector>
+#include <unordered_set>
 #include <WString.h>
 
 #include "window.hpp"
@@ -37,7 +37,7 @@ namespace LuaApps
         String path;
         std::vector<String> arguments;
 
-        std::vector<Window> windows;
+        std::unordered_set<int> windows;
     };
 
     App *getApp(lua_State *L);

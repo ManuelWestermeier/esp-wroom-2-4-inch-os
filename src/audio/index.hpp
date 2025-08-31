@@ -47,11 +47,6 @@ namespace Audio
     {
         volume = vol;
         dac_output_enable(DAC_CH);
-        // for (int i = 0; i < 16; i++)
-        // {
-        //     dac_output_voltage(DAC_CH, 8 * i); // silence
-        //     delay(80);
-        // }
         dac_output_voltage(DAC_CH, 128); // silence
     }
 

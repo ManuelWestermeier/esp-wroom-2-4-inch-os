@@ -26,8 +26,6 @@ struct Window
     Vec off = {0, 0};
     Vec size = {160, 90};
     String name = "";
-    // TFT_eSprite sprite{&Screen::tft};
-    // TFT_eSprite rightSprite{&Screen::tft};
     MouseEvent lastEvent{MouseState::Up, {0, 0}, {0, 0}};
     MouseEvent lastEventRightSprite{MouseState::Up, {0, 0}, {0, 0}};
     bool closed = false;
@@ -45,5 +43,4 @@ struct Window
     Rect resizeArea() const;
 
     void init(const String &windowName = "Untitled Window", Vec position = {20, 20}, Vec dimensions = {160, 90}, uint16_t *_icon = nullptr);
-    void resizeSprite();
 };

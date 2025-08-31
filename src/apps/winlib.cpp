@@ -30,7 +30,7 @@ namespace LuaApps::WinLib
     {
         auto r = _getScreenRect(w, screenId);
         if (!(Rect{{0, 0}, {320, 240}}.intersects(r)))
-            return {r.pos, {0, 0}};
+            return {{0, 0}, {0, 0}};
         return r;
     }
 
@@ -41,20 +41,22 @@ namespace LuaApps::WinLib
         int w = luaL_checkinteger(L, 3);
         int h = luaL_checkinteger(L, 4);
 
-        auto win = Windows::WindowPtr(new Window());
-        win->init("Win App", {x, y}, {w, h});
-
         int id = nextWindowId++;
 
-        Windows::WindowPtr localWin = std::move(win);
-        Window *raw = localWin.get();
+        auto win = std::make_shared<Window>();
+        win->init("App " + id, {x, y}, {w, h});
 
-        windows[id] = std::move(localWin);
-        Windows::add(std::move(windows[id]));
+        Window *raw = win.get();
 
-        rawWindows[id] = Windows::apps.back().get();
+        // Fenster in beiden Maps halten
+        windows[id] = win;
+        Windows::add(win);
+
+        rawWindows[id] = raw;
 
         lua_gc(L, LUA_GCCOLLECT, 0);
+
+        getApp(L)->windows.insert(id);
 
         lua_pushinteger(L, id);
         return 1;

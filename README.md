@@ -1,5 +1,7 @@
 # ESP 32 WROOM 2.4 inch display os
 
+7140 LINES OF CODE
+
 ```txt
 
 -GLOBALS:

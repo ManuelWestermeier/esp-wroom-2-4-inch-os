@@ -1,6 +1,9 @@
 #pragma once
+
 #include <lua.hpp>
 #include <Arduino.h>
+
+#include "app.hpp"
 
 namespace LuaApps::WinLib
 {
