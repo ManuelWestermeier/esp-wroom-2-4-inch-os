@@ -21,6 +21,7 @@ namespace SD_FS
             Screen::tft.println("Please add a SD-Card");
 
             delay(1000);
+            Screen::tft.fillScreen(RGB(100, 255, 200));
             return init(csPin);
         }
         if (!SD.exists("/"))
@@ -35,6 +36,7 @@ namespace SD_FS
 
             Serial.println("⚠️ SD mounted, but root not accessible");
             delay(1000);
+            Screen::tft.fillScreen(RGB(100, 255, 200));
             return init(csPin);
         }
         return true;
@@ -216,6 +218,17 @@ namespace SD_FS
         f.close();
 
         writeFile(sdPath, content); // auf SD schreiben
+    }
+
+    void lsDirSerial(const String &path)
+    {
+        Serial.println("--- READ DIR ---");
+        auto files = SD_FS::readDir(path);
+        for (const auto &f : files)
+        {
+            Serial.println(f.path());
+        }
+        Serial.println("--- READ DIR END ---");
     }
 
     void deleteFoldersXV(const String &path, const std::vector<String> &except)

@@ -139,6 +139,18 @@ namespace ENC_FS
         return p;
     }
 
+    String path2Str(const Path &p)
+    {
+        String out = p.size() ? "" : "/";
+
+        for (const String &part : p)
+        {
+            out += "/" + part;
+        }
+
+        return out;
+    }
+
     String encryptSegment(const String &seg)
     {
         Buffer key = deriveKey();

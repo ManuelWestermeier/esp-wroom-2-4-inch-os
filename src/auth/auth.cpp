@@ -24,9 +24,6 @@ namespace Auth
         String path = "/" + Crypto::HASH::sha256String(user) + "/" +
                       Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
 
-        for (const auto f : SD_FS::readDir("/" + Crypto::HASH::sha256String(user)))
-            Serial.println(String("FILE: ") + user + ": " + f.name());
-
         if (SD_FS::exists(path))
         {
             username = Crypto::HASH::sha256String(user);
@@ -53,9 +50,18 @@ namespace Auth
             }
             else
             {
-                ENC_FS::writeFileString(
-                    ENC_FS::str2Path(fp),
-                    SD_FS::readFile(f.path()));
+                ENC_FS::Buffer buff;
+                auto file = SD.open(f.path(), "r");
+
+                if (!file)
+                    continue;
+
+                buff.resize(file.size());
+                file.read(buff.data(), buff.size());
+                file.close();
+
+                ENC_FS::writeFile(
+                    ENC_FS::str2Path(fp), 0, 0, buff);
             }
         }
     }

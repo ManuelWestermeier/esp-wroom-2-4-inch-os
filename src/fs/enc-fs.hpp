@@ -21,6 +21,7 @@ namespace ENC_FS
 
     // ---------- Path helpers ----------
     Path str2Path(const String &s);
+    String path2Str(const Path &s);
     String encryptSegment(const String &seg);
     bool decryptSegment(const String &enc, String &outSeg);
     String joinEncPath(const Path &plain);

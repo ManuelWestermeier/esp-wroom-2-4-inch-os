@@ -25,6 +25,7 @@ namespace SD_FS
     vector<File> readDir(const String &path);
     bool createDir(const String &path);
     bool deleteDir(const String &path);
+    void lsDirSerial(const String &path);
 
     bool exists(const String &path);
     bool isDirectory(const String &path);

@@ -41,7 +41,7 @@ namespace UserWiFi
                     name.remove(name.length() - 5);
                 }
 
-                Serial.println("WIFI FOUND: " + name + " | " + wifiFile.readString());
+                Serial.println("WIFI FOUND: " + fromHex(name) + " | " + wifiFile.readString());
             }
         }
     }

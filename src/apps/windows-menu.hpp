@@ -154,6 +154,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                 auto namePath = app.path;
                 namePath.push_back("name.txt");
                 app.name = ENC_FS::readFileString(namePath);
+                Serial.println(">>> namePath: " + ENC_FS::path2Str(namePath));
                 auto iconPath = app.path;
                 iconPath.push_back("icon-20x20.raw");
                 app.loadIcon(iconPath);
@@ -201,7 +202,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                 {
                     if (appRect.isIn(pos))
                     {
-                        executeApplication({app.path});
+                        executeApplication({ENC_FS::path2Str(app.path)});
                         Windows::isRendering = true;
                         break;
                     }
@@ -255,7 +256,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         {
             if (appRect.isIn(pos))
             {
-                executeApplication({app.path});
+                executeApplication({ENC_FS::path2Str(app.path)});
                 Windows::isRendering = true;
                 break;
             }
