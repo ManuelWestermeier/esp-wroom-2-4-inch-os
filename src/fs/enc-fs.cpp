@@ -111,7 +111,7 @@ namespace ENC_FS
     Path str2Path(const String &s)
     {
         Path p;
-        if (s.length() == 0)
+        if (s.length() == 0 || s == "/")
             return p;
         String t = s;
         while (t.startsWith("/"))

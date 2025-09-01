@@ -218,6 +218,35 @@ namespace SD_FS
         writeFile(sdPath, content); // auf SD schreiben
     }
 
+    void deleteFoldersXV(const String &path, const std::vector<String> &except)
+    {
+        auto files = readDir(path);
+
+        for (auto f : files)
+        {
+            if (f.isDirectory())
+            {
+                String dirName = f.name();
+
+                // check ob dieser Ordner in except ist
+                bool skip = false;
+                for (const auto &ex : except)
+                {
+                    if (dirName.equalsIgnoreCase(ex))
+                    {
+                        skip = true;
+                        break;
+                    }
+                }
+
+                if (!skip)
+                {
+                    deleteDir(f.path());
+                }
+            }
+        }
+    }
+
     uint64_t getCardSize() { return SD.cardSize(); }
     uint64_t getUsedBytes() { return SD.usedBytes(); }
     uint64_t getFreeBytes() { return getCardSize() - getUsedBytes(); }

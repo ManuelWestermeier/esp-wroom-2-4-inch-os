@@ -7,6 +7,7 @@
 #include "functions.hpp"
 
 #include "../fs/index.hpp"
+#include "../fs/enc-fs.hpp"
 
 extern "C"
 {

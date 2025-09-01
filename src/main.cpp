@@ -26,20 +26,24 @@ void setup()
 
     Audio::init(60);
     Screen::init(150);
-    readString("what is you age?", "14");
+    // readString("what is you age?", "15");
 
     SD_FS::init();
+    Auth::createAccount("y", "y");
     // tree();
-    SD_FS::copyFileFromSPIFFS("/test.lua", "/public/programs/a-paint/entry.lua");
-    Auth::login("m", "m");
+    // ENC_FS::copyFileFromSPIFFS("/test.lua", {"programs", "a-paint", "entry.lua"});
 
-    UserWiFi::addPublicWifi("io", "hhhhhh90");
+    // UserWiFi::addPublicWifi("io", "hhhhhh90");
     UserWiFi::start();
 
-    startAnimationMWOS();
+    // startAnimationMWOS();
 
-    Auth::init();
-    // ENC_FS::lsDirSerial(ENC_FS::str2Path(""));
+    // Auth::init();
+    Serial.println(ENC_FS::readFileString({"programs", "a-paint", "entry.lua"}));
+    Serial.println("--- LSDIRS ---");
+    ENC_FS::lsDirSerial({});
+    ENC_FS::lsDirSerial(ENC_FS::str2Path("/"));
+    Serial.println("--- LSDIRS END ---");
     // filePicker();
     startWindowRender();
 }

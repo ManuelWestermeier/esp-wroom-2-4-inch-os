@@ -37,5 +37,6 @@ namespace SD_FS
     uint64_t getFreeBytes();
     void getUsageSummary();
 
+    void deleteFoldersXV(const String &path, const std::vector<String> &except);
     void copyFileFromSPIFFS(const char *spiffsPath, const char *sdPath);
 }

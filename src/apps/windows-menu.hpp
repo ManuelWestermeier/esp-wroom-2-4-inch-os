@@ -7,47 +7,37 @@ extern void executeApplication(const std::vector<String> &args);
 struct AppRenderData
 {
     String name;
-    String path;
+    ENC_FS::Path path;
     uint16_t icon[20 * 20]; // nur ein Icon-Buffer
     bool hasIcon = false;
 
-    bool loadIcon(const String &filename, uint16_t bgColor = RGB(255, 240, 255), uint8_t radius = 10)
+    bool loadIcon(const ENC_FS::Path &filename, uint16_t bgColor = RGB(255, 240, 255), uint8_t radius = 10)
     {
-        File f = SD.open(filename, FILE_READ);
-        if (!f)
+
+        if (!ENC_FS::exists(filename))
             return false;
 
         // defensive: prüfen, ob mindestens 4 bytes für w/h da sind
-        if (f.available() < 4)
+        if (ENC_FS::getFileSize(filename) != 404) // 400+4bytes
         {
-            f.close();
             return false;
         }
 
-        uint16_t w = (f.read() << 8) | f.read();
-        uint16_t h = (f.read() << 8) | f.read();
-
-        // Nur 20x20 akzeptieren
-        if (w != 20 || h != 20)
-        {
-            f.close();
-            return false;
-        }
-
+        auto data = ENC_FS::readFilePart(filename, 4, 400);
+        int bI = 4;
         // Bilddaten einlesen
         for (int j = 0; j < 20; j++)
         {
             for (int i = 0; i < 20; i++)
             {
-                int hi = f.read();
-                int lo = f.read();
+                int hi = data.at(bI++);
+                int lo = data.at(bI++);
                 if (hi < 0 || lo < 0)
                     icon[j * 20 + i] = bgColor;
                 else
                     icon[j * 20 + i] = (uint16_t)((hi << 8) | lo);
             }
         }
-        f.close();
         hasIcon = true;
 
         // Rundung sofort einfügen → überschreibt Ecken mit bgColor
@@ -137,7 +127,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
     // Persistente App-Liste
     static std::vector<AppRenderData> apps;
-    static std::vector<String> lastPaths; // für Änderungserkennung
+    static std::vector<ENC_FS::Path> lastPaths; // für Änderungserkennung
     static unsigned long lastMenuRender = 0;
 
     bool appsChanged = false;
@@ -147,10 +137,11 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     if (menuUpdateTime == 0 || millis() - menuUpdateTime > 10000)
     {
         menuUpdateTime = millis();
-        auto entries = SD_FS::readDir("/public/programs");
-        std::vector<String> newPaths;
-        for (auto &e : entries)
-            newPaths.push_back(e.path());
+        auto entries = ENC_FS::readDir({"programs"});
+
+        std::vector<ENC_FS::Path> newPaths;
+        for (String &e : entries)
+            newPaths.push_back({"programs", e});
 
         if (newPaths != lastPaths) // Änderung erkannt
         {
@@ -160,8 +151,12 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                 apps.emplace_back();
                 AppRenderData &app = apps.back();
                 app.path = p;
-                app.name = SD_FS::readFile(app.path + "/name.txt");
-                app.loadIcon(app.path + "/icon-20x20.raw");
+                auto namePath = app.path;
+                namePath.push_back("name.txt");
+                app.name = ENC_FS::readFileString(namePath);
+                auto iconPath = app.path;
+                iconPath.push_back("icon-20x20.raw");
+                app.loadIcon(iconPath);
             }
             lastPaths = newPaths;
             appsChanged = true;
@@ -206,7 +201,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                 {
                     if (appRect.isIn(pos))
                     {
-                        executeApplication({app.path + "/"});
+                        executeApplication({app.path});
                         Windows::isRendering = true;
                         break;
                     }
@@ -260,7 +255,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         {
             if (appRect.isIn(pos))
             {
-                executeApplication({app.path + "/"});
+                executeApplication({app.path});
                 Windows::isRendering = true;
                 break;
             }
