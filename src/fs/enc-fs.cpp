@@ -362,7 +362,7 @@ namespace ENC_FS
 
         String accum = "/";
         accum += Auth::username;
-        for (size_t i = 0; i < p.size(); ++i)
+        for (size_t i = 0; i + 1 < p.size(); ++i)
         {
             accum += "/";
             accum += encryptSegment(p[i]);
@@ -395,7 +395,7 @@ namespace ENC_FS
 
         if (SD.exists(full.c_str()))
             SD.remove(full.c_str());
-        File fw = SD.open(full.c_str(), FILE_WRITE);
+        File fw = SD.open(full.c_str(), "w+");
         if (!fw)
             return false;
         if (!cipher.empty())

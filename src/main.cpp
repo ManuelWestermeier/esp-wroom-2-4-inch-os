@@ -31,6 +31,7 @@ void setup()
     SD_FS::init();
     // tree();
     SD_FS::copyFileFromSPIFFS("/test.lua", "/public/programs/a-paint/entry.lua");
+    Auth::login("m", "m");
 
     UserWiFi::addPublicWifi("io", "hhhhhh90");
     UserWiFi::start();

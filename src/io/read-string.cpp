@@ -45,14 +45,7 @@ static void drawKey(TFT_eSPI &tft, const KeyRect &k, bool pressed)
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(fg);
     tft.setTextSize(1);
-    if (k.label == "space")
-    {
-        tft.pushImage(k.x + 12, k.y + 5, 15, 15, pixil_frame_15_space);
-    }
-    else
-    {
-        tft.drawString(k.label, k.x + k.w / 2, k.y + k.h / 2);
-    }
+    tft.drawString(k.label, k.x + k.w / 2, k.y + k.h / 2);
 }
 
 static void drawKeyboard(TFT_eSPI &tft, const std::vector<KeyRect> &keys, int pressedIndex)
@@ -74,7 +67,7 @@ static void drawTextArea(TFT_eSPI &tft,
     const int pad = 6;
     // Hintergrund und Rahmen der Textarea (only the text area part)
     tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0xFFFF);
-    tft.drawRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0x0000);
+    tft.drawRoundRect(AREA_X - 2, AREA_Y - 2, AREA_W + 4, AREA_H + 4, 4, RGB(230, 230, 250));
 
     tft.setTextSize(TEXT_SIZE_AREA);
     tft.setTextColor(0x0000);
@@ -119,7 +112,7 @@ static void drawTextArea(TFT_eSPI &tft,
 
     // Up button
     tft.fillRoundRect(btnAreaX, upY, btnAreaW, btnH, 4, bgUp);
-    tft.drawRoundRect(btnAreaX, upY, btnAreaW, btnH, 4, 0x0000);
+    tft.drawRoundRect(btnAreaX, upY, btnAreaW, btnH, 4, RGB(230, 230, 250));
     tft.setTextDatum(MC_DATUM);
     tft.setTextSize(1);
     tft.setTextColor(fgUp);
@@ -127,7 +120,7 @@ static void drawTextArea(TFT_eSPI &tft,
 
     // Down button
     tft.fillRoundRect(btnAreaX, downY, btnAreaW, btnH, 4, bgDown);
-    tft.drawRoundRect(btnAreaX, downY, btnAreaW, btnH, 4, 0x0000);
+    tft.drawRoundRect(btnAreaX, downY, btnAreaW, btnH, 4, RGB(230, 230, 250));
     tft.setTextColor(fgDown);
     tft.drawString("v", btnAreaX + btnAreaW / 2, downY + btnH / 2);
 }
