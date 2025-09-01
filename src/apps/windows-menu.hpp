@@ -18,13 +18,19 @@ struct AppRenderData
             return false;
 
         // defensive: prüfen, ob mindestens 4 bytes für w/h da sind
-        if (ENC_FS::getFileSize(filename) != 404) // 400+4bytes
+        if (ENC_FS::getFileSize(filename) != 804) // 400*2+4bytes
         {
+            Serial.println("IFCONFS dont match 804: " + ENC_FS::path2Str(filename) + " " + ENC_FS::getFileSize(filename));
             return false;
         }
 
-        auto data = ENC_FS::readFilePart(filename, 4, 400);
-        int bI = 4;
+        auto data = ENC_FS::readFile(filename, 4, 804);
+
+        Serial.println(data.size());
+        if (data.size() != 800)
+            return false;
+
+        int bI = 0;
         // Bilddaten einlesen
         for (int j = 0; j < 20; j++)
         {
@@ -157,7 +163,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                 Serial.println(">>> namePath: " + ENC_FS::path2Str(namePath));
                 auto iconPath = app.path;
                 iconPath.push_back("icon-20x20.raw");
-                app.loadIcon(iconPath);
+                Serial.println(app.loadIcon(iconPath) ? "Icon Loaded" : "Icon Load Failed");
             }
             lastPaths = newPaths;
             appsChanged = true;
@@ -239,7 +245,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         // Icon zeichnen
         if (app.hasIcon)
         {
-            app.drawIcon(appRect.pos.x + 5, appRect.pos.y + 5);
+            app.drawIcon(appRect.pos.x + 3, appRect.pos.y + 5);
         }
         else
         {
