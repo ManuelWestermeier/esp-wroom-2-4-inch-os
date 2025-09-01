@@ -19,72 +19,6 @@ using namespace Windows;
 
 using namespace ENC_FS;
 
-void testSegments()
-{
-    // Beispielpfad in Klartext
-    String plainPathStr = "/apps/demo/config.txt";
-    Serial.println("Original path: " + plainPathStr);
-
-    // Zerlegen
-    Path plainPath = str2Path(plainPathStr);
-    Serial.println("Segments:");
-    for (auto &seg : plainPath)
-    {
-        Serial.println("  " + seg);
-    }
-
-    // Jedes Segment verschlüsseln
-    Path encPath;
-    for (auto &seg : plainPath)
-    {
-        String enc = encryptSegment(seg);
-        encPath.push_back(enc);
-        Serial.println("Enc seg: " + enc);
-
-        // Gleich zurücktesten
-        String dec;
-        if (decryptSegment(enc, dec))
-        {
-            Serial.println(" -> Dec: " + dec);
-        }
-        else
-        {
-            Serial.println(" -> ❌ Decrypt failed!");
-        }
-    }
-
-    // Ganzen verschlüsselten Pfad als String
-    String joinedEnc = path2Str(encPath);
-    Serial.println("Joined Enc Path: " + joinedEnc);
-
-    // Ganzen verschlüsselten Pfad wieder entschlüsseln
-    Path decPath;
-    for (auto &seg : encPath)
-    {
-        String dec;
-        if (decryptSegment(seg, dec))
-        {
-            decPath.push_back(dec);
-        }
-        else
-        {
-            decPath.push_back("[ERR]");
-        }
-    }
-
-    String decPathStr = path2Str(decPath);
-    Serial.println("Decrypted Path: " + decPathStr);
-
-    if (decPathStr == plainPathStr)
-    {
-        Serial.println("✅ Segment roundtrip erfolgreich!");
-    }
-    else
-    {
-        Serial.println("❌ Segment roundtrip fehlgeschlagen!");
-    }
-}
-
 void setup()
 {
     // esp_task_wdt_delete(NULL); // unregister this task
@@ -92,9 +26,6 @@ void setup()
     Serial.println("Booting MW 2.4i OS...\n");
     pinMode(0, INPUT_PULLUP); // Button is active LOW
 
-    testSegments();
-
-    return;
     // Audio::init(60);
     Screen::init(150);
     // readString("what is you age?", "15");
@@ -109,7 +40,6 @@ void setup()
     // SD_FS::deleteDir("/62c66a7a5dd70c3146618063c344e531e6d4b59e379808443ce962b3abd63c5a");
     // SD_FS::deleteDir("/1b16b1df538ba12dc3f97edbb85caa7050d46c148134290feba80f8236c83db9");
 
-    Auth::login("$", "$");
     SD_FS::lsDirSerial("/");
     // tree();
     // ENC_FS::copyFileFromSPIFFS("/test.lua", {"programs", "a-paint", "entry.lua"});
@@ -119,14 +49,14 @@ void setup()
 
     // startAnimationMWOS();
 
-    // Auth::init();
-    Serial.println(ENC_FS::writeFileString({"programs", "a-paint", "entry.lua"}, "HELLO WORLD!!"));
-    Serial.println(ENC_FS::readFileString({"programs", "a-paint", "entry.lua"}));
-    Serial.println("--- LSDIRS ---");
-    ENC_FS::lsDirSerial(ENC_FS::str2Path("/"));
-    Serial.println("--- LSDIRS PROGRAMS ---");
-    ENC_FS::lsDirSerial(ENC_FS::str2Path("/programs"));
-    Serial.println("--- LSDIRS END ---");
+    Auth::init();
+    // Serial.println(ENC_FS::writeFileString({"programs", "a-paint", "entry.lua"}, "HELLO WORLD!!"));
+    // Serial.println(ENC_FS::readFileString({"programs", "a-paint", "entry.lua"}));
+    // Serial.println("--- LSDIRS ---");
+    // ENC_FS::lsDirSerial(ENC_FS::str2Path("/"));
+    // Serial.println("--- LSDIRS PROGRAMS ---");
+    // ENC_FS::lsDirSerial(ENC_FS::str2Path("/programs"));
+    // Serial.println("--- LSDIRS END ---");
     // filePicker();
     startWindowRender();
 }

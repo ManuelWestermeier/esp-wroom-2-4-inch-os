@@ -781,6 +781,7 @@ namespace LuaApps::WinLib
         // Register new TFT drawing functions
         lua_register(L, "WIN_drawLine", lua_WIN_drawLine);
         lua_register(L, "WIN_drawRect", lua_WIN_drawRect);
+        lua_register(L, "WIN_writeRect", lua_WIN_drawRect);
         lua_register(L, "WIN_drawTriangle", lua_WIN_drawTriangle);
         lua_register(L, "WIN_fillTriangle", lua_WIN_fillTriangle);
         lua_register(L, "WIN_drawCircle", lua_WIN_drawCircle);

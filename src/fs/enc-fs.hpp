@@ -4,6 +4,8 @@
 #include <SD.h>
 #include <vector>
 
+#include "../auth/auth.hpp"
+
 namespace ENC_FS
 {
     using Path = std::vector<String>;

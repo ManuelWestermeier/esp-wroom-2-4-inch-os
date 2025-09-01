@@ -4,6 +4,8 @@
 #include <mbedtls/aes.h>
 #include <esp_system.h>
 #include "../auth/auth.hpp"
+#include <cstring>
+#include <cctype>
 
 namespace ENC_FS
 {
@@ -14,7 +16,7 @@ namespace ENC_FS
         Buffer out(32);
         mbedtls_sha256_context ctx;
         mbedtls_sha256_init(&ctx);
-        mbedtls_sha256_starts_ret(&ctx, 0);
+        mbedtls_sha256_starts_ret(&ctx, 0); // SHA-256
         mbedtls_sha256_update_ret(&ctx, (const unsigned char *)s.c_str(), s.length());
         mbedtls_sha256_finish_ret(&ctx, out.data());
         mbedtls_sha256_free(&ctx);
@@ -35,7 +37,7 @@ namespace ENC_FS
         if (b.empty())
             return false;
         uint8_t p = b.back();
-        if (p == 0 || p > 16)
+        if (p == 0 || p > 16 || p > b.size())
             return false;
         size_t n = b.size();
         for (size_t i = 0; i < p; ++i)
@@ -45,57 +47,55 @@ namespace ENC_FS
         return true;
     }
 
+    // ---------- Hex encode/decode (used instead of base64url for robustness) ----------
+    // We keep the function names base64url_encode/decode to match the header.
+
+    static inline char nibble_to_hex(uint8_t n)
+    {
+        static const char hex[] = "0123456789abcdef";
+        return hex[n & 0xF];
+    }
+
     String base64url_encode(const uint8_t *data, size_t len)
     {
-        static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        // hex encoding: 2 chars per byte
         String out;
-        uint32_t val = 0;
-        int valb = -6;
+        out.reserve(len * 2);
         for (size_t i = 0; i < len; ++i)
         {
-            val = (val << 8) | data[i];
-            valb += 8;
-            while (valb >= 0)
-            {
-                out += b64[(val >> valb) & 0x3F];
-                valb -= 6;
-            }
-        }
-        if (valb > -6)
-        {
-            out += b64[((val << (6 + valb)) & 0x3F)];
+            uint8_t b = data[i];
+            out += nibble_to_hex(b >> 4);
+            out += nibble_to_hex(b & 0x0F);
         }
         return out;
     }
 
+    static inline int hexval(char c)
+    {
+        if (c >= '0' && c <= '9')
+            return c - '0';
+        if (c >= 'a' && c <= 'f')
+            return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F')
+            return c - 'A' + 10;
+        return -1;
+    }
+
     bool base64url_decode(const String &s, Buffer &out)
     {
-        static int8_t rev[256];
-        static bool init = false;
-        if (!init)
-        {
-            init = true;
-            for (int i = 0; i < 256; i++)
-                rev[i] = -1;
-            const char *b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-            for (int i = 0; i < 64; i++)
-                rev[(uint8_t)b64[i]] = i;
-        }
+        size_t L = s.length();
+        if (L % 2 != 0)
+            return false;
+        size_t bytes = L / 2;
         out.clear();
-        uint32_t val = 0;
-        int valb = -8;
-        for (size_t i = 0; i < (size_t)s.length(); ++i)
+        out.resize(bytes);
+        for (size_t i = 0; i < bytes; ++i)
         {
-            int8_t c = rev[(uint8_t)s[i]];
-            if (c == -1)
+            int hi = hexval(s.charAt(i * 2));
+            int lo = hexval(s.charAt(i * 2 + 1));
+            if (hi < 0 || lo < 0)
                 return false;
-            val = (val << 6) | c;
-            valb += 6;
-            if (valb >= 0)
-            {
-                out.push_back((uint8_t)((val >> valb) & 0xFF));
-                valb -= 8;
-            }
+            out[i] = (uint8_t)((hi << 4) | lo);
         }
         return true;
     }
@@ -103,7 +103,10 @@ namespace ENC_FS
     Buffer deriveKey()
     {
         String in = Auth::username + String(":") + Auth::password;
-        return sha256(in);
+        Buffer h = sha256(in); // 32 bytes
+        Buffer key(32);
+        memcpy(key.data(), h.data(), 32);
+        return key;
     }
 
     // ---------- Path helpers ----------
@@ -133,44 +136,72 @@ namespace ENC_FS
             idx = j + 1;
         }
         if (!p.empty() && p[0] == Auth::username)
-        {
             p.erase(p.begin());
-        }
         return p;
     }
 
     String path2Str(const Path &p)
     {
         String out = p.size() ? "" : "/";
-
         for (const String &part : p)
-        {
             out += "/" + part;
-        }
-
         return out;
     }
+
+    // ---------- Robust segment encryption/decryption (hex + AES-ECB + 2-byte length) ----------
+    // Plain: [2-byte BE length][data bytes], padded with zeros to 16B blocks.
+    // Ciphertext encoded using hex (2 chars per byte).
 
     String encryptSegment(const String &seg)
     {
         Buffer key = deriveKey();
+
+        // length (big-endian) + data
+        size_t L = seg.length();
+        if (L > 0xFFFF)
+            L = 0xFFFF; // truncate if absurdly long
+
         Buffer in;
-        in.reserve(seg.length());
-        for (size_t i = 0; i < seg.length(); ++i)
+        in.reserve(2 + L);
+        in.push_back((uint8_t)((L >> 8) & 0xFF));
+        in.push_back((uint8_t)(L & 0xFF));
+        for (size_t i = 0; i < L; ++i)
             in.push_back((uint8_t)seg[i]);
-        pkcs7_pad(in);
+
+        // pad with zeros to 16 bytes
+        size_t rem = in.size() % 16;
+        if (rem != 0)
+        {
+            size_t pad = 16 - rem;
+            in.insert(in.end(), pad, 0x00);
+        }
+
+        if (in.empty())
+            return String("");
 
         mbedtls_aes_context aes;
         mbedtls_aes_init(&aes);
-        mbedtls_aes_setkey_enc(&aes, key.data(), 256);
-        uint8_t iv[16];
-        memset(iv, 0, sizeof(iv));
+        if (mbedtls_aes_setkey_enc(&aes, key.data(), 256) != 0)
+        {
+            mbedtls_aes_free(&aes);
+            return String("");
+        }
+
         Buffer outbuf;
         outbuf.resize(in.size());
-        mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, in.size(), iv, in.data(), outbuf.data());
+        uint8_t in_block[16];
+        uint8_t out_block[16];
+
+        for (size_t off = 0; off < in.size(); off += 16)
+        {
+            memcpy(in_block, in.data() + off, 16);
+            mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, in_block, out_block);
+            memcpy(outbuf.data() + off, out_block, 16);
+        }
+
         mbedtls_aes_free(&aes);
 
-        return base64url_encode(outbuf.data(), outbuf.size());
+        return base64url_encode(outbuf.data(), outbuf.size()); // hex string
     }
 
     bool decryptSegment(const String &enc, String &outSeg)
@@ -180,23 +211,46 @@ namespace ENC_FS
         if (!base64url_decode(enc, encbuf))
             return false;
         if (encbuf.empty())
+        {
+            outSeg = String("");
+            return true;
+        }
+        if (encbuf.size() % 16 != 0)
             return false;
 
         mbedtls_aes_context aes;
         mbedtls_aes_init(&aes);
-        mbedtls_aes_setkey_dec(&aes, key.data(), 256);
-        uint8_t iv[16];
-        memset(iv, 0, sizeof(iv));
+        if (mbedtls_aes_setkey_dec(&aes, key.data(), 256) != 0)
+        {
+            mbedtls_aes_free(&aes);
+            return false;
+        }
+
         Buffer ptxt;
         ptxt.resize(encbuf.size());
-        mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, encbuf.size(), iv, encbuf.data(), ptxt.data());
+        uint8_t in_block[16];
+        uint8_t out_block[16];
+
+        for (size_t off = 0; off < encbuf.size(); off += 16)
+        {
+            memcpy(in_block, encbuf.data() + off, 16);
+            mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_DECRYPT, in_block, out_block);
+            memcpy(ptxt.data() + off, out_block, 16);
+        }
+
         mbedtls_aes_free(&aes);
-        if (!pkcs7_unpad(ptxt))
+
+        if (ptxt.size() < 2)
             return false;
+        uint16_t len = ((uint16_t)ptxt[0] << 8) | (uint16_t)ptxt[1];
+        if ((size_t)len > ptxt.size() - 2)
+            return false;
+
         outSeg.clear();
-        outSeg.reserve(ptxt.size());
-        for (auto &c : ptxt)
-            outSeg += (char)c;
+        outSeg.reserve(len);
+        for (size_t i = 0; i < len; ++i)
+            outSeg += (char)ptxt[2 + i];
+
         return true;
     }
 
@@ -212,7 +266,7 @@ namespace ENC_FS
         return r;
     }
 
-    // ---------- AES-CTR ----------
+    // ---------- AES-CTR for file contents (unchanged) ----------
 
     Buffer aes_ctr_crypt_full(const Buffer &in)
     {
@@ -277,8 +331,7 @@ namespace ENC_FS
         return out;
     }
 
-    // ---------- API ----------
-
+    // ---------- API (unchanged) ----------
     bool exists(const Path &p)
     {
         String full = joinEncPath(p);
@@ -538,4 +591,5 @@ namespace ENC_FS
             return ENC_FS::writeFile(p, 0, 0, data);
         }
     }
-}
+
+} // namespace ENC_FS
