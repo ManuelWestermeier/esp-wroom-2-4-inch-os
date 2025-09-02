@@ -15,6 +15,7 @@ namespace UserTime
         if (!UserWiFi::hasInternet)
             return;
 
+        // Start NTP configuration (non-blocking)
         configTime(off, off, "pool.ntp.org");
         isConfigured = off;
     }
@@ -26,10 +27,14 @@ namespace UserTime
         timeinfo.tm_min = 0;
         timeinfo.tm_year = 0;
 
+        // Only try to get time if configured and internet is available
         if (isConfigured != -1 &&
             WiFi.status() == WL_CONNECTED &&
             UserWiFi::hasInternet)
-            getLocalTime(&timeinfo);
+        {
+            // Non-blocking call: if time isn't ready, returns false
+            getLocalTime(&timeinfo, 0); // 0 ms timeout
+        }
 
         return timeinfo;
     }

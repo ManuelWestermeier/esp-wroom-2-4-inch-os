@@ -45,8 +45,6 @@ namespace LuaApps::LuaFunctions
         // get hidden script path
         String scriptPath = LuaApps::getApp(L)->path;
 
-        Serial.println("scriptPath: " + scriptPath);
-
         int mode = luaL_checkinteger(L, 1);
         String code;
         String err;
@@ -89,7 +87,7 @@ namespace LuaApps::LuaFunctions
         case 4:
         { // fetchUrl (GitHub shorthand)
             const char *urlPath = luaL_checkstring(L, 2);
-            if (WiFi.isConnected())
+            if (WiFi.isConnected() && UserWiFi::hasInternet)
             {
                 String url = "https://raw.githubusercontent.com/" + String(urlPath);
                 url.replace(" ", "");  // sicherstellen kein whitespace

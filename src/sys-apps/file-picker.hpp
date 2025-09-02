@@ -183,6 +183,7 @@ namespace FilePicker
     // The main file picker function (exposed)
     static String filePickerImpl(String startPath = "/")
     {
+        Screen::tft.fillScreen(BG);
         // normalize incoming start path and convert to Path
         String normStart = normalizePathString(startPath);
         Path curPath = ENC_FS::str2Path(normStart);
@@ -337,7 +338,7 @@ namespace FilePicker
             // debounce
             delay(10);
         }
-
+        Screen::tft.fillScreen(BG);
         return String("");
     }
 } // namespace FilePicker

@@ -37,7 +37,7 @@ void setup()
 
     // Audio::init(60);
     Screen::init(150);
-    startAnimationMWOS();
+    // startAnimationMWOS();
 
     Auth::init();
     // update paint app
@@ -45,7 +45,7 @@ void setup()
 
     // debug io
     //  readString("what is you age?", "15");
-    //  Serial.println(filePicker("/"));
+    Serial.println(filePicker("/"));
 
     // delete users
     // SD_FS::deleteDir("/a1fce4363854ff888cff4b8e7875d600c2682390412a8cf79b37d0b11148b0fa");

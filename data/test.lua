@@ -3,12 +3,8 @@ print("APP:STARTED")
 local win = createWindow(20, 20, 240, 160)
 WIN_setName(win, "Paint")
 
-delay(500)
-local ok, val = WIN_readText(win, "ask?", "*_*")
-print(ok, val)
-
 local bigScreen = 1
-local leftScreen = 2
+local rightSmallScreen = 2
 
 local totalW, totalH = 240, 160
 local sidebarW = math.floor(totalW * 0.15)
@@ -77,19 +73,19 @@ local function drawCanvas()
 end
 
 local function drawColorBar()
-    WIN_fillRect(win, leftScreen, 0, 0, colorBarW, canvasH, RGB(200, 200, 200))
+    WIN_fillRect(win, rightSmallScreen, 0, 0, colorBarW, canvasH, RGB(200, 200, 200))
     local fieldH = 30
     for i, c in ipairs(palette) do
         local y = (i - 1) * fieldH - colorScrollY
         if y + fieldH >= 0 and y < canvasH then
-            WIN_fillRect(win, leftScreen, 0, y, colorBarW, fieldH, c)
+            WIN_fillRect(win, rightSmallScreen, 0, y, colorBarW, fieldH, c)
         end
     end
 end
 
 local function clearAll()
     WIN_fillBg(win, bigScreen, white)
-    WIN_fillBg(win, leftScreen, white)
+    WIN_fillBg(win, rightSmallScreen, white)
     uiState.canvasCleared = true
 end
 
@@ -219,7 +215,7 @@ while not WIN_closed(win) do
         end
     end
 
-    local h2, s2, px2, py2, mx2, my2 = WIN_getLastEvent(win, leftScreen)
+    local h2, s2, px2, py2, mx2, my2 = WIN_getLastEvent(win, rightSmallScreen)
     if h2 then
         if s2 == 0 then
             isColorScrolling = true
