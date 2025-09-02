@@ -2,8 +2,6 @@
 #include <vector>
 #include <SD.h>
 
-#include "../styles/global.hpp"
-
 extern void executeApplication(const std::vector<String> &args);
 
 struct AppRenderData

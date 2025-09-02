@@ -18,7 +18,7 @@ namespace Windows
         canAccess = false;
         apps.push_back(std::move(w));
         Serial.println("Filling screen with background color...");
-        Screen::tft.fillScreen(RGB(245, 245, 255));
+        Screen::tft.fillScreen(BG);
         Serial.println("=== Window::init completed ===");
         canAccess = true;
     }
@@ -50,7 +50,7 @@ namespace Windows
                 apps.erase(it); // this deletes the Window automatically
         }
 
-        Screen::tft.fillScreen(RGB(245, 245, 255));
+        Screen::tft.fillScreen(BG);
         canAccess = true;
     }
 
@@ -129,7 +129,7 @@ namespace Windows
                 if (!collides)
                 {
                     w.off = proposedOff;
-                    Screen::tft.fillScreen(RGB(245, 245, 255));
+                    Screen::tft.fillScreen(BG);
                 }
             }
 
@@ -167,7 +167,7 @@ namespace Windows
                 if (!collides)
                 {
                     w.size = proposedSize;
-                    Screen::tft.fillScreen(RGB(245, 245, 255));
+                    Screen::tft.fillScreen(BG);
                 }
             }
 
@@ -176,7 +176,7 @@ namespace Windows
             {
                 removeAt((int)apps.size() - 1);
                 auto area = Rect{w.off + Vec{-1, -13}, w.size + Vec{12 + 2, 14}};
-                Screen::tft.fillRect(area.pos.x, area.pos.y, area.dimensions.x, area.dimensions.y, RGB(245, 245, 255));
+                Screen::tft.fillRect(area.pos.x, area.pos.y, area.dimensions.x, area.dimensions.y, BG);
             }
         }
         else
@@ -188,7 +188,7 @@ namespace Windows
             }
             if (move.x != 0 || move.y != 0)
             {
-                Screen::tft.fillScreen(RGB(245, 245, 255));
+                Screen::tft.fillScreen(BG);
                 drawTime();
             }
         }
@@ -233,7 +233,7 @@ namespace Windows
         // time button toglls rendering
         if ((timeButton.isIn(pos) && state == MouseState::Down) || digitalRead(0) == LOW)
         {
-            Screen::tft.fillScreen(RGB(245, 245, 255));
+            Screen::tft.fillScreen(BG);
             isRendering = !isRendering;
         }
 
@@ -294,18 +294,18 @@ namespace Windows
         Screen::tft.drawRect(
             w.off.x - 1, w.off.y - Window::titleBarHeight - 1,
             w.size.x + 2 + 12, w.size.y + Window::titleBarHeight + 2,
-            TFT_BLACK);
+            TEXT);
 
         // icon
         Screen::tft.pushImage(d.pos.x, d.pos.y, 12, 12, w.icon);
-        Screen::tft.drawLine(d.pos.x + 12, d.pos.y, d.pos.x + 12, d.pos.y + 12, TFT_BLACK);
+        Screen::tft.drawLine(d.pos.x + 12, d.pos.y, d.pos.x + 12, d.pos.y + 12, TEXT);
 
         // drag area
         Screen::tft.fillRectHGradient(
             d.pos.x + 13, d.pos.y,
             d.dimensions.x - Window::closeBtnSize - 14, d.dimensions.y,
-            RGB(200, 200, 250), RGB(220, 220, 250));
-        Screen::tft.drawLine(d.pos.x + 12 + d.dimensions.x - Window::closeBtnSize - 13, d.pos.y, d.pos.x + 12 + d.dimensions.x - Window::closeBtnSize - 13, d.pos.y + 12, TFT_BLACK);
+            ACCENT2 - RGB(20, 20, 0), ACCENT2);
+        Screen::tft.drawLine(d.pos.x + 12 + d.dimensions.x - Window::closeBtnSize - 13, d.pos.y, d.pos.x + 12 + d.dimensions.x - Window::closeBtnSize - 13, d.pos.y + 12, TEXT);
 
         // drag are text
         if (Rect{0, 0, 320, 240}.intersects(d))
@@ -319,8 +319,8 @@ namespace Windows
                     Screen::tft.print(w.name[i]);
         }
 
-        Screen::tft.fillRect(c.pos.x, c.pos.y, c.dimensions.x, c.dimensions.y, RGB(255, 150, 150));
-        drawCloseX(c.pos.x, c.pos.y, RGB(0, 0, 0)); // oder TFT_BLACK
+        Screen::tft.fillRect(c.pos.x, c.pos.y, c.dimensions.x, c.dimensions.y, DANGER);
+        drawCloseX(c.pos.x, c.pos.y, TEXT); // oder TEXT
 
         Screen::tft.setTextSize(2);
     }
@@ -334,8 +334,8 @@ namespace Windows
     void drawResizeBox(Window &w)
     {
         auto r = w.resizeArea();
-        Screen::tft.fillRect(r.pos.x, r.pos.y, r.dimensions.x, r.dimensions.y, RGB(180, 180, 255));
-        drawResizeIcon(r.pos.x, r.pos.y, TFT_BLACK);
+        Screen::tft.fillRect(r.pos.x, r.pos.y, r.dimensions.x, r.dimensions.y, ACCENT3);
+        drawResizeIcon(r.pos.x, r.pos.y, TEXT);
     }
 
     void drawTime()
@@ -361,11 +361,11 @@ namespace Windows
         }
 
         Screen::tft.setTextSize(1);
-        Screen::tft.setTextColor(TFT_WHITE);
-        Screen::tft.fillRoundRect(x, y, w, h, 4, RGB(30, 144, 255));
+        Screen::tft.setTextColor(AT);
+        Screen::tft.fillRoundRect(x, y, w, h, 4, ACCENT);
         Screen::tft.setCursor(x + 6, y + 4);
         Screen::tft.print(timeStr);
-        Screen::tft.setTextColor(TFT_BLACK);
+        Screen::tft.setTextColor(TEXT);
     }
 
 } // namespace Windows

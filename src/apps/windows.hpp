@@ -9,6 +9,7 @@
 #include "../utils/time.hpp"
 #include "../utils/rect.hpp"
 #include "../utils/vec.hpp"
+#include "../styles/global.hpp"
 
 struct Window;
 enum class MouseState;
