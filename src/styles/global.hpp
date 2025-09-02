@@ -14,7 +14,7 @@ namespace Style
         inline static uint16_t accent3 = RGB(180, 180, 255);
         inline static uint16_t accentText = TFT_WHITE;
         inline static uint16_t danger = RGB(255, 150, 150);
-        inline static uint16_t pressed = RGB(1, 1, 1);
+        inline static uint16_t pressed = accent;
         inline static uint16_t placeholder = RGB(200, 200, 200);
     }
 }
