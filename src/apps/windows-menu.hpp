@@ -187,7 +187,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     if (appsChanged)
         needRedraw = true;
 
-    if (millis() - lastMenuRender > 1000)
+    if (millis() - lastMenuRender > 10000)
         needRedraw = true;
 
     if (!needRedraw)
