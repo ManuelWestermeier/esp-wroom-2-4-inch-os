@@ -1,4 +1,5 @@
 #include "auth.hpp"
+#include "../styles/global.hpp"
 
 namespace Auth
 {

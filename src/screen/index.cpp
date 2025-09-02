@@ -1,5 +1,7 @@
 #include "index.hpp"
 
+#include "../styles/global.hpp"
+
 using namespace Screen;
 
 // Define the single TFT instance
@@ -24,9 +26,9 @@ void Screen::init(byte b)
     setBrightness(b);
     tft.init();
     tft.setRotation(2);
-    tft.fillScreen(RGB(245, 245, 255));
+    tft.fillScreen(BG);
 
-    tft.setTextColor(TFT_BLACK);
+    tft.setTextColor(TEXT);
     tft.setTextSize(2);
     tft.setCursor(0, 0);
 

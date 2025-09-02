@@ -39,8 +39,8 @@ static inline int lineHForSize(int textSize) { return (8 * textSize) + 4; }
 
 static void drawKey(TFT_eSPI &tft, const KeyRect &k, bool pressed)
 {
-    uint16_t bg = pressed ? 0x8410 : 0xFFFF; // light gray when pressed
-    uint16_t fg = pressed ? 0xFFFF : 0x0000;
+    uint16_t bg = pressed ? ACCENT : BG; // light gray when pressed
+    uint16_t fg = pressed ? BG : TEXT;
     tft.fillRoundRect(k.x, k.y, k.w, k.h, 4, bg);
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(fg);
@@ -66,11 +66,11 @@ static void drawTextArea(TFT_eSPI &tft,
 {
     const int pad = 6;
     // Hintergrund und Rahmen der Textarea (only the text area part)
-    tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0xFFFF);
-    tft.drawRoundRect(AREA_X - 2, AREA_Y - 2, AREA_W + 4, AREA_H + 4, 4, RGB(230, 230, 250));
+    tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, BG);
+    /*drawRoundRect*/ tft.fillRoundRect(AREA_X - 2, AREA_Y - 2, AREA_W + 4, AREA_H + 4, 4, PRIMARY);
 
     tft.setTextSize(TEXT_SIZE_AREA);
-    tft.setTextColor(0x0000);
+    tft.setTextColor(TEXT);
 
     int lineH = lineHForSize(TEXT_SIZE_AREA);
     int visibleLines = AREA_H / lineH;
@@ -91,7 +91,7 @@ static void drawTextArea(TFT_eSPI &tft,
         int cx = AREA_X + pad + cursorCol * charW;
         // cursor height slightly smaller than line height
         int cursorH = lineH - 2;
-        tft.drawFastVLine(cx, cy, cursorH, 0x0000);
+        tft.drawFastVLine(cx, cy, cursorH, TEXT);
     }
 
     // ---- Draw scroll buttons in the reserved right area ----
@@ -105,14 +105,14 @@ static void drawTextArea(TFT_eSPI &tft,
         btnH = 16;
     int upY = AREA_Y + spacing;
     int downY = upY + btnH + spacing;
-    uint16_t bgUp = (pressedScroll == 0) ? 0x8410 : 0xFFFF;
-    uint16_t fgUp = (pressedScroll == 0) ? 0xFFFF : 0x0000;
-    uint16_t bgDown = (pressedScroll == 1) ? 0x8410 : 0xFFFF;
-    uint16_t fgDown = (pressedScroll == 1) ? 0xFFFF : 0x0000;
+    uint16_t bgUp = (pressedScroll == 0) ? ACCENT : BG;
+    uint16_t fgUp = (pressedScroll == 0) ? BG : TEXT;
+    uint16_t bgDown = (pressedScroll == 1) ? ACCENT : BG;
+    uint16_t fgDown = (pressedScroll == 1) ? BG : TEXT;
 
     // Up button
     tft.fillRoundRect(btnAreaX, upY, btnAreaW, btnH, 4, bgUp);
-    tft.drawRoundRect(btnAreaX, upY, btnAreaW, btnH, 4, RGB(230, 230, 250));
+    /*drawRoundRect*/ tft.fillRoundRect(btnAreaX, upY, btnAreaW, btnH, 4, PRIMARY);
     tft.setTextDatum(MC_DATUM);
     tft.setTextSize(1);
     tft.setTextColor(fgUp);
@@ -120,7 +120,7 @@ static void drawTextArea(TFT_eSPI &tft,
 
     // Down button
     tft.fillRoundRect(btnAreaX, downY, btnAreaW, btnH, 4, bgDown);
-    tft.drawRoundRect(btnAreaX, downY, btnAreaW, btnH, 4, RGB(230, 230, 250));
+    /*drawRoundRect*/ tft.fillRoundRect(btnAreaX, downY, btnAreaW, btnH, 4, PRIMARY);
     tft.setTextColor(fgDown);
     tft.drawString("v", btnAreaX + btnAreaW / 2, downY + btnH / 2);
 }
@@ -238,9 +238,9 @@ String readString(const String &question = "", const String &defaultValue = "")
     int cursorCol = lines[cursorLine].length();
 
     // initial screen clear + settings
-    tft.fillScreen(0xFFFF);
+    tft.fillScreen(BG);
     tft.setTextSize(TEXT_SIZE_AREA);
-    tft.setTextColor(0x0000);
+    tft.setTextColor(TEXT);
 
     KbMode mode = KbMode::LOWER;
     auto keys = buildKeyboardLayout(mode);
@@ -410,7 +410,7 @@ String readString(const String &question = "", const String &defaultValue = "")
                 {
                     mode = (mode == KbMode::LOWER) ? KbMode::UPPER : KbMode::LOWER;
                     keys = buildKeyboardLayout(mode);
-                    tft.fillScreen(0xFFFF);
+                    tft.fillScreen(BG);
                     drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true, -1);
                     drawKeyboard(tft, keys, -1);
                 }
@@ -418,7 +418,7 @@ String readString(const String &question = "", const String &defaultValue = "")
                 {
                     mode = (mode == KbMode::NUMSYM) ? KbMode::LOWER : KbMode::NUMSYM;
                     keys = buildKeyboardLayout(mode);
-                    tft.fillScreen(0xFFFF);
+                    tft.fillScreen(BG);
                     drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true, -1);
                     drawKeyboard(tft, keys, -1);
                 }
@@ -534,7 +534,7 @@ String readString(const String &question = "", const String &defaultValue = "")
                     scrollLine = cursorLine - visibleLines + 1;
 
                 // redraw
-                tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, 0xFFFF); // clear text area only
+                tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, BG); // clear text area only
                 drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true, -1);
             }
             pressedKey = -1;
