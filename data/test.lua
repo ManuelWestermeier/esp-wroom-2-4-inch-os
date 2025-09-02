@@ -3,7 +3,7 @@ print("APP:STARTED")
 local win = createWindow(20, 20, 240, 160)
 WIN_setName(win, "Paint")
 
-delay(2000)
+delay(500)
 local ok, val = WIN_readText(win, "ask?", "*_*")
 print(ok, val)
 
