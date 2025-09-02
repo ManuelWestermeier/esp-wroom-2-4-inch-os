@@ -70,5 +70,5 @@ namespace ENC_FS
         bool set(const String &appId, const String &key, const Buffer &data);
     }
 
-    void copyFileFromSPIFFS(const char *spiffsPath, const char *sdPath);
+    void copyFileFromSPIFFS(const char *spiffsPath, const Path &sdPath);
 }

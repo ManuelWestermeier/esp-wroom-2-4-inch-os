@@ -88,7 +88,7 @@ namespace Windows
             if (Rect{w.off, w.size}.isIn(pos))
             {
                 w.lastEvent = {state, rel, move};
-                if (state == MouseState::Up)
+                if (state != MouseState::Up)
                 {
                     w.wasClicked = true;
                 }
@@ -99,7 +99,7 @@ namespace Windows
             {
                 Vec relRight = {pos.x - rightSpriteArea.pos.x, pos.y - rightSpriteArea.pos.y};
                 w.lastEventRightSprite = {state, relRight, move};
-                if (state == MouseState::Up)
+                if (state != MouseState::Up)
                 {
                     w.wasClicked = true;
                 }

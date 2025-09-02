@@ -216,7 +216,7 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
 }
 
 // ===== Main text input =====
-String readString(const String &question = "", const String &defaultValue = "")
+String readString(const String &question, const String &defaultValue)
 {
     std::vector<String> lines;
     if (defaultValue.length() == 0)

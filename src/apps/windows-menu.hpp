@@ -255,7 +255,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         }
 
         // Name daneben
-        tft.setCursor(appRect.pos.x + 30, appRect.pos.y + 8);
+        tft.setCursor(appRect.pos.x + 30, appRect.pos.y + 5);
         tft.print(app.name);
 
         if (programsView.isIn(pos))

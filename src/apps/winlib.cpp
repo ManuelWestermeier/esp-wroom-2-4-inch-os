@@ -167,6 +167,7 @@ namespace LuaApps::WinLib
         lua_pushinteger(L, ev.pos.y);
         lua_pushinteger(L, ev.move.x);
         lua_pushinteger(L, ev.move.y);
+        lua_pushboolean(L, w->wasClicked);
 
         return 6;
     }
@@ -439,35 +440,37 @@ namespace LuaApps::WinLib
     {
         if (!Windows::isRendering)
             return 0;
-        Window *w = getWindow(L, 1);
 
+        Window *w = getWindow(L, 1);
         if (!w || w->closed)
             return 0;
 
-        int color = luaL_checkinteger(L, 2);
-        String question = luaL_checkstring(L, 3);
-        String defaultValue = luaL_checkstring(L, 4);
+        String question(luaL_checkstring(L, 2));
+        String defaultValue(luaL_checkstring(L, 3));
 
-        Rect rect = getScreenRect(w, 1);
         String out = "";
         bool ok = w->wasClicked;
 
         if (ok)
         {
+            // Wait for access
             while (!Windows::canAccess)
             {
                 delay(rand() % 2);
             }
+
             Windows::canAccess = false;
+            
             w->wasClicked = false;
             out = readString(question, defaultValue);
+
+            Screen::tft.fillScreen(BG);
+            
             Windows::canAccess = true;
         }
-        delay(10);
 
         lua_pushboolean(L, ok);
         lua_pushstring(L, out.c_str());
-
         return 2;
     }
 

@@ -1,8 +1,11 @@
--- fast_paint.lua
 print("APP:STARTED")
 
 local win = createWindow(20, 20, 240, 160)
 WIN_setName(win, "Paint")
+
+delay(2000)
+local ok, val = WIN_readText(win, "ask?", "*_*")
+print(ok, val)
 
 local bigScreen = 1
 local leftScreen = 2
