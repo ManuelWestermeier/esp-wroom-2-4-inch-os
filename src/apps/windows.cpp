@@ -3,7 +3,7 @@
 namespace Windows
 {
     std::vector<WindowPtr> apps;
-    bool isRendering = true;
+    bool isRendering = false;
     bool isUsingKeyBoard = false;
     bool canAccess = true;
     Rect timeButton{{320 - 42 - 5, 240 - 16 - 5}, {42, 16}};

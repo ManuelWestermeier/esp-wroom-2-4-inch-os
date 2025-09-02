@@ -94,7 +94,6 @@ namespace FilePicker
     {
         auto &tft = Screen::tft;
         // background
-        tft.fillScreen(FP_COL_BG);
 
         // Header bar
         tft.fillRect(0, 0, FP_SCREEN_W, FP_HEADER_H, FP_COL_BUTTON);
@@ -185,6 +184,7 @@ namespace FilePicker
             ENC_FS::Metadata m = ENC_FS::getMetadata(child);
             names.push_back(entry);
             isDir.push_back(m.isDirectory);
+            Serial.println(entry);
         }
     }
 
@@ -193,8 +193,8 @@ namespace FilePicker
     {
         // normalize incoming start path and convert to Path
         String normStart = normalizePathString(startPath);
-        Path curPath = stringToPath(normStart);
-        String curPathStr = pathToString(curPath); // always normalized representation
+        Path curPath = ENC_FS::str2Path(normStart);
+        String curPathStr = ENC_FS::path2Str(curPath); // always normalized representation
 
         vector<String> entries;
         vector<bool> entriesIsDir;

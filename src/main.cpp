@@ -52,6 +52,7 @@ void setup()
     // startAnimationMWOS();
 
     Auth::init();
+    // Serial.println(filePicker("/"));
     // Serial.println(ENC_FS::writeFileString({"programs", "a-paint", "entry.lua"}, "HELLO WORLD!!"));
     // Serial.println(ENC_FS::readFileString({"programs", "a-paint", "entry.lua"}));
     // Serial.println("--- LSDIRS ---");

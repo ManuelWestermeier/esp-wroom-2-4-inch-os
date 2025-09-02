@@ -551,8 +551,6 @@ namespace ENC_FS
             String dec;
             if (decryptSegment(nameOnly, dec))
                 out.push_back(dec);
-            else
-                out.push_back(String("<unknown>"));
             e.close();
             e = dir.openNextFile();
         }
