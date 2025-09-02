@@ -435,6 +435,42 @@ namespace LuaApps::WinLib
         return 1;
     }
 
+    int lua_WIN_readText(lua_State *L)
+    {
+        if (!Windows::isRendering)
+            return 0;
+        Window *w = getWindow(L, 1);
+
+        if (!w || w->closed)
+            return 0;
+
+        int color = luaL_checkinteger(L, 2);
+        String question = luaL_checkstring(L, 3);
+        String defaultValue = luaL_checkstring(L, 4);
+
+        Rect rect = getScreenRect(w, 1);
+        String out = "";
+        bool ok = w->wasClicked;
+
+        if (ok)
+        {
+            while (!Windows::canAccess)
+            {
+                delay(rand() % 2);
+            }
+            Windows::canAccess = false;
+            w->wasClicked = false;
+            out = readString(question, defaultValue);
+            Windows::canAccess = true;
+        }
+        delay(10);
+
+        lua_pushboolean(L, ok);
+        lua_pushstring(L, out.c_str());
+
+        return 2;
+    }
+
     // --- TFT_eSPI drawing helpers (same pattern) ---
     int lua_WIN_drawLine(lua_State *L)
     {
@@ -774,6 +810,7 @@ namespace LuaApps::WinLib
         lua_register(L, "WIN_drawPixel", lua_WIN_drawPixel);
         lua_register(L, "WIN_isRendering", lua_WIN_isRendered);
         lua_register(L, "WIN_canAccess", lua_WIN_canAccess);
+        lua_register(L, "WIN_readText", lua_WIN_readText);
 
         // Close function (was missing)
         lua_register(L, "WIN_close", lua_WIN_close);
@@ -781,7 +818,7 @@ namespace LuaApps::WinLib
         // Register new TFT drawing functions
         lua_register(L, "WIN_drawLine", lua_WIN_drawLine);
         lua_register(L, "WIN_drawRect", lua_WIN_drawRect);
-        lua_register(L, "WIN_writeRect", lua_WIN_drawRect);
+        lua_register(L, "WIN_writeRect", lua_WIN_fillRect);
         lua_register(L, "WIN_drawTriangle", lua_WIN_drawTriangle);
         lua_register(L, "WIN_fillTriangle", lua_WIN_fillTriangle);
         lua_register(L, "WIN_drawCircle", lua_WIN_drawCircle);

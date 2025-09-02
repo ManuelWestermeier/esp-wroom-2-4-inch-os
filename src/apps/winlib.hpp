@@ -3,6 +3,7 @@
 #include <lua.hpp>
 #include <Arduino.h>
 
+#include "../io/read-string.hpp"
 #include "app.hpp"
 
 namespace LuaApps::WinLib
@@ -16,12 +17,12 @@ namespace LuaApps::WinLib
     int lua_WIN_close(lua_State *L);
     int lua_WIN_fillBg(lua_State *L);
     int lua_WIN_writeText(lua_State *L);
-    int lua_WIN_writeRect(lua_State *L);
     int lua_WIN_setIcon(lua_State *L);
     int lua_WIN_drawPixel(lua_State *L);
     int lua_WIN_drawImage(lua_State *L);
     int lua_WIN_canAccess(lua_State *L);
     int lua_WIN_isRendered(lua_State *L);
+    int lua_WIN_readText(lua_State *L);
 
     // --- Neue TFT/TFT_eSPI Zeichen-Funktionen ---
     int lua_WIN_drawLine(lua_State *L);

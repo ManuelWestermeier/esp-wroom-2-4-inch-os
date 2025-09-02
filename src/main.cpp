@@ -41,7 +41,7 @@ void setup()
 
     Auth::init();
     // update paint app
-    // ENC_FS::copyFileFromSPIFFS("/test.lua", {"programs", "a-paint", "entry.lua"});
+    ENC_FS::copyFileFromSPIFFS("/test.lua", {"programs", "a-paint", "entry.lua"});
 
     // debug io
     //  readString("what is you age?", "15");

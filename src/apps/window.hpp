@@ -29,6 +29,7 @@ struct Window
     MouseEvent lastEvent{MouseState::Up, {0, 0}, {0, 0}};
     MouseEvent lastEventRightSprite{MouseState::Up, {0, 0}, {0, 0}};
     bool closed = false;
+    bool wasClicked = false;
 
 #include "icon.hpp"
 

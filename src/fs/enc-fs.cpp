@@ -590,4 +590,22 @@ namespace ENC_FS
         }
     }
 
+    void copyFileFromSPIFFS(const char *spiffsPath, const Path &sdPath)
+    {
+        File f = SPIFFS.open(spiffsPath, "r");
+        if (!f)
+        {
+            Serial.printf("Fehler beim Öffnen von %s in SPIFFS\n", spiffsPath);
+            return;
+        }
+
+        Buffer content;
+        size_t size = f.size();       // Dateigröße ermitteln
+        content.resize(size);         // Vektor auf passende Größe bringen
+        f.read(content.data(), size); // Inhalt einlesen
+        f.close();
+
+        writeFile(sdPath, 0, 0, content); // auf SD schreiben
+    }
+
 } // namespace ENC_FS

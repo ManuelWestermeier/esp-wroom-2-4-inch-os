@@ -35,7 +35,6 @@ namespace Windows
 
     // draw helpers
     void drawTitleBar(Window &w);
-    void drawContent(Window &w);
     void drawResizeBox(Window &w);
     void drawTime();
 }

@@ -8,4 +8,4 @@
 
 #include "icons/index.hpp"
 
-String readString(const String &file, const String &key);
+String readString(const String &question = "", const String &defaultValue = "");

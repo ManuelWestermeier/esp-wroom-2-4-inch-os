@@ -88,6 +88,10 @@ namespace Windows
             if (Rect{w.off, w.size}.isIn(pos))
             {
                 w.lastEvent = {state, rel, move};
+                if (state == MouseState::Up)
+                {
+                    w.wasClicked = true;
+                }
             }
 
             Rect rightSpriteArea = {w.off + Vec{w.size.x, 0}, {Window::resizeBoxSize, w.size.y - Window::resizeBoxSize}};
@@ -95,6 +99,10 @@ namespace Windows
             {
                 Vec relRight = {pos.x - rightSpriteArea.pos.x, pos.y - rightSpriteArea.pos.y};
                 w.lastEventRightSprite = {state, relRight, move};
+                if (state == MouseState::Up)
+                {
+                    w.wasClicked = true;
+                }
             }
 
             // drag
@@ -200,7 +208,6 @@ namespace Windows
             if (Rect{0, 0, 320, 240}.intersects(Rect{w.off + Vec{-1, -13}, w.size + Vec{12 + 2, 13}}))
             {
                 drawTitleBar(w);
-                drawContent(w);
                 drawResizeBox(w);
                 drawTime();
             }
@@ -323,12 +330,6 @@ namespace Windows
         drawCloseX(c.pos.x, c.pos.y, TEXT); // oder TEXT
 
         Screen::tft.setTextSize(2);
-    }
-
-    void drawContent(Window &w)
-    {
-        // w.sprite.pushSprite(w.off.x, w.off.y);
-        // w.rightSprite.pushSprite(w.off.x + w.size.x, w.off.y);
     }
 
     void drawResizeBox(Window &w)

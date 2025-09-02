@@ -77,6 +77,7 @@ Screen::TouchPos Screen::getTouchPos()
         lastTouchX = pos.x;
         lastTime = now;
     }
+
     return pos;
 }
 

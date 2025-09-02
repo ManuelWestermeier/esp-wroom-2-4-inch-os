@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <SPIFFS.h>
 #include <SD.h>
 #include <vector>
 
@@ -68,4 +69,6 @@ namespace ENC_FS
         Buffer get(const String &appId, const String &key, long start = -1, long end = -1);
         bool set(const String &appId, const String &key, const Buffer &data);
     }
+
+    void copyFileFromSPIFFS(const char *spiffsPath, const char *sdPath);
 }
