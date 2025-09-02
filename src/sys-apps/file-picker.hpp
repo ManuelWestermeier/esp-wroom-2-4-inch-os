@@ -12,6 +12,7 @@
 #include "../screen/index.hpp" // provides Screen::tft and Screen::getTouchPos()
 #include "../utils/vec.hpp"
 #include "../utils/rect.hpp"
+#include "../styles/global.hpp"
 
 using std::vector;
 
@@ -29,15 +30,6 @@ namespace FilePicker
     static constexpr int FP_ITEM_H = 20;
     static constexpr int FP_LIST_H = (FP_SCREEN_H - FP_HEADER_H - FP_FOOTER_H);
     static constexpr int FP_VISIBLE_ITEMS = (FP_LIST_H / FP_ITEM_H);
-
-    // Colors (TFT_eSPI constants / 16-bit)
-    static const uint16_t FP_COL_BG = TFT_WHITE;
-    static const uint16_t FP_COL_TEXT = TFT_BLACK;
-    static const uint16_t FP_COL_HIGHLIGHT = 0xC618; // light gray-ish
-    static const uint16_t FP_COL_BUTTON = 0xF7DE;    // slightly off-white
-    static const uint16_t FP_COL_GRAY = 0x8410;
-
-    // ---- Helpers ----
 
     // Normalize an incoming path string so:
     //  - it always starts with '/'
@@ -86,7 +78,7 @@ namespace FilePicker
     static void drawBackArrow(int x, int y, int size = 10)
     {
         // fill triangle (x1,y1,x2,y2,x3,y3,color)
-        Screen::tft.fillTriangle(x, y, x + size, y + size / 2, x, y + size, FP_COL_TEXT);
+        Screen::tft.fillTriangle(x, y, x + size, y + size / 2, x, y + size, TEXT);
     }
 
     // Draw the static chrome: header, footer buttons
@@ -96,8 +88,8 @@ namespace FilePicker
         // background
 
         // Header bar
-        tft.fillRect(0, 0, FP_SCREEN_W, FP_HEADER_H, FP_COL_BUTTON);
-        tft.drawRect(0, 0, FP_SCREEN_W, FP_HEADER_H, FP_COL_GRAY);
+        tft.fillRect(0, 0, FP_SCREEN_W, FP_HEADER_H, PRIMARY);
+        tft.drawRect(0, 0, FP_SCREEN_W, FP_HEADER_H, ACCENT);
 
         // Back arrow (top-left)
         drawBackArrow(6, (FP_HEADER_H - 10) / 2);
@@ -105,26 +97,26 @@ namespace FilePicker
         // Current path text
         tft.setTextDatum(TL_DATUM);
         tft.setTextSize(1);
-        tft.setTextColor(FP_COL_TEXT, FP_COL_BUTTON);
+        tft.setTextColor(TEXT, PRIMARY);
         tft.drawString(currentPathStr, 20, 6, 2);
 
         // Footer
-        tft.fillRect(0, FP_SCREEN_H - FP_FOOTER_H, FP_SCREEN_W, FP_FOOTER_H, FP_COL_BUTTON);
-        tft.drawRect(0, FP_SCREEN_H - FP_FOOTER_H, FP_SCREEN_W, FP_FOOTER_H, FP_COL_GRAY);
+        tft.fillRect(0, FP_SCREEN_H - FP_FOOTER_H, FP_SCREEN_W, FP_FOOTER_H, PRIMARY);
+        tft.drawRect(0, FP_SCREEN_H - FP_FOOTER_H, FP_SCREEN_W, FP_FOOTER_H, ACCENT);
 
         // Cancel button
-        tft.drawRect(6, FP_SCREEN_H - FP_FOOTER_H + 6, 70, FP_FOOTER_H - 12, FP_COL_GRAY);
-        tft.setTextColor(FP_COL_TEXT, FP_COL_BUTTON);
+        tft.drawRect(6, FP_SCREEN_H - FP_FOOTER_H + 6, 70, FP_FOOTER_H - 12, ACCENT);
+        tft.setTextColor(TEXT, PRIMARY);
         tft.drawString("Cancel", 12, FP_SCREEN_H - FP_FOOTER_H + 10, 2);
 
         // Page indicator (use std::max to avoid macro clash)
         String pstr = String(pageIndex + 1) + "/" + String(std::max(1, totalPages));
-        tft.setTextColor(FP_COL_TEXT, FP_COL_BUTTON);
+        tft.setTextColor(TEXT, PRIMARY);
         tft.drawString(pstr, (FP_SCREEN_W / 2) - 10, FP_SCREEN_H - FP_FOOTER_H + 10, 2);
 
         // Select button
-        tft.drawRect(FP_SCREEN_W - 78, FP_SCREEN_H - FP_FOOTER_H + 6, 70, FP_FOOTER_H - 12, FP_COL_GRAY);
-        tft.setTextColor(FP_COL_TEXT, FP_COL_BUTTON);
+        tft.drawRect(FP_SCREEN_W - 78, FP_SCREEN_H - FP_FOOTER_H + 6, 70, FP_FOOTER_H - 12, ACCENT);
+        tft.setTextColor(TEXT, PRIMARY);
         tft.drawString("Select", FP_SCREEN_W - 70, FP_SCREEN_H - FP_FOOTER_H + 10, 2);
     }
 
@@ -139,26 +131,26 @@ namespace FilePicker
 
         // background for item
         if (pressed)
-            tft.fillRect(x, y, w, h, FP_COL_HIGHLIGHT);
+            tft.fillRect(x, y, w, h, PRIMARY);
         else
-            tft.fillRect(x, y, w, h, FP_COL_BG);
+            tft.fillRect(x, y, w, h, BG);
 
         // separator line
-        tft.drawFastHLine(x, y + h - 1, w, FP_COL_GRAY);
+        tft.drawFastHLine(x, y + h - 1, w, ACCENT);
 
         // icon
         if (isDir)
         {
-            tft.fillRect(6, y + 4, 14, 12, FP_COL_GRAY);
-            tft.fillRect(8, y + 2, 10, 6, FP_COL_GRAY);
+            tft.fillRect(6, y + 4, 14, 12, ACCENT);
+            tft.fillRect(8, y + 2, 10, 6, ACCENT);
         }
         else
         {
-            tft.drawRect(8, y + 3, 12, 14, FP_COL_GRAY);
+            tft.drawRect(8, y + 3, 12, 14, ACCENT);
         }
 
         // text
-        tft.setTextColor(FP_COL_TEXT, FP_COL_BG);
+        tft.setTextColor(TEXT, BG);
         tft.setTextSize(1);
         tft.drawString(name, 28, y + 3, 1);
     }
@@ -210,7 +202,7 @@ namespace FilePicker
         auto redrawPage = [&](int pageIndex)
         {
             // clear list area
-            Screen::tft.fillRect(0, FP_LIST_Y, FP_SCREEN_W, FP_LIST_H, FP_COL_BG);
+            Screen::tft.fillRect(0, FP_LIST_Y, FP_SCREEN_W, FP_LIST_H, BG);
 
             int startIdx = pageIndex * FP_VISIBLE_ITEMS;
             for (int i = 0; i < FP_VISIBLE_ITEMS; ++i)
@@ -218,7 +210,7 @@ namespace FilePicker
                 int idx = startIdx + i;
                 if (idx >= (int)entries.size())
                 {
-                    Screen::tft.fillRect(0, FP_LIST_Y + i * FP_ITEM_H, FP_SCREEN_W, FP_ITEM_H, FP_COL_BG);
+                    Screen::tft.fillRect(0, FP_LIST_Y + i * FP_ITEM_H, FP_SCREEN_W, FP_ITEM_H, BG);
                     continue;
                 }
                 drawItem(i, entries[idx], entriesIsDir[idx], false);

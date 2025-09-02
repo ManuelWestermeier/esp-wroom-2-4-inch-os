@@ -30,6 +30,10 @@ void setup()
 
     // Audio::init(60);
     Screen::init(150);
+    // UserWiFi::addPublicWifi("io", "hhhhhh90");
+    UserWiFi::start();
+    startAnimationMWOS();
+
     // readString("what is you age?", "15");
 
     SD_FS::init();
@@ -45,11 +49,6 @@ void setup()
     SD_FS::lsDirSerial("/");
     // tree();
     // ENC_FS::copyFileFromSPIFFS("/test.lua", {"programs", "a-paint", "entry.lua"});
-
-    // UserWiFi::addPublicWifi("io", "hhhhhh90");
-    UserWiFi::start();
-
-    // startAnimationMWOS();
 
     Auth::init();
     // Serial.println(filePicker("/"));

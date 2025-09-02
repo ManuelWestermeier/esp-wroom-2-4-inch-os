@@ -1,9 +1,12 @@
 #pragma once
 
 #include "../screen/index.hpp"
+#include "../styles/global.hpp"
 
 void startAnimationMWOS()
 {
+    const byte brightNess = Screen::getBrightness();
+    float brightNessVal = 0;
     using Screen::tft;
 
     unsigned long start = millis();
@@ -21,10 +24,15 @@ void startAnimationMWOS()
         starY[i] = random(0, 240);
     }
 
-    tft.fillScreen(TFT_BLACK);
+    tft.fillScreen(BG);
 
     while (millis() - start < duration)
     {
+        brightNessVal = (millis() - start) / (float)duration * brightNess;
+        Screen::setBrightness((byte)brightNessVal);
+        if (brightNessVal > brightNess)
+            brightNessVal = brightNess;
+
         float progress = (millis() - start) / (float)duration; // 0..1
         if (progress > 1)
             progress = 1;
@@ -38,7 +46,7 @@ void startAnimationMWOS()
         }
 
         // Background stars
-        tft.fillScreen(TFT_BLACK);
+        tft.fillScreen(BG);
         for (int i = 0; i < starCount; i++)
         {
             uint8_t brightness = random(120, 255);
@@ -53,13 +61,20 @@ void startAnimationMWOS()
             tft.drawCircle(centerX, centerY, r, glowColor);
         }
 
+        static int lastTextX = 0;
         // Text slide-in with slight bounce
         int textX = (int)(-75 + (centerX - 60 + sin(progress * M_PI) * 5) * progress * 2);
         tft.setTextDatum(MC_DATUM);
         tft.setTextSize(3);
-        tft.setTextColor(TFT_WHITE, TFT_BLACK);
+        tft.setTextColor(BG);
+        tft.drawString("MW 2.4 OS", lastTextX + 40, centerY - 2);
+        tft.setTextColor(TEXT);
         tft.drawString("MW 2.4 OS", textX + 40, centerY - 2);
+
+        lastTextX = textX;
 
         delay(16); // ~60 FPS
     }
+
+    Screen::setBrightness(brightNess);
 }

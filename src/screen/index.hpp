@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Arduino.h>
+
 #include "../utils/vec.hpp"
 #include "./config.h"
 
@@ -15,7 +17,8 @@ namespace Screen
     extern int MOVEMENT_TIME_THRESHOLD;
 
     // Set backlight brightness (0–255)
-    void setBrightness(int b = 255);
+    void setBrightness(byte b = 255);
+    byte getBrightness();
 
     // Initialize display and touch
     void init(byte b = 200);

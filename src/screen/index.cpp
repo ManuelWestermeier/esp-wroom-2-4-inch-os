@@ -14,11 +14,18 @@ int Screen::MOVEMENT_TIME_THRESHOLD = 250;
 static uint16_t touchY = 0, touchX = 0;
 static uint16_t lastTouchY = UINT16_MAX, lastTouchX = 0;
 static uint32_t lastTime = 0;
+static byte screenBrightNess = 0;
 
-void Screen::setBrightness(int b)
+void Screen::setBrightness(byte b)
 {
     pinMode(TFT_BL, OUTPUT);
     analogWrite(TFT_BL, b);
+    screenBrightNess = b;
+}
+
+byte Screen::getBrightness()
+{
+    return screenBrightNess;
 }
 
 void Screen::init(byte b)
@@ -27,7 +34,6 @@ void Screen::init(byte b)
     tft.init();
     tft.setRotation(2);
     tft.fillScreen(BG);
-
     tft.setTextColor(TEXT);
     tft.setTextSize(2);
     tft.setCursor(0, 0);

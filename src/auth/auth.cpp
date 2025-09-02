@@ -1,4 +1,5 @@
 #include "auth.hpp"
+
 #include "../styles/global.hpp"
 
 namespace Auth
@@ -96,8 +97,8 @@ namespace Auth
     {
         using namespace Screen;
 
-        tft.fillScreen(TFT_WHITE);
-        tft.setTextColor(TFT_BLACK);
+        tft.fillScreen(BG);
+        tft.setTextColor(TEXT);
 
         Rect loginBtn{{60, 140 - 30}, {200, 40}};
         Rect createBtn{{60, 190 - 30}, {200, 40}};
@@ -114,7 +115,7 @@ namespace Auth
 
         auto drawUI = [&](const String &msg = "")
         {
-            tft.setTextColor(TFT_BLACK);
+            tft.setTextColor(TEXT);
 
             auto time = UserTime::get();
             String hour = String(time.tm_hour);
@@ -124,20 +125,20 @@ namespace Auth
             if (minute.length() < 2)
                 minute = "0" + minute;
 
-            tft.fillRect(55, 40, 210, 55, TFT_WHITE);
+            tft.fillRect(55, 40, 210, 55, BG);
             tft.setTextSize(8);
             tft.setCursor(55, 40);
             tft.print(time.tm_year > 124 ? hour + ":" + minute : ".....");
 
-            tft.fillRoundRect(loginBtn.pos.x, loginBtn.pos.y, loginBtn.dimensions.x, loginBtn.dimensions.y, 10, RGB(255, 240, 255));
-            tft.fillRoundRect(createBtn.pos.x, createBtn.pos.y, createBtn.dimensions.x, createBtn.dimensions.y, 10, RGB(255, 240, 255));
+            tft.fillRoundRect(loginBtn.pos.x, loginBtn.pos.y, loginBtn.dimensions.x, loginBtn.dimensions.y, 10, PRIMARY);
+            tft.fillRoundRect(createBtn.pos.x, createBtn.pos.y, createBtn.dimensions.x, createBtn.dimensions.y, 10, PRIMARY);
             tft.setTextSize(2);
             tft.setCursor(loginBtn.pos.x + 10, loginBtn.pos.y + 10);
             tft.print("LOGIN");
             tft.setCursor(createBtn.pos.x + 10, createBtn.pos.y + 10);
             tft.print("CREATE ACCOUNT");
 
-            tft.fillRect(messageArea.pos.x, messageArea.pos.y, messageArea.dimensions.x, messageArea.dimensions.y, TFT_WHITE);
+            tft.fillRect(messageArea.pos.x, messageArea.pos.y, messageArea.dimensions.x, messageArea.dimensions.y, BG);
             tft.setTextSize(2);
             tft.setCursor(messageArea.pos.x, messageArea.pos.y + 5);
             tft.print(msg);
@@ -164,7 +165,7 @@ namespace Auth
                 if (loginBtn.isIn(point))
                 {
                     String user = readString("Username", "");
-                    tft.fillScreen(TFT_WHITE);
+                    tft.fillScreen(BG);
 
                     if (user.isEmpty())
                     {
@@ -181,7 +182,7 @@ namespace Auth
                     }
 
                     String pass = readString("Password", "");
-                    tft.fillScreen(TFT_WHITE);
+                    tft.fillScreen(BG);
                     if (pass.isEmpty())
                     {
                         message = "Password required.";
@@ -189,7 +190,7 @@ namespace Auth
                         continue;
                     }
 
-                    tft.fillScreen(TFT_WHITE);
+                    tft.fillScreen(BG);
                     bool ok = login(user, pass);
                     message = ok ? "Login successful!" : "Login failed!";
                     Serial.println((ok ? "LOGIN SUCCESS: " : "LOGIN FAILED: ") + user);
@@ -203,7 +204,7 @@ namespace Auth
                 else if (createBtn.isIn(point))
                 {
                     String user = readString("New Username", "");
-                    tft.fillScreen(TFT_WHITE);
+                    tft.fillScreen(BG);
                     if (user.isEmpty())
                     {
                         message = "Username required.";
@@ -219,7 +220,7 @@ namespace Auth
                     }
 
                     String pass = readString("New Password", "");
-                    tft.fillScreen(TFT_WHITE);
+                    tft.fillScreen(BG);
                     if (pass.isEmpty())
                     {
                         message = "Password required.";
@@ -230,7 +231,7 @@ namespace Auth
                     bool ok = createAccount(user, pass);
                     message = ok ? "Account created!" : "Creation failed!";
                     Serial.println((ok ? "ACCOUNT CREATED: " : "ACCOUNT CREATION FAILED: ") + user);
-                    tft.fillScreen(TFT_WHITE);
+                    tft.fillScreen(BG);
 
                     if (ok)
                         return;

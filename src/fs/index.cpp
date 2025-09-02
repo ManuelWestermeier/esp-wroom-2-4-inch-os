@@ -1,5 +1,7 @@
 #include "fs/index.hpp"
 
+#include "../styles/global.hpp"
+
 namespace SD_FS
 {
 
@@ -12,31 +14,31 @@ namespace SD_FS
         if (!SD.begin(csPin))
         {
             Serial.println("❌ SD card initialization failed!");
-            Screen::tft.fillScreen(RGB(100, 255, 200));
+            Screen::tft.fillScreen(DANGER);
             Screen::tft.setCursor(20, 20);
             Screen::tft.setTextSize(3);
-            Screen::tft.setTextColor(TFT_BLACK);
+            Screen::tft.setTextColor(TEXT);
 
             Screen::tft.println("SD card initialization failed!");
             Screen::tft.println("Please add a SD-Card");
 
             delay(1000);
-            Screen::tft.fillScreen(RGB(100, 255, 200));
+            Screen::tft.fillScreen(DANGER);
             return init(csPin);
         }
         if (!SD.exists("/"))
         {
-            Screen::tft.fillScreen(RGB(100, 255, 200));
+            Screen::tft.fillScreen(DANGER);
             Screen::tft.setCursor(20, 20);
             Screen::tft.setTextSize(3);
-            Screen::tft.setTextColor(TFT_BLACK);
+            Screen::tft.setTextColor(TEXT);
 
             Screen::tft.println("SD mounted, but root not accessible");
             Screen::tft.println("Please fix your SD-Card");
 
             Serial.println("⚠️ SD mounted, but root not accessible");
             delay(1000);
-            Screen::tft.fillScreen(RGB(100, 255, 200));
+            Screen::tft.fillScreen(DANGER);
             return init(csPin);
         }
         return true;
