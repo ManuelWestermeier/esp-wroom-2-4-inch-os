@@ -570,8 +570,8 @@ namespace ENC_FS
         Path p;
         p.push_back(String("programms"));
         p.push_back(appId);
-        p.push_back(String("user-data-storage"));
-        p.push_back(key + ".data");
+        p.push_back(String("data"));
+        p.push_back(Crypto::HASH::sha256String(key) + ".data");
         return p;
     }
 

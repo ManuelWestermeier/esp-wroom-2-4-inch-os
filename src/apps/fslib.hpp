@@ -4,6 +4,7 @@
 #include <lua.hpp>
 
 #include "app.hpp"
+#include "../fs/enc-fs.hpp"
 
 namespace LuaApps {
     namespace FsLib {

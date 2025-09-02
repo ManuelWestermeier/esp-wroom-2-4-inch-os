@@ -109,6 +109,7 @@ namespace Crypto
                 sprintf(buf, "%02x", hash[i]);
                 out += buf;
             }
+
             return out;
         }
     }

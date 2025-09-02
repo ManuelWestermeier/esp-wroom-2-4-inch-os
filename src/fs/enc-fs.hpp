@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "../auth/auth.hpp"
+#include "../utils/crypto.hpp"
 
 namespace ENC_FS
 {
