@@ -28,16 +28,26 @@ void setup()
     Serial.println("Booting MW 2.4i OS...\n");
     pinMode(0, INPUT_PULLUP); // Button is active LOW
 
-    // Audio::init(60);
-    Screen::init(150);
+    SD_FS::init();
+    // tree();
+    // SD_FS::lsDirSerial("/");
+
     // UserWiFi::addPublicWifi("io", "hhhhhh90");
     UserWiFi::start();
+
+    // Audio::init(60);
+    Screen::init(150);
     startAnimationMWOS();
 
-    // readString("what is you age?", "15");
+    Auth::init();
+    // update paint app
+    // ENC_FS::copyFileFromSPIFFS("/test.lua", {"programs", "a-paint", "entry.lua"});
 
-    SD_FS::init();
+    // debug io
+    //  readString("what is you age?", "15");
+    //  Serial.println(filePicker("/"));
 
+    // delete users
     // SD_FS::deleteDir("/a1fce4363854ff888cff4b8e7875d600c2682390412a8cf79b37d0b11148b0fa");
     // SD_FS::deleteDir("/7kBKr4ub09sEDviFMC1pUE");
     // SD_FS::deleteDir("/299bc1dc09b2d73f81ca536ea8e4399a4bbfe6264ed6f3ba25a415fb6299e73a");
@@ -46,20 +56,6 @@ void setup()
     // SD_FS::deleteDir("/62c66a7a5dd70c3146618063c344e531e6d4b59e379808443ce962b3abd63c5a");
     // SD_FS::deleteDir("/1b16b1df538ba12dc3f97edbb85caa7050d46c148134290feba80f8236c83db9");
 
-    SD_FS::lsDirSerial("/");
-    // tree();
-    // ENC_FS::copyFileFromSPIFFS("/test.lua", {"programs", "a-paint", "entry.lua"});
-
-    Auth::init();
-    // Serial.println(filePicker("/"));
-    // Serial.println(ENC_FS::writeFileString({"programs", "a-paint", "entry.lua"}, "HELLO WORLD!!"));
-    // Serial.println(ENC_FS::readFileString({"programs", "a-paint", "entry.lua"}));
-    // Serial.println("--- LSDIRS ---");
-    // ENC_FS::lsDirSerial(ENC_FS::str2Path("/"));
-    // Serial.println("--- LSDIRS PROGRAMS ---");
-    // ENC_FS::lsDirSerial(ENC_FS::str2Path("/programs"));
-    // Serial.println("--- LSDIRS END ---");
-    // filePicker();
     startWindowRender();
 }
 

@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-// #define DARKMODE
+#include "../config.hpp"
 
 namespace Style
 {
