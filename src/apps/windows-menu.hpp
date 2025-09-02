@@ -11,7 +11,7 @@ struct AppRenderData
     uint16_t icon[20 * 20]; // nur ein Icon-Buffer
     bool hasIcon = false;
 
-    bool loadIcon(const ENC_FS::Path &filename, uint16_t bgColor = PRIMARY, uint8_t radius = 10)
+    bool loadIcon(const ENC_FS::Path &filename, uint16_t bgColor = PRIMARY, uint8_t radius = 5)
     {
 
         if (!ENC_FS::exists(filename))
@@ -245,7 +245,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         // Icon zeichnen
         if (app.hasIcon)
         {
-            app.drawIcon(appRect.pos.x + 3, appRect.pos.y + 5);
+            app.drawIcon(appRect.pos.x + 5, appRect.pos.y + 3);
         }
         else
         {
