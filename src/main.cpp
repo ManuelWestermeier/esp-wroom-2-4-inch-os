@@ -1,4 +1,4 @@
-// add storage/fs, speedcode, net, audio, pk menager
+// add storage/fs, speedcode, pk menager, net, audio
 
 #include <Arduino.h>
 #include "freertos/FreeRTOS.h"

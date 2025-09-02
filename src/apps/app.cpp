@@ -74,7 +74,7 @@ namespace LuaApps
         }
         lua_setglobal(L, "args");
 
-        Serial.println(path + "entry.lua");
+        Serial.println(path + "/entry.lua");
         // Load and run Lua script
         String content = ENC_FS::readFileString(ENC_FS::str2Path(path + "/entry.lua"));
         Serial.println("RUNNING: " + path + "/entry.lua");

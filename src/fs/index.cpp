@@ -225,7 +225,7 @@ namespace SD_FS
     void lsDirSerial(const String &path)
     {
         Serial.println("--- READ DIR ---");
-        auto files = SD_FS::readDir(path);
+        auto files = readDir(path);
         for (const auto &f : files)
         {
             Serial.println(f.path());

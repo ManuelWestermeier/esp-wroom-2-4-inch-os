@@ -14,8 +14,9 @@ extern "C"
 }
 
 #include "winlib.hpp"
+#include "fslib.hpp"
 #include "../auth/auth.hpp"
-#include "../fs/index.hpp"
+#include "../fs/enc-fs.hpp"
 #include "index.hpp"
 
 namespace LuaApps::LuaFunctions

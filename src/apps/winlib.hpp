@@ -1,7 +1,7 @@
 #pragma once
 
-#include <lua.hpp>
 #include <Arduino.h>
+#include <lua.hpp>
 
 #include "../io/read-string.hpp"
 #include "app.hpp"

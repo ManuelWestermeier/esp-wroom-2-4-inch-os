@@ -54,25 +54,48 @@ namespace LuaApps::LuaFunctions
         switch (mode)
         {
         case 1:
-        { // libraryId
-            const char *libId = luaL_checkstring(L, 2);
-            String path = "/" + String(Auth::username) + "/shared-libs/" + String(libId) + ".lua";
-            if (!SD_FS::exists(path))
-            {
-                err = "library not found: " + path;
-                lua_pushstring(L, err.c_str());
-                return 1;
-            }
-            code = SD_FS::readFile(path);
+        { // raw string
+            const char *strCode = luaL_checkstring(L, 2);
+            code = strCode;
             break;
         }
         case 2:
+        { // libraryId
+            String libId luaL_checkstring(L, 2);
+            ENC_FS::Path path = {"shared-libs", libId};
+            if (!ENC_FS::exists(path))
+            {
+                err = "library not found: " + libId;
+                lua_pushstring(L, err.c_str());
+                return 1;
+            }
+            code = ENC_FS::readFileString(path);
+            break;
+        }
+        case 3:
+        { // fs path
+            String filePath = scriptPath + "/" + luaL_checkstring(L, 2);
+            Serial.println(filePath);
+            if (!ENC_FS::exists(ENC_FS::str2Path(filePath)))
+            {
+                err = "file not found: " + String(filePath);
+            }
+            else
+            {
+                code = ENC_FS::readFileString(ENC_FS::str2Path(filePath));
+            }
+            break;
+        }
+        case 4:
         { // fetchUrl (GitHub shorthand)
             const char *urlPath = luaL_checkstring(L, 2);
             if (WiFi.isConnected())
             {
                 String url = "https://raw.githubusercontent.com/" + String(urlPath);
-                url.replace(" ", ""); // sicherstellen kein whitespace
+                url.replace(" ", "");  // sicherstellen kein whitespace
+                url.replace("\n", ""); // sicherstellen kein whitespace
+                url.replace("\r", ""); // sicherstellen kein whitespace
+                url.replace("\t", ""); // sicherstellen kein whitespace
                 HTTPClient http;
                 if (http.begin(url))
                 {
@@ -98,27 +121,8 @@ namespace LuaApps::LuaFunctions
             }
             break;
         }
-        case 3:
-        { // fs path
-            String filePath = scriptPath + luaL_checkstring(L, 2);
-            if (!SD_FS::exists(filePath))
-            {
-                err = "file not found: " + String(filePath);
-            }
-            else
-            {
-                code = SD_FS::readFile(filePath);
-            }
-            break;
-        }
-        case 4:
-        { // raw string
-            const char *strCode = luaL_checkstring(L, 2);
-            code = strCode;
-            break;
-        }
         default:
-            err = "invalid mode for luaExec() use 1 libary-id, 2 https://raw.githubusercontent.com/+x, 3 programm relative path, 4 raw string execute;";
+            err = "invalid mode for luaExec() use 2 libary-id, 4 https://raw.githubusercontent.com/+x, 3 programm relative path, 1 raw string execute;";
             break;
         }
 
@@ -359,5 +363,6 @@ namespace LuaApps::LuaFunctions
 
         // window functions — we can extend WinLib::register_win_functions
         LuaApps::WinLib::register_win_functions(L);
+        LuaApps::FsLib::register_fs_functions(L);
     }
 } // namespace LuaFunctions
