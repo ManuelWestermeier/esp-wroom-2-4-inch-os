@@ -582,6 +582,12 @@ namespace ENC_FS
             Path p = storagePath(appId, key);
             return ENC_FS::readFile(p, (start < 0 ? 0 : start), end);
         }
+        
+        bool del(const String &appId, const String &key)
+        {
+            Path p = storagePath(appId, key);
+            return ENC_FS::deleteFile(p);
+        }
 
         bool set(const String &appId, const String &key, const Buffer &data)
         {

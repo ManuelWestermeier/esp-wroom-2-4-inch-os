@@ -68,6 +68,7 @@ namespace ENC_FS
     namespace Storage
     {
         Buffer get(const String &appId, const String &key, long start = -1, long end = -1);
+        bool del(const String &appId, const String &key);
         bool set(const String &appId, const String &key, const Buffer &data);
     }
 

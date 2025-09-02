@@ -42,11 +42,24 @@ namespace LuaApps
             return 1;
         }
 
+        int lua_FS_del(lua_State *L)
+        {
+            const char *key = luaL_checkstring(L, 1);
+
+            String appId = getApp(L)->path; // current app id/path
+
+            bool ok = ENC_FS::Storage::del(appId, key);
+
+            lua_pushboolean(L, ok);
+            return 1;
+        }
+
         // ---------------- Register Functions ----------------
         void register_fs_functions(lua_State *L)
         {
             lua_register(L, "FS_get", lua_FS_get);
             lua_register(L, "FS_set", lua_FS_set);
+            lua_register(L, "FS_del", lua_FS_del);
         }
 
     } // namespace FsLib
