@@ -1,6 +1,5 @@
 #include "windows.hpp" // for Vec, MouseState, etc.
 #include <vector>
-#include <SD.h>
 
 extern void executeApplication(const std::vector<String> &args);
 
