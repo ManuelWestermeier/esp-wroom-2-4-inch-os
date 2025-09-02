@@ -1,0 +1,26 @@
+GET W
+GET H
+----
+CALC W * H
+SET SIZE
+ALLOC BUFF SIZE
+SET X 0
+
+P LSX
+SET Y 0
+
+P LSY
+
+
+
+CALC Y + 1
+SET Y
+
+VAL Y < H
+JUMP LSY
+
+CALC X + 1
+SET X
+JUMP LSX
+----
+BUFF

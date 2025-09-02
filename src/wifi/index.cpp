@@ -83,11 +83,26 @@ namespace UserWiFi
 
                         // Check for known WiFi file
                         String wifiFile = "/public/wifi/" + toHex(ssid) + ".wifi";
+                        ENC_FS::Path wifiEncFile = {"wifi", toHex(ssid) + ".wifi"};
                         if (SD_FS::exists(wifiFile))
                         {
                             String password = SD_FS::readFile(wifiFile);
 
                             Serial.printf("[WiFi] Known network %s, connecting...\n", ssid.c_str());
+                            WiFi.begin(ssid.c_str(), password.c_str());
+
+                            if (WiFi.waitForConnectResult(8000) == WL_CONNECTED)
+                            {
+                                Serial.printf("[WiFi] Connected to %s\n", ssid.c_str());
+                                connected = true;
+                                break;
+                            }
+                        }
+                        else if (ENC_FS::exists(wifiEncFile))
+                        {
+                            String password = ENC_FS::readFileString(wifiEncFile);
+
+                            Serial.printf("[WiFi] Enc Known network %s, connecting...\n", ssid.c_str());
                             WiFi.begin(ssid.c_str(), password.c_str());
 
                             if (WiFi.waitForConnectResult(8000) == WL_CONNECTED)

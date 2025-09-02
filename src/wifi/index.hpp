@@ -9,6 +9,7 @@
 #include "esp_task_wdt.h"
 
 #include "../fs/index.hpp"
+#include "../fs/enc-fs.hpp"
 #include "../utils/time.hpp"
 #include "../utils/hex.hpp"
 
