@@ -36,7 +36,7 @@ void setup()
     UserWiFi::start();
 
     // Audio::init(60);
-    Screen::init(150);
+    Screen::init(20);
     // startAnimationMWOS();
 
     Auth::init();

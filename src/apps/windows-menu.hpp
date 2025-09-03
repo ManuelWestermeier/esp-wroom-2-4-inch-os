@@ -189,12 +189,12 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     if (millis() - lastMenuRender > 10000)
         needRedraw = true;
 
-    if (!needRedraw)
+    // Klick → App starten
+    if (state == MouseState::Down)
     {
-        // Klick → App starten
-        if (state == MouseState::Down)
+        int i = 0;
+        if (programsView.isIn(pos))
         {
-            int i = 0;
             for (auto &app : apps)
             {
                 i++;
@@ -203,19 +203,18 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                 if (!appRect.intersects(programsView))
                     continue;
 
-                if (programsView.isIn(pos))
+                if (appRect.isIn(pos))
                 {
-                    if (appRect.isIn(pos))
-                    {
-                        executeApplication({ENC_FS::path2Str(app.path)});
-                        Windows::isRendering = true;
-                        break;
-                    }
+                    executeApplication({ENC_FS::path2Str(app.path)});
+                    Windows::isRendering = true;
+                    break;
                 }
             }
         }
-        return;
     }
+
+    if (!needRedraw)
+        return;
 
     // --- Render ---
     tft.fillScreen(BG);
@@ -256,16 +255,6 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         // Name daneben
         tft.setCursor(appRect.pos.x + 30, appRect.pos.y + 5);
         tft.print(app.name);
-
-        if (programsView.isIn(pos))
-        {
-            if (appRect.isIn(pos))
-            {
-                executeApplication({ENC_FS::path2Str(app.path)});
-                Windows::isRendering = true;
-                break;
-            }
-        }
     }
 
     Screen::tft.resetViewport();
