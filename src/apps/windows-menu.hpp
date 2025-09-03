@@ -181,7 +181,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         }
     }
 
-    if (lastMenuRender == 0)
+    if (lastMenuRender == 0 || lastMenuRenderCall == 0)
         needRedraw = true;
 
     if (appsChanged)
