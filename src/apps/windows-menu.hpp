@@ -116,12 +116,13 @@ struct AppRenderData
 
 unsigned long menuUpdateTime = 0;
 
-#define SCROLL_OFF_MENU_START 20
+#define SCROLL_OFF_Y_MENU_START 20
 
 void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 {
     using Screen::tft;
-    static int scrollYOff = SCROLL_OFF_MENU_START;
+    static int scrollYOff = SCROLL_OFF_Y_MENU_START;
+    static int scrollXOff = 0;
     int itemHeight = 30; // mehr Platz, damit Icon+Text passen
     int itemWidth = 250;
 
@@ -173,10 +174,21 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     // --- Scrollverhalten ---
     if (programsView.isIn(pos) && state == MouseState::Held)
     {
-        int newScroll = max(SCROLL_OFF_MENU_START, scrollYOff + move.y);
+        int newScroll = min(SCROLL_OFF_Y_MENU_START, scrollYOff + move.y);
         if (newScroll != scrollYOff)
         {
             scrollYOff = newScroll;
+            needRedraw = true;
+        }
+    }
+
+    // --- Scrollverhalten ---
+    if (topSelect.isIn(pos) && state == MouseState::Held)
+    {
+        int newScroll = min(0, scrollXOff + move.x);
+        if (newScroll != scrollXOff)
+        {
+            scrollXOff = newScroll;
             needRedraw = true;
         }
     }
@@ -192,9 +204,9 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
     if (millis() - lastMenuRenderCall > 300)
     {
-        lastMenuRenderCall = millis();
         needRedraw = true;
     }
+    lastMenuRenderCall = millis();
 
     // Klick → App starten
     if (state == MouseState::Down)
@@ -229,9 +241,20 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                       topSelect.dimensions.x, topSelect.dimensions.y, 5,
                       PRIMARY);
 
+    tft.setViewport(topSelect.pos.x, topSelect.pos.y + 5, topSelect.dimensions.x, topSelect.dimensions.y - 5, false);
+    for (int i = 0; i < 6; i++)
+    {
+
+        tft.fillRoundRect(topSelect.pos.x + 5 + scrollXOff + ((topSelect.dimensions.y - 10 + 5) * i), topSelect.pos.y + 5,
+                          topSelect.dimensions.y - 10, topSelect.dimensions.y - 10, 3,
+                          BG);
+    }
+    Screen::tft.resetViewport();
+
     tft.setTextSize(2);
 
-    tft.setViewport(programsView.pos.x, programsView.pos.y, programsView.dimensions.x, programsView.dimensions.y, false);
+    // y padding 10 => not colliding with the top bar
+    tft.setViewport(programsView.pos.x, programsView.pos.y + 10, programsView.dimensions.x, programsView.dimensions.y, false);
 
     int i = 0;
     for (auto &app : apps)
