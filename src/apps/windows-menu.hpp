@@ -134,6 +134,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     static std::vector<AppRenderData> apps;
     static std::vector<ENC_FS::Path> lastPaths; // für Änderungserkennung
     static unsigned long lastMenuRender = 0;
+    static unsigned long lastMenuRenderCall = 0;
 
     bool appsChanged = false;
     bool needRedraw = false;
@@ -188,6 +189,12 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
     if (millis() - lastMenuRender > 10000)
         needRedraw = true;
+
+    if (millis() - lastMenuRenderCall > 300)
+    {
+        lastMenuRenderCall = millis();
+        needRedraw = true;
+    }
 
     // Klick → App starten
     if (state == MouseState::Down)
