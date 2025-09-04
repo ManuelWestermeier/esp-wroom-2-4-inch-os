@@ -3,6 +3,9 @@
 #include <Arduino.h>
 #include <vector>
 
+#include "../sys-apps/designer.hpp"
+#include "../sys-apps/file-picker.hpp"
+
 #include "../icons/index.hpp"
 
 extern void executeApplication(const std::vector<String> &args);
@@ -128,6 +131,14 @@ unsigned long menuUpdateTime = 0;
 
 #define SCROLL_OFF_Y_MENU_START 20
 
+std::vector<ShortCut> shortCuts = {
+    {"Settings", SVG::settings},
+    {"Account", SVG::account},
+    {"Design", SVG::folder},
+    {"WiFi", SVG::wifi},
+    {"Folders", SVG::design},
+};
+
 void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 {
     using Screen::tft;
@@ -248,6 +259,41 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                 }
             }
         }
+        else if (topSelect.isIn(pos))
+        {
+            int scXPos = topSelect.pos.x + 5 + scrollXOff;
+            for (const auto &shortCut : shortCuts)
+            {
+                int h = topSelect.dimensions.y - 10;
+                int w = max(h, (int)(shortCut.name.length() * 6 + 10));
+                Rect scPos = {{scXPos, topSelect.pos.y + 5}, {w, h}};
+
+                if (scPos.isIn(pos))
+                {
+                    if (shortCut.name == "Settings")
+                    {
+                    }
+                    else if (shortCut.name == "Account")
+                    {
+                    }
+                    else if (shortCut.name == "Design")
+                    {
+                        return openDesigner();
+                    }
+                    else if (shortCut.name == "WiFi")
+                    {
+                    }
+                    else if (shortCut.name == "Folders")
+                    {
+                        filePicker();
+                        return;
+                    }
+                    break;
+                }
+
+                scXPos += w + 5;
+            }
+        }
     }
 
     if (!needRedraw)
@@ -262,13 +308,6 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
         tft.setViewport(topSelect.pos.x, topSelect.pos.y + 5, topSelect.dimensions.x, topSelect.dimensions.y - 5, false);
 
-        std::vector<ShortCut> shortCuts = {
-            {"Settings", SVG::settings},
-            {"Account", SVG::account},
-            {"Design", SVG::folder},
-            {"WiFi", SVG::wifi},
-            {"Folders", SVG::design},
-        };
         int scXPos = topSelect.pos.x + 5 + scrollXOff;
         for (const auto &shortCut : shortCuts)
         {

@@ -1,5 +1,6 @@
 #include "auth.hpp"
 
+#include "../sys-apps/designer.hpp"
 #include "../styles/global.hpp"
 
 namespace Auth
@@ -33,6 +34,7 @@ namespace Auth
             name = user;
             return true;
         }
+        applyColorPalette();
 
         return false;
     }
@@ -89,6 +91,7 @@ namespace Auth
         password = Crypto::HASH::sha256String(pass);
 
         copyPublicDir();
+        applyColorPalette();
 
         return true;
     }

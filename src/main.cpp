@@ -39,8 +39,8 @@ void setup()
     Screen::init(120);
     // startAnimationMWOS();
 
-    Auth::init();
-    // Auth::login("m", "m");
+    // Auth::init();
+    Auth::login("m", "m");
     // update paint app
     ENC_FS::copyFileFromSPIFFS("/test.lua", {"programs", "a-paint", "entry.lua"});
     ENC_FS::lsDirSerial({"programs"});

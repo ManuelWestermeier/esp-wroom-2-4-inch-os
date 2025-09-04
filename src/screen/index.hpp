@@ -37,3 +37,5 @@ namespace Screen
 
     void drawImageFromSD(const char *filename, int x, int y);
 }
+
+using Screen::tft;

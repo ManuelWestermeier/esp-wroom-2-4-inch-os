@@ -1,6 +1,7 @@
 #include "index.hpp"
 
 #include "../styles/global.hpp"
+#include "../sys-apps/designer.hpp"
 
 using namespace Screen;
 
@@ -33,6 +34,9 @@ void Screen::init(byte b)
     setBrightness(b);
     tft.init();
     tft.setRotation(2);
+    
+    applyColorPalette();
+    
     tft.fillScreen(BG);
     tft.setTextColor(TEXT);
     tft.setTextSize(2);
