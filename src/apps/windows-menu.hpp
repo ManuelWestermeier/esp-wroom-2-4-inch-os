@@ -149,6 +149,8 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
     bool appsChanged = false;
     bool needRedraw = false;
+    bool topRedraw = false;
+    bool bottomRedraw = false;
 
     // --- Periodisch Verzeichnis prüfen (nur Pfade vergleichen) ---
     if (menuUpdateTime == 0 || millis() - menuUpdateTime > 10000)
@@ -181,6 +183,25 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         }
     }
 
+    if (lastMenuRender == 0 || lastMenuRenderCall == 0)
+        needRedraw = true;
+
+    if (appsChanged)
+        needRedraw = true;
+
+    if (millis() - lastMenuRenderCall > 300)
+    {
+        needRedraw = true;
+    }
+    lastMenuRenderCall = millis();
+
+    if (needRedraw)
+    {
+        topRedraw = true;
+        bottomRedraw = true;
+        tft.fillScreen(BG);
+    }
+
     // --- Scrollverhalten ---
     if (programsView.isIn(pos) && state == MouseState::Held)
     {
@@ -189,6 +210,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         {
             scrollYOff = newScroll;
             needRedraw = true;
+            bottomRedraw = true;
         }
     }
 
@@ -200,23 +222,9 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         {
             scrollXOff = newScroll;
             needRedraw = true;
+            topRedraw = true;
         }
     }
-
-    if (lastMenuRender == 0 || lastMenuRenderCall == 0)
-        needRedraw = true;
-
-    if (appsChanged)
-        needRedraw = true;
-
-    if (millis() - lastMenuRender > 10000)
-        needRedraw = true;
-
-    if (millis() - lastMenuRenderCall > 300)
-    {
-        needRedraw = true;
-    }
-    lastMenuRenderCall = millis();
 
     // Klick → App starten
     if (state == MouseState::Down)
@@ -246,79 +254,85 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         return;
 
     // --- Render ---
-    tft.fillScreen(BG);
-    tft.fillRoundRect(topSelect.pos.x, topSelect.pos.y,
-                      topSelect.dimensions.x, topSelect.dimensions.y, 5,
-                      PRIMARY);
-
-    tft.setViewport(topSelect.pos.x, topSelect.pos.y + 5, topSelect.dimensions.x, topSelect.dimensions.y - 5, false);
-
-    std::vector<ShortCut> shortCuts = {
-        {"Settings", SVG::settings},
-        {"Account", SVG::account},
-        {"Design", SVG::folder},
-        {"WiFi", SVG::wifi},
-        {"Folders", SVG::design},
-    };
-    int scXPos = topSelect.pos.x + 5 + scrollXOff;
-    for (const auto &shortCut : shortCuts)
+    if (topRedraw)
     {
-        int h = topSelect.dimensions.y - 10;
-        int w = max(h, (int)(shortCut.name.length() * 6 + 10));
-        Rect scPos = {{scXPos, topSelect.pos.y + 5}, {w, h}};
-        tft.fillRoundRect(scPos.pos.x, scPos.pos.y, scPos.dimensions.x, scPos.dimensions.y, 3, BG); // BG
+        tft.fillRoundRect(topSelect.pos.x, topSelect.pos.y,
+                          topSelect.dimensions.x, topSelect.dimensions.y, 5,
+                          PRIMARY);
 
-        tft.drawString(shortCut.name, scPos.pos.x + 5, scPos.pos.y + 5, 1);
+        tft.setViewport(topSelect.pos.x, topSelect.pos.y + 5, topSelect.dimensions.x, topSelect.dimensions.y - 5, false);
 
-        if (!shortCut.svg.isEmpty())
+        std::vector<ShortCut> shortCuts = {
+            {"Settings", SVG::settings},
+            {"Account", SVG::account},
+            {"Design", SVG::folder},
+            {"WiFi", SVG::wifi},
+            {"Folders", SVG::design},
+        };
+        int scXPos = topSelect.pos.x + 5 + scrollXOff;
+        for (const auto &shortCut : shortCuts)
         {
-            ESP32_SVG svg(&tft);
-            int d = h - 20;
-            svg.drawString(shortCut.svg, scPos.pos.x + ((w / 2) - (d / 2)), scPos.pos.y + 15, d, d, TEXT);
+            int h = topSelect.dimensions.y - 10;
+            int w = max(h, (int)(shortCut.name.length() * 6 + 10));
+            Rect scPos = {{scXPos, topSelect.pos.y + 5}, {w, h}};
+
+            tft.fillRoundRect(scPos.pos.x, scPos.pos.y, scPos.dimensions.x, scPos.dimensions.y, 3, BG); // BG
+
+            tft.drawString(shortCut.name, scPos.pos.x + 5, scPos.pos.y + 5, 1);
+
+            if (!shortCut.svg.isEmpty())
+            {
+                ESP32_SVG svg(&tft);
+                int d = h - 20;
+                svg.drawString(shortCut.svg, scPos.pos.x + ((w / 2) - (d / 2)), scPos.pos.y + 15, d, d, TEXT);
+            }
+
+            scXPos += w + 5;
         }
 
-        scXPos += w + 5;
+        Screen::tft.resetViewport();
     }
-
-    Screen::tft.resetViewport();
-
-    tft.setTextSize(2);
-
-    // y padding 10 => not colliding with the top bar
-    tft.setViewport(programsView.pos.x, programsView.pos.y + 10, programsView.dimensions.x, programsView.dimensions.y, false);
-
-    int i = 0;
-    for (auto &app : apps)
+    if (bottomRedraw)
     {
-        i++;
-        Rect appRect = {{10, (scrollYOff + (i + 1) * itemHeight)},
-                        {itemWidth, itemHeight}};
+        tft.setTextSize(2);
 
-        if (!appRect.intersects(programsView))
-            continue;
+        // y padding 10 => not colliding with the top bar
+        tft.setViewport(programsView.pos.x, programsView.pos.y + 10, programsView.dimensions.x, programsView.dimensions.y, false);
+        tft.fillRect(programsView.pos.x, programsView.pos.y + 10, programsView.dimensions.x, programsView.dimensions.y, BG);
 
-        tft.fillRoundRect(appRect.pos.x, appRect.pos.y,
-                          appRect.dimensions.x, appRect.dimensions.y - 5,
-                          5, PRIMARY);
-
-        // Icon zeichnen
-        if (app.hasIcon)
+        int i = 0;
+        for (auto &app : apps)
         {
-            app.drawIcon(appRect.pos.x + 5, appRect.pos.y + 3);
-        }
-        else
-        {
-            // Platzhalter
-            tft.fillRoundRect(appRect.pos.x + 5, appRect.pos.y + 5,
-                              20, 20, 5, PH);
+            i++;
+            Rect appRect = {{10, (scrollYOff + (i + 1) * itemHeight)},
+                            {itemWidth, itemHeight}};
+
+            if (!appRect.intersects(programsView))
+                continue;
+
+            tft.fillRoundRect(appRect.pos.x, appRect.pos.y,
+                              appRect.dimensions.x, appRect.dimensions.y - 5,
+                              5, PRIMARY);
+
+            // Icon zeichnen
+            if (app.hasIcon)
+            {
+                app.drawIcon(appRect.pos.x + 5, appRect.pos.y + 3);
+            }
+            else
+            {
+                // Platzhalter
+                tft.fillRoundRect(appRect.pos.x + 5, appRect.pos.y + 5,
+                                  20, 20, 5, PH);
+            }
+
+            // Name daneben
+            tft.setCursor(appRect.pos.x + 30, appRect.pos.y + 5);
+            tft.print(app.name);
         }
 
-        // Name daneben
-        tft.setCursor(appRect.pos.x + 30, appRect.pos.y + 5);
-        tft.print(app.name);
+        Screen::tft.resetViewport();
     }
-
-    Screen::tft.resetViewport();
 
     drawTime();
     lastMenuRender = millis();
