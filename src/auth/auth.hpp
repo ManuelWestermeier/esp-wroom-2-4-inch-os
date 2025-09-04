@@ -8,6 +8,7 @@
 #include "screen/index.hpp"
 #include "utils/rect.hpp"
 #include "utils/time.hpp"
+#include "../icons/index.hpp"
 
 namespace Auth
 {

@@ -5,6 +5,7 @@
 #include "../utils/vec.hpp"
 #include "config.h"
 #include "svg.hpp"
+#include "../icons/index.hpp"
 
 #include <TFT_eSPI.h>
 #include <SD.h>

@@ -133,11 +133,21 @@ namespace Auth
             tft.fillRoundRect(loginBtn.pos.x, loginBtn.pos.y, loginBtn.dimensions.x, loginBtn.dimensions.y, 10, PRIMARY);
             tft.fillRoundRect(createBtn.pos.x, createBtn.pos.y, createBtn.dimensions.x, createBtn.dimensions.y, 10, PRIMARY);
             tft.setTextSize(2);
-            tft.setCursor(loginBtn.pos.x + 10, loginBtn.pos.y + 10);
-            tft.print("LOGIN");
-            tft.setCursor(createBtn.pos.x + 10, createBtn.pos.y + 10);
-            tft.print("CREATE ACCOUNT");
 
+            ESP32_SVG loginSvg(&tft);
+            int d = loginBtn.dimensions.y - 5;
+            loginSvg.drawString(SVG::login, loginBtn.pos.x + ((loginBtn.dimensions.x / 2) - (d / 2)), loginBtn.pos.y + 3, d, d, TEXT);
+            
+            // tft.setCursor(loginBtn.pos.x + 10, loginBtn.pos.y + 10);
+            // tft.print("LOGIN");
+
+            ESP32_SVG signinSvg(&tft);
+            d = createBtn.dimensions.y;
+            signinSvg.drawString(SVG::signin, createBtn.pos.x + ((loginBtn.dimensions.x / 2) - (d / 2)), createBtn.pos.y, d, d, TEXT);
+
+            // tft.setCursor(createBtn.pos.x + 10, createBtn.pos.y + 10);
+            // tft.print("CREATE ACCOUNT");
+            
             tft.fillRect(messageArea.pos.x, messageArea.pos.y, messageArea.dimensions.x, messageArea.dimensions.y, BG);
             tft.setTextSize(2);
             tft.setCursor(messageArea.pos.x, messageArea.pos.y + 5);
@@ -214,7 +224,7 @@ namespace Auth
 
                     if (exists(user))
                     {
-                        message = "Username exists. Try another.";
+                        message = "Username exists.\n   Try another.";
                         drawUI(message);
                         continue;
                     }
