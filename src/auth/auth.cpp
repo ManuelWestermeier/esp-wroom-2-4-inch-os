@@ -100,8 +100,8 @@ namespace Auth
         tft.fillScreen(BG);
         tft.setTextColor(TEXT);
 
-        Rect loginBtn{{60, 140 - 30}, {200, 40}};
-        Rect createBtn{{60, 190 - 30}, {200, 40}};
+        Rect loginBtn{{50, 140 - 30}, {220, 40}};
+        Rect createBtn{{50, 190 - 30}, {220, 40}};
         Rect messageArea{{40, 200}, {280, 30}};
 
         for (auto &f : SD_FS::readDir("/"))
@@ -128,7 +128,7 @@ namespace Auth
             tft.fillRect(55, 40, 210, 55, BG);
             tft.setTextSize(8);
             tft.setCursor(55, 40);
-            tft.print(time.tm_year > 124 ? hour + ":" + minute : ".....");
+            tft.print(time.tm_year > 124 ? hour + ":" + minute : "00:00");
 
             tft.fillRoundRect(loginBtn.pos.x, loginBtn.pos.y, loginBtn.dimensions.x, loginBtn.dimensions.y, 10, PRIMARY);
             tft.fillRoundRect(createBtn.pos.x, createBtn.pos.y, createBtn.dimensions.x, createBtn.dimensions.y, 10, PRIMARY);
@@ -136,18 +136,18 @@ namespace Auth
 
             ESP32_SVG loginSvg(&tft);
             int d = loginBtn.dimensions.y - 5;
-            loginSvg.drawString(SVG::login, loginBtn.pos.x + ((loginBtn.dimensions.x / 2) - (d / 2)), loginBtn.pos.y + 3, d, d, TEXT);
-            
-            // tft.setCursor(loginBtn.pos.x + 10, loginBtn.pos.y + 10);
-            // tft.print("LOGIN");
+            loginSvg.drawString(SVG::login, loginBtn.pos.x, loginBtn.pos.y + 3, d, d, TEXT);
+
+            tft.setCursor(loginBtn.pos.x + 5 + d, loginBtn.pos.y + 13);
+            tft.print("LOGIN");
 
             ESP32_SVG signinSvg(&tft);
             d = createBtn.dimensions.y;
-            signinSvg.drawString(SVG::signin, createBtn.pos.x + ((loginBtn.dimensions.x / 2) - (d / 2)), createBtn.pos.y, d, d, TEXT);
+            signinSvg.drawString(SVG::signin, createBtn.pos.x, createBtn.pos.y, d, d, TEXT);
 
-            // tft.setCursor(createBtn.pos.x + 10, createBtn.pos.y + 10);
-            // tft.print("CREATE ACCOUNT");
-            
+            tft.setCursor(createBtn.pos.x + 5 + d, createBtn.pos.y + 13);
+            tft.print("CREATE ACCOUNT");
+
             tft.fillRect(messageArea.pos.x, messageArea.pos.y, messageArea.dimensions.x, messageArea.dimensions.y, BG);
             tft.setTextSize(2);
             tft.setCursor(messageArea.pos.x, messageArea.pos.y + 5);
@@ -224,7 +224,7 @@ namespace Auth
 
                     if (exists(user))
                     {
-                        message = "Username exists.\n   Try another.";
+                        message = "Username exists.\n    Try another.";
                         drawUI(message);
                         continue;
                     }
