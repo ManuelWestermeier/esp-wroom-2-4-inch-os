@@ -173,6 +173,9 @@ static inline void openDesigner()
     Theme working = current;
     String mode = current.mode;
     bool running = true;
+    int scrollOffset = 0;
+    const int colorBoxSize = 50;
+    const int colorBoxMargin = 10;
 
     auto drawUI = [&]()
     {
@@ -180,31 +183,42 @@ static inline void openDesigner()
         tft.setTextColor(Style::Colors::text, Style::Colors::bg);
         tft.setTextDatum(TC_DATUM);
         tft.drawString("Theme Designer", tft.width() / 2, 10);
+
         tft.setTextDatum(MC_DATUM);
         tft.drawString("Mode: " + mode, tft.width() / 2, 40);
 
         // Buttons
-        tft.fillRoundRect(20, tft.height() - 50, 80, 30, 5, Style::Colors::accent);
+        tft.fillRoundRect(20, tft.height() - 50, 80, 30, 8, Style::Colors::accent);
         tft.setTextColor(Style::Colors::accentText);
         tft.drawString("OK", 60, tft.height() - 35);
 
-        tft.fillRoundRect(tft.width() - 100, tft.height() - 50, 80, 30, 5, Style::Colors::danger);
+        tft.fillRoundRect(tft.width() - 100, tft.height() - 50, 80, 30, 8, Style::Colors::danger);
         tft.setTextColor(Style::Colors::accentText);
         tft.drawString("Cancel", tft.width() - 60, tft.height() - 35);
 
         // Custom colors
         if (mode == "custom")
         {
-            int x = 20, y = 80;
+            int x = 20, y = 80 - scrollOffset;
             for (size_t i = 0; i < working.colors.size(); i++)
             {
-                tft.fillRect(x, y, 40, 40, working.colors[i]);
-                tft.drawRect(x, y, 40, 40, Style::Colors::text);
-                x += 50;
-                if (x + 40 > tft.width())
+                tft.fillRoundRect(x, y, colorBoxSize, colorBoxSize, 5, working.colors[i]);
+                tft.drawRoundRect(x, y, colorBoxSize, colorBoxSize, 5, Style::Colors::text);
+
+                // Draw RGB values
+                uint16_t c = working.colors[i];
+                uint8_t r = ((c >> 11) & 0x1F) << 3;
+                uint8_t g = ((c >> 5) & 0x3F) << 2;
+                uint8_t b = (c & 0x1F) << 3;
+                tft.setTextDatum(TC_DATUM);
+                tft.setTextColor(Style::Colors::text, Style::Colors::bg);
+                tft.drawString(String(r) + "," + String(g) + "," + String(b), x + colorBoxSize / 2, y + colorBoxSize + 10);
+
+                x += colorBoxSize + colorBoxMargin;
+                if (x + colorBoxSize > tft.width())
                 {
                     x = 20;
-                    y += 50;
+                    y += colorBoxSize + 30; // extra space for RGB text
                 }
             }
         }
@@ -238,7 +252,7 @@ static inline void openDesigner()
             drawUI();
         }
 
-        // OK
+        // OK button
         if (tx > 20 && tx < 100 && ty > tft.height() - 50)
         {
             working.mode = mode;
@@ -247,20 +261,38 @@ static inline void openDesigner()
             running = false;
         }
 
-        // Cancel
+        // Cancel button
         if (tx > tft.width() - 100 && ty > tft.height() - 50)
         {
             running = false;
         }
 
-        // Custom color cycling
+        // Scroll custom colors
         if (mode == "custom")
         {
-            int x = 20, y = 80;
+            static int lastY = -1;
+            if (lastY != -1)
+            {
+                int dy = tp.y - lastY;
+                scrollOffset -= dy;
+                if (scrollOffset < 0)
+                    scrollOffset = 0;
+                // Estimate max scroll
+                int totalRows = (working.colors.size() * (colorBoxSize + colorBoxMargin)) / tft.width() + 1;
+                int maxScroll = totalRows * (colorBoxSize + 30) - (tft.height() - 100);
+                if (scrollOffset > maxScroll)
+                    scrollOffset = maxScroll;
+                drawUI();
+            }
+            lastY = tp.y;
+
+            // Check color taps
+            int x = 20, y = 80 - scrollOffset;
             for (size_t i = 0; i < working.colors.size(); i++)
             {
-                if (tx >= x && tx < x + 40 && ty >= y && ty < y + 40)
+                if (tx >= x && tx < x + colorBoxSize && ty >= y && ty < y + colorBoxSize)
                 {
+                    // Cycle RGB
                     uint16_t c = working.colors[i];
                     uint8_t r = (c >> 11) & 0x1F;
                     uint8_t g = (c >> 5) & 0x3F;
@@ -272,11 +304,11 @@ static inline void openDesigner()
                     drawUI();
                     break;
                 }
-                x += 50;
-                if (x + 40 > tft.width())
+                x += colorBoxSize + colorBoxMargin;
+                if (x + colorBoxSize > tft.width())
                 {
                     x = 20;
-                    y += 50;
+                    y += colorBoxSize + 30;
                 }
             }
         }

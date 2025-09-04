@@ -321,7 +321,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
             if (!shortCut.svg.isEmpty())
             {
-                ESP32_SVG svg(&tft);
+                static ESP32_SVG svg(&tft);
                 int d = h - 20;
                 svg.drawString(shortCut.svg, scPos.pos.x + ((w / 2) - (d / 2)), scPos.pos.y + 15, d, d, TEXT);
             }
