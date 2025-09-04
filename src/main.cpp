@@ -37,7 +37,7 @@ void setup()
 
     // Audio::init(60);
     Screen::init(120);
-    // startAnimationMWOS();
+    startAnimationMWOS();
 
     // Auth::init();
     Auth::login("m", "m");
@@ -63,6 +63,9 @@ void setup()
 
 void loop()
 {
-    debugTaskLog();
-    delay(3000);
+
+    // debugTaskLog();
+    // Serial.println(ESP.getFreeHeap());
+    // delay(3000);
+    // ArduinoOTA.handle();
 }
