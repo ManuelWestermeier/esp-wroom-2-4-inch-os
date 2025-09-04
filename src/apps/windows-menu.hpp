@@ -1,5 +1,9 @@
 #include "windows.hpp" // for Vec, MouseState, etc.
+
+#include <Arduino.h>
 #include <vector>
+
+#include "../icons/index.hpp"
 
 extern void executeApplication(const std::vector<String> &args);
 
@@ -112,6 +116,12 @@ struct AppRenderData
     {
         return path == o.path && name == o.name;
     }
+};
+
+struct ShortCut
+{
+    String name;
+    String svg;
 };
 
 unsigned long menuUpdateTime = 0;
@@ -242,13 +252,34 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                       PRIMARY);
 
     tft.setViewport(topSelect.pos.x, topSelect.pos.y + 5, topSelect.dimensions.x, topSelect.dimensions.y - 5, false);
-    for (int i = 0; i < 6; i++)
-    {
 
-        tft.fillRoundRect(topSelect.pos.x + 5 + scrollXOff + ((topSelect.dimensions.y - 10 + 5) * i), topSelect.pos.y + 5,
-                          topSelect.dimensions.y - 10, topSelect.dimensions.y - 10, 3,
-                          BG);
+    std::vector<ShortCut> shortCuts = {
+        {"Settings", SVG::settings},
+        {"Account", SVG::account},
+        {"Design", SVG::folder},
+        {"WiFi", SVG::wifi},
+        {"Folders", SVG::design},
+    };
+    int scXPos = topSelect.pos.x + 5 + scrollXOff;
+    for (const auto &shortCut : shortCuts)
+    {
+        int h = topSelect.dimensions.y - 10;
+        int w = max(h, (int)(shortCut.name.length() * 6 + 10));
+        Rect scPos = {{scXPos, topSelect.pos.y + 5}, {w, h}};
+        tft.fillRoundRect(scPos.pos.x, scPos.pos.y, scPos.dimensions.x, scPos.dimensions.y, 3, BG); // BG
+
+        tft.drawString(shortCut.name, scPos.pos.x + 5, scPos.pos.y + 5, 1);
+
+        if (!shortCut.svg.isEmpty())
+        {
+            ESP32_SVG svg(&tft);
+            int d = h - 20;
+            svg.drawString(shortCut.svg, scPos.pos.x + ((w / 2) - (d / 2)), scPos.pos.y + 15, d, d, TEXT);
+        }
+
+        scXPos += w + 5;
     }
+
     Screen::tft.resetViewport();
 
     tft.setTextSize(2);

@@ -3,7 +3,8 @@
 #include <Arduino.h>
 
 #include "../utils/vec.hpp"
-#include "./config.h"
+#include "config.h"
+#include "svg.hpp"
 
 #include <TFT_eSPI.h>
 #include <SD.h>

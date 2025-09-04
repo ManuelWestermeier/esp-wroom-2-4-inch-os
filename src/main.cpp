@@ -36,10 +36,11 @@ void setup()
     UserWiFi::start();
 
     // Audio::init(60);
-    Screen::init(20);
+    Screen::init(120);
     // startAnimationMWOS();
 
-    Auth::init();
+    // Auth::init();
+    Auth::login("m", "m");
     // update paint app
     ENC_FS::copyFileFromSPIFFS("/test.lua", {"programs", "a-paint", "entry.lua"});
     ENC_FS::lsDirSerial({"programs"});
