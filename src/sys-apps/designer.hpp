@@ -13,7 +13,7 @@ using std::vector;
 struct Theme
 {
     String mode;             // "light", "dark", "custom"
-    vector<uint16_t> colors; // nur bei custom relevant
+    vector<uint16_t> colors; // relevant for custom, saved even for light/dark
 };
 
 // ---------- Defaults ----------
@@ -39,15 +39,12 @@ static inline Theme defaultLight()
 static inline String themeToString(const Theme &t)
 {
     String s = t.mode;
-    if (t.mode == "custom")
+    for (auto c : t.colors)
     {
-        for (auto c : t.colors)
-        {
-            String part = String(c, HEX);
-            while (part.length() < 4)
-                part = "0" + part;
-            s += ":" + part;
-        }
+        String part = String(c, HEX);
+        while (part.length() < 4)
+            part = "0" + part;
+        s += ":" + part;
     }
     return s;
 }
@@ -61,21 +58,18 @@ static inline Theme stringToTheme(const String &s)
     String mode = s.substring(0, firstColon);
     Theme t{mode, {}};
 
-    if (mode == "custom")
+    int start = firstColon + 1;
+    while (start < s.length())
     {
-        int start = firstColon + 1;
-        while (start < s.length())
-        {
-            int pos = s.indexOf(':', start);
-            String part = (pos == -1) ? s.substring(start) : s.substring(start, pos);
-            char *endptr;
-            long val = strtol(part.c_str(), &endptr, 16);
-            if (*endptr == 0)
-                t.colors.push_back((uint16_t)val);
-            if (pos == -1)
-                break;
-            start = pos + 1;
-        }
+        int pos = s.indexOf(':', start);
+        String part = (pos == -1) ? s.substring(start) : s.substring(start, pos);
+        char *endptr;
+        long val = strtol(part.c_str(), &endptr, 16);
+        if (*endptr == 0)
+            t.colors.push_back((uint16_t)val);
+        if (pos == -1)
+            break;
+        start = pos + 1;
     }
     return t;
 }
@@ -85,10 +79,10 @@ static inline void saveTheme(const Theme &t)
 {
     String content = themeToString(t);
     Serial.println("Saving theme: " + content);
+
     if (!Auth::username.isEmpty())
         ENC_FS::writeFileString(ENC_FS::str2Path("/theme.txt"), content);
-    else
-        SD_FS::writeFile("/theme.txt", content);
+    SD_FS::writeFile("/theme.txt", content);
 }
 
 static inline Theme loadTheme()
@@ -121,69 +115,147 @@ static inline Theme loadTheme()
         Theme def = defaultLight();
 #endif
         saveTheme(def);
-        Serial.println("Loaded default theme: " + def.mode);
         return def;
     }
 
     Theme t = stringToTheme(content);
+
+    // For light/dark, fill missing colors with defaults
     if (t.mode == "light")
     {
-        Serial.println("Loaded light theme");
-        return defaultLight();
+        Theme def = defaultLight();
+        for (size_t i = 0; i < def.colors.size(); i++)
+        {
+            if (i >= t.colors.size())
+                t.colors.push_back(def.colors[i]);
+        }
     }
-    if (t.mode == "dark")
+    else if (t.mode == "dark")
     {
-        Serial.println("Loaded dark theme");
-        return defaultDark();
+        Theme def = defaultDark();
+        for (size_t i = 0; i < def.colors.size(); i++)
+        {
+            if (i >= t.colors.size())
+                t.colors.push_back(def.colors[i]);
+        }
     }
 
-    Serial.println("Loaded custom theme with " + String(t.colors.size()) + " colors");
+    Serial.println("Loaded " + t.mode + " theme");
     return t;
 }
 
 // ---------- Apply ----------
 static inline void applyTheme(const Theme &t)
 {
-    const Theme *th = &t;
-
-    static Theme dark = defaultDark();
-    static Theme light = defaultLight();
-
-    if (t.mode == "dark")
-        th = &dark;
-    else if (t.mode == "light")
-        th = &light;
-
-    Serial.println("Applying theme: " + th->mode);
-
-    if (th->colors.size() >= 10)
+    Serial.println("Applying theme: " + t.mode);
+    if (t.colors.size() < 10)
     {
-        Style::Colors::bg = th->colors[0];
-        Style::Colors::text = th->colors[1];
-        Style::Colors::primary = th->colors[2];
-        Style::Colors::accent = th->colors[3];
-        Style::Colors::accent2 = th->colors[4];
-        Style::Colors::accent3 = th->colors[5];
-        Style::Colors::danger = th->colors[6];
-        Style::Colors::pressed = th->colors[7];
-        Style::Colors::placeholder = th->colors[8];
-        Style::Colors::accentText = th->colors[9];
+        Serial.println("Warning: theme colors < 10, skipping apply!");
+        return;
+    }
 
-        Serial.println("Colors applied:");
-        for (size_t i = 0; i < 10; i++)
-            Serial.println("  color[" + String(i) + "] = 0x" + String(th->colors[i], HEX));
-    }
-    else
-    {
-        Serial.println("Warning: Not enough colors in theme!");
-    }
+    Style::Colors::bg = t.colors[0];
+    Style::Colors::text = t.colors[1];
+    Style::Colors::primary = t.colors[2];
+    Style::Colors::accent = t.colors[3];
+    Style::Colors::accent2 = t.colors[4];
+    Style::Colors::accent3 = t.colors[5];
+    Style::Colors::danger = t.colors[6];
+    Style::Colors::pressed = t.colors[7];
+    Style::Colors::placeholder = t.colors[8];
+    Style::Colors::accentText = t.colors[9];
+
+    for (size_t i = 0; i < 10; i++)
+        Serial.printf("  color[%d] = 0x%04x\n", i, t.colors[i]);
 }
 
 static inline void applyColorPalette()
 {
     Theme t = loadTheme();
-    Serial.println("Applying color palette for mode: " + t.mode);
     applyTheme(t);
+}
+
+// Converts RGB888 to RGB565
+static inline uint16_t rgbTo565(uint8_t r, uint8_t g, uint8_t b)
+{
+    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
+// Simple color picker: maps x/y in a fixed rectangle to RGB565
+// x,y = touch coordinates
+// rect = area of the color picker on screen
+static inline uint16_t pickColor(int x, int y, int rectX = 20, int rectY = 80, int width = 300, int height = 50)
+{
+    TFT_eSPI &tft = Screen::tft;
+
+    // Clamp x/y inside rect
+    if (x < rectX)
+        x = rectX;
+    if (x > rectX + width)
+        x = rectX + width;
+    if (y < rectY)
+        y = rectY;
+    if (y > rectY + height)
+        y = rectY + height;
+
+    // Map x to hue (0..360)
+    float hue = float(x - rectX) / float(width) * 360.0f;
+
+    // Full saturation and value
+    float s = 1.0f;
+    float v = 1.0f;
+
+    // HSV -> RGB
+    int hi = int(hue / 60.0f) % 6;
+    float f = (hue / 60.0f) - hi;
+    float p = v * (1 - s);
+    float q = v * (1 - f * s);
+    float t = v * (1 - (1 - f) * s);
+
+    float r = 0, g = 0, b = 0;
+    switch (hi)
+    {
+    case 0:
+        r = v;
+        g = t;
+        b = p;
+        break;
+    case 1:
+        r = q;
+        g = v;
+        b = p;
+        break;
+    case 2:
+        r = p;
+        g = v;
+        b = t;
+        break;
+    case 3:
+        r = p;
+        g = q;
+        b = v;
+        break;
+    case 4:
+        r = t;
+        g = p;
+        b = v;
+        break;
+    case 5:
+        r = v;
+        g = p;
+        b = q;
+        break;
+    }
+
+    // Convert float 0..1 to 0..255
+    uint8_t R = uint8_t(r * 255);
+    uint8_t G = uint8_t(g * 255);
+    uint8_t B = uint8_t(b * 255);
+
+    // Optionally draw a preview rectangle
+    tft.fillRect(rectX, rectY, width, height, rgbTo565(R, G, B));
+
+    return rgbTo565(R, G, B);
 }
 
 // ---------- Designer ----------
@@ -193,8 +265,8 @@ static inline void openDesigner()
     Theme current = loadTheme();
     Theme working = current;
     String mode = current.mode;
-    int scrollOffset = 0;
     bool running = true;
+    int scrollOffset = 0;
 
     const int buttonHeight = 30;
     const int colorBoxSize = 40;
@@ -209,6 +281,7 @@ static inline void openDesigner()
     {
         tft.fillScreen(Style::Colors::bg);
 
+        // Title
         tft.setTextColor(Style::Colors::text, Style::Colors::bg);
         tft.setTextDatum(TC_DATUM);
         tft.setTextSize(2);
@@ -250,116 +323,65 @@ static inline void openDesigner()
                 uint8_t b = (c & 0x1F) << 3;
                 tft.setTextDatum(TC_DATUM);
                 tft.setTextColor(Style::Colors::text, Style::Colors::bg);
-                tft.drawString(String(r) + "," + String(g) + "," + String(b), x + colorBoxSize / 2, y + 65);
+                tft.drawString(String(r) + "," + String(g) + "," + String(b), x + colorBoxSize / 2, y + colorBoxSize + 35);
 
-                x += colorBoxSize + spacing + 20;
+                x += colorBoxSize + spacing;
             }
         }
-
-        // OK & Cancel buttons
-        tft.fillRoundRect(20, tft.height() - 50, 80, buttonHeight, 5, Style::Colors::accent);
-        tft.setTextColor(Style::Colors::accentText);
-        tft.setTextDatum(MC_DATUM);
-        tft.drawString("OK", 20 + 40, tft.height() - 50 + buttonHeight / 2);
-
-        tft.fillRoundRect(tft.width() - 100, tft.height() - 50, 80, buttonHeight, 5, Style::Colors::danger);
-        tft.setTextColor(Style::Colors::accentText);
-        tft.drawString("Cancel", tft.width() - 100 + 40, tft.height() - 50 + buttonHeight / 2);
     };
 
     drawUI();
-    int lastTouchX = -1;
 
     while (running)
     {
-        Screen::TouchPos tp = Screen::getTouchPos();
-        if (!tp.clicked)
+        auto evt = Screen::getTouchPos();
+        if (!evt.clicked)
+            continue;
+
+        // Mode buttons
+        if (evt.y >= 40 && evt.y <= 40 + buttonHeight)
         {
-            lastTouchX = -1;
-            delay(50);
+            if (evt.x >= 20 && evt.x <= 100)
+                mode = "light";
+            else if (evt.x >= 110 && evt.x <= 190)
+                mode = "dark";
+            else if (evt.x >= 200 && evt.x <= 280)
+                mode = "custom";
+
+            working.mode = mode;
+            drawUI();
             continue;
         }
 
-        int tx = tp.x, ty = tp.y;
-
-        // Mode buttons
-        int mx = 20;
-        const char *modes[] = {"Light", "Dark", "Custom"};
-        for (auto &m : modes)
-        {
-            if (tx >= mx && tx <= mx + 80 && ty >= 40 && ty <= 40 + buttonHeight)
-            {
-                mode = m;
-                working = (mode.equalsIgnoreCase("Light")) ? defaultLight() : (mode.equalsIgnoreCase("Dark")) ? defaultDark()
-                                                                                                              : current;
-                scrollOffset = 0;
-
-                Serial.println("Mode changed to: " + mode);
-                applyTheme(working); // immediately apply changes
-                drawUI();
-                break;
-            }
-            mx += 90;
-        }
-
-        // OK button
-        if (tx >= 20 && tx <= 100 && ty >= tft.height() - 50 && ty <= tft.height() - 20)
-        {
-            working.mode.toLowerCase();
-            saveTheme(working);
-            applyTheme(working);
-            Serial.println("Theme saved and applied: " + working.mode);
-            running = false;
-        }
-
-        // Cancel button
-        if (tx >= tft.width() - 100 && tx <= tft.width() - 20 && ty >= tft.height() - 50 && ty <= tft.height() - 20)
-        {
-            Serial.println("Theme designer canceled");
-            running = false;
-        }
-
-        // Custom color editing
+        // Custom colors touch
         if (mode.equalsIgnoreCase("custom"))
         {
-            if (lastTouchX >= 0 && ty >= topMargin && ty <= topMargin + 100)
-            {
-                int dx = tp.x - lastTouchX;
-                scrollOffset -= dx;
-                if (scrollOffset < 0)
-                    scrollOffset = 0;
-                int maxScroll = working.colors.size() * (colorBoxSize + spacing + 20) - tft.width() + 40;
-                if (scrollOffset > maxScroll)
-                    scrollOffset = maxScroll;
-                drawUI();
-            }
-            lastTouchX = tp.x;
-
-            int x = 20 - scrollOffset;
-            int y = topMargin + 20;
+            int xStart = 20 - scrollOffset;
+            int y = topMargin;
             for (size_t i = 0; i < working.colors.size(); i++)
             {
-                if (tx >= x && tx <= x + colorBoxSize && ty >= y && ty <= y + colorBoxSize)
+                int x0 = xStart + i * (colorBoxSize + spacing);
+                int y0 = y + 20;
+                if (evt.x >= x0 && evt.x <= x0 + colorBoxSize &&
+                    evt.y >= y0 && evt.y <= y0 + colorBoxSize)
                 {
-                    uint16_t c = working.colors[i];
-                    uint8_t r = (c >> 11) & 0x1F;
-                    uint8_t g = (c >> 5) & 0x3F;
-                    uint8_t b = c & 0x1F;
-                    r = (r + 1) % 32;
-                    g = (g + 2) % 64;
-                    b = (b + 1) % 32;
-                    working.colors[i] = (r << 11) | (g << 5) | b;
-                    Serial.println("Custom color[" + String(i) + "] changed to 0x" + String(working.colors[i], HEX));
-                    applyTheme(working);
+                    working.colors[i] = pickColor(evt.x, evt.y);
                     drawUI();
                     break;
                 }
-                x += colorBoxSize + spacing + 20;
             }
         }
 
-        delay(50);
+        // Exit button (example)
+        if (evt.y > tft.height() - 40)
+        {
+            running = false;
+        }
     }
 
-    tft.fillScreen(Style::Colors::bg);
+    // Apply final theme once
+    current = working;
+    saveTheme(current);
+    applyTheme(current);
+    Serial.println("Designer exited, theme applied.");
 }

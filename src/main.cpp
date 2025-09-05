@@ -66,6 +66,6 @@ void loop()
 
     // debugTaskLog();
     // Serial.println(ESP.getFreeHeap());
-    // delay(3000);
+    delay(3000);
     // ArduinoOTA.handle();
 }

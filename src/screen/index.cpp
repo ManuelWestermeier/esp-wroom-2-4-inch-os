@@ -31,11 +31,11 @@ byte Screen::getBrightness()
 
 void Screen::init(byte b)
 {
+    applyColorPalette();
     setBrightness(b);
     tft.init();
     tft.setRotation(2);
     
-    applyColorPalette();
     
     tft.fillScreen(BG);
     tft.setTextColor(TEXT);
