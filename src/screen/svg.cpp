@@ -1,4 +1,5 @@
 #define NANOSVG_IMPLEMENTATION
+
 extern "C"
 {
 #include "nanosvg.h"
@@ -45,7 +46,7 @@ bool ESP32_SVG::drawString(const String &svgString,
                     float it = 1.0f - t;
                     float bx = it * it * it * x1 + 3 * it * it * t * x2 + 3 * it * t * t * x3 + t * t * t * x4;
                     float by = it * it * it * y1 + 3 * it * it * t * y2 + 3 * it * t * t * y3 + t * t * t * y4;
-                    tft->drawLine((int)px, (int)py, (int)bx, (int)by, color);
+                    Screen::tft.drawLine((int)px, (int)py, (int)bx, (int)by, color);
                     px = bx;
                     py = by;
                 }

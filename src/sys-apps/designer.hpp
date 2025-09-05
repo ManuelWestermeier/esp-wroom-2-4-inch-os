@@ -210,14 +210,14 @@ static inline uint16_t pickColor(int x, int y, int rectX = 20, int rectY = 80, i
     float f = (hue / 60.0f) - hi;
     float p = v * (1 - s);
     float q = v * (1 - f * s);
-    float t = v * (1 - (1 - f) * s);
+    float t_val = v * (1 - (1 - f) * s);
 
     float r = 0, g = 0, b = 0;
     switch (hi)
     {
     case 0:
         r = v;
-        g = t;
+        g = t_val;
         b = p;
         break;
     case 1:
@@ -228,7 +228,7 @@ static inline uint16_t pickColor(int x, int y, int rectX = 20, int rectY = 80, i
     case 2:
         r = p;
         g = v;
-        b = t;
+        b = t_val;
         break;
     case 3:
         r = p;
@@ -236,7 +236,7 @@ static inline uint16_t pickColor(int x, int y, int rectX = 20, int rectY = 80, i
         b = v;
         break;
     case 4:
-        r = t;
+        r = t_val;
         g = p;
         b = v;
         break;
@@ -328,6 +328,16 @@ static inline void openDesigner()
                 x += colorBoxSize + spacing;
             }
         }
+
+        // Draw action buttons
+        tft.fillRoundRect(20, tft.height() - 40, 100, 30, 5, Style::Colors::primary);
+        tft.setTextColor(Style::Colors::text, Style::Colors::primary);
+        tft.setTextDatum(MC_DATUM);
+        tft.drawString("Save & Exit", 70, tft.height() - 25);
+
+        tft.fillRoundRect(140, tft.height() - 40, 100, 30, 5, Style::Colors::danger);
+        tft.setTextColor(Style::Colors::accentText, Style::Colors::danger);
+        tft.drawString("Cancel", 190, tft.height() - 25);
     };
 
     drawUI();
@@ -349,6 +359,18 @@ static inline void openDesigner()
                 mode = "custom";
 
             working.mode = mode;
+
+            // Apply the theme in real-time when switching modes
+            if (mode == "light")
+            {
+                working = defaultLight();
+            }
+            else if (mode == "dark")
+            {
+                working = defaultDark();
+            }
+
+            applyTheme(working);
             drawUI();
             continue;
         }
@@ -365,23 +387,69 @@ static inline void openDesigner()
                 if (evt.x >= x0 && evt.x <= x0 + colorBoxSize &&
                     evt.y >= y0 && evt.y <= y0 + colorBoxSize)
                 {
-                    working.colors[i] = pickColor(evt.x, evt.y);
+                    // Create a color picker at the bottom of the screen
+                    const int pickerHeight = 100;
+                    const int pickerY = tft.height() - pickerHeight - 10;
+                    const int pickerWidth = tft.width() - 40;
+
+                    // Draw color picker
+                    tft.fillRect(20, pickerY, pickerWidth, pickerHeight, TFT_BLACK);
+
+                    // Draw gradient for color selection
+                    for (int px = 0; px < pickerWidth; px++)
+                    {
+                        uint16_t color = pickColor(20 + px, pickerY + pickerHeight / 2,
+                                                   20, pickerY, pickerWidth, pickerHeight);
+                        tft.drawFastVLine(20 + px, pickerY, pickerHeight, color);
+                    }
+
+                    // Instructions
+                    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+                    tft.setTextDatum(TC_DATUM);
+                    tft.drawString("Tap on the color strip to select", tft.width() / 2, pickerY - 15);
+
+                    // Wait for color selection
+                    bool selecting = true;
+                    while (selecting)
+                    {
+                        auto colorEvt = Screen::getTouchPos();
+                        if (colorEvt.clicked)
+                        {
+                            if (colorEvt.y >= pickerY && colorEvt.y <= pickerY + pickerHeight)
+                            {
+                                working.colors[i] = pickColor(colorEvt.x, colorEvt.y,
+                                                              20, pickerY, pickerWidth, pickerHeight);
+                                // Apply the new color in real-time
+                                applyTheme(working);
+                                selecting = false;
+                            }
+                        }
+                        delay(50);
+                    }
+
                     drawUI();
                     break;
                 }
             }
         }
 
-        // Exit button (example)
-        if (evt.y > tft.height() - 40)
+        // Save & Exit button
+        if (evt.y > tft.height() - 40 && evt.y < tft.height() - 10)
         {
-            running = false;
+            if (evt.x >= 20 && evt.x <= 120)
+            {
+                running = false;
+                current = working;
+                saveTheme(current);
+                applyTheme(current);
+                Serial.println("Designer exited, theme saved and applied.");
+            }
+            else if (evt.x >= 140 && evt.x <= 240)
+            {
+                running = false;
+                applyTheme(current); // Revert to original theme
+                Serial.println("Designer exited, changes discarded.");
+            }
         }
     }
-
-    // Apply final theme once
-    current = working;
-    saveTheme(current);
-    applyTheme(current);
-    Serial.println("Designer exited, theme applied.");
 }
