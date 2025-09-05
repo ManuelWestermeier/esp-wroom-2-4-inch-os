@@ -31,7 +31,7 @@ static inline Theme defaultLight()
     static const uint16_t colors[] = {
         RGB(245, 245, 255), RGB(2, 2, 4), RGB(255, 240, 255), RGB(30, 144, 255),
         RGB(220, 220, 250), RGB(180, 180, 255), RGB(255, 150, 150), RGB(30, 144, 255),
-        RGB(200, 200, 200), TFT_WHITE};
+        RGB(200, 200, 200), RGB(255, 255, 255)};
     return {"light", vector<uint16_t>(colors, colors + 10)};
 }
 
@@ -84,10 +84,9 @@ static inline Theme stringToTheme(const String &s)
 static inline void saveTheme(const Theme &t)
 {
     String content = themeToString(t);
-    if (Auth::username.isEmpty())
-        SD_FS::writeFile("/theme.txt", content);
-    else
+    if (!Auth::username.isEmpty())
         ENC_FS::writeFileString(ENC_FS::str2Path("/theme.txt"), content);
+    SD_FS::writeFile("/theme.txt", content);
 }
 
 static inline Theme loadTheme()
@@ -95,7 +94,7 @@ static inline Theme loadTheme()
     bool fileExists = false;
     String content;
 
-    if (Auth::username.isEmpty())
+    if (Auth::username.isEmpty()) // not authenticated
     {
         fileExists = SD_FS::exists("/theme.txt");
         if (fileExists)
@@ -174,125 +173,155 @@ static inline void openDesigner()
     String mode = current.mode;
     bool running = true;
     int scrollOffset = 0;
-    const int colorBoxSize = 50;
-    const int colorBoxMargin = 10;
+
+    const int buttonHeight = 30;
+    const int colorBoxSize = 40;
+    const int spacing = 20;
+    const int topMargin = 80;
+
+    const char *colorNames[] = {
+        "Background", "Text", "Primary", "Accent", "Accent2",
+        "Accent3", "Danger", "Pressed", "Placeholder", "AccentText"};
 
     auto drawUI = [&]()
     {
         tft.fillScreen(Style::Colors::bg);
+
+        // Title
         tft.setTextColor(Style::Colors::text, Style::Colors::bg);
         tft.setTextDatum(TC_DATUM);
+        tft.setTextSize(2);
         tft.drawString("Theme Designer", tft.width() / 2, 10);
+        tft.setTextSize(1);
 
-        tft.setTextDatum(MC_DATUM);
-        tft.drawString("Mode: " + mode, tft.width() / 2, 40);
+        // Mode buttons
+        int x = 20;
+        const char *modes[] = {"Light", "Dark", "Custom"};
+        for (auto &m : modes)
+        {
+            uint16_t bgCol = (mode.equalsIgnoreCase(m)) ? Style::Colors::accent : Style::Colors::primary;
+            uint16_t textCol = (mode.equalsIgnoreCase(m)) ? Style::Colors::accentText : Style::Colors::text;
 
-        // Buttons
-        tft.fillRoundRect(20, tft.height() - 50, 80, 30, 8, Style::Colors::accent);
-        tft.setTextColor(Style::Colors::accentText);
-        tft.drawString("OK", 60, tft.height() - 35);
-
-        tft.fillRoundRect(tft.width() - 100, tft.height() - 50, 80, 30, 8, Style::Colors::danger);
-        tft.setTextColor(Style::Colors::accentText);
-        tft.drawString("Cancel", tft.width() - 60, tft.height() - 35);
+            tft.fillRoundRect(x, 40, 80, buttonHeight, 5, bgCol);
+            tft.setTextColor(textCol, bgCol);
+            tft.setTextDatum(MC_DATUM);
+            tft.drawString(m, x + 40, 40 + buttonHeight / 2);
+            x += 90;
+        }
 
         // Custom colors
         if (mode == "custom")
         {
-            int x = 20, y = 80 - scrollOffset;
+            x = 20 - scrollOffset;
+            int y = topMargin;
             for (size_t i = 0; i < working.colors.size(); i++)
             {
-                tft.fillRoundRect(x, y, colorBoxSize, colorBoxSize, 5, working.colors[i]);
-                tft.drawRoundRect(x, y, colorBoxSize, colorBoxSize, 5, Style::Colors::text);
+                // Name
+                tft.setTextDatum(TC_DATUM);
+                tft.setTextColor(Style::Colors::text, Style::Colors::bg);
+                tft.drawString(colorNames[i], x + colorBoxSize / 2, y);
 
-                // Draw RGB values
+                // Color box
+                tft.fillRoundRect(x, y + 20, colorBoxSize, colorBoxSize, 5, working.colors[i]);
+                tft.drawRoundRect(x, y + 20, colorBoxSize, colorBoxSize, 5, Style::Colors::text);
+
+                // RGB text
                 uint16_t c = working.colors[i];
                 uint8_t r = ((c >> 11) & 0x1F) << 3;
                 uint8_t g = ((c >> 5) & 0x3F) << 2;
                 uint8_t b = (c & 0x1F) << 3;
                 tft.setTextDatum(TC_DATUM);
                 tft.setTextColor(Style::Colors::text, Style::Colors::bg);
-                tft.drawString(String(r) + "," + String(g) + "," + String(b), x + colorBoxSize / 2, y + colorBoxSize + 10);
+                tft.drawString(String(r) + "," + String(g) + "," + String(b), x + colorBoxSize / 2, y + 65);
 
-                x += colorBoxSize + colorBoxMargin;
-                if (x + colorBoxSize > tft.width())
-                {
-                    x = 20;
-                    y += colorBoxSize + 30; // extra space for RGB text
-                }
+                x += colorBoxSize + spacing + 20;
             }
         }
+
+        // OK & Cancel buttons
+        tft.fillRoundRect(20, tft.height() - 50, 80, buttonHeight, 5, Style::Colors::accent);
+        tft.setTextColor(Style::Colors::accentText);
+        tft.setTextDatum(MC_DATUM);
+        tft.drawString("OK", 20 + 40, tft.height() - 50 + buttonHeight / 2);
+
+        tft.fillRoundRect(tft.width() - 100, tft.height() - 50, 80, buttonHeight, 5, Style::Colors::danger);
+        tft.setTextColor(Style::Colors::accentText);
+        tft.drawString("Cancel", tft.width() - 100 + 40, tft.height() - 50 + buttonHeight / 2);
     };
 
     drawUI();
+
+    int lastTouchX = -1;
 
     while (running)
     {
         Screen::TouchPos tp = Screen::getTouchPos();
         if (!tp.clicked)
         {
+            lastTouchX = -1;
             delay(50);
             continue;
         }
 
         int tx = tp.x, ty = tp.y;
 
-        // Mode toggle
-        if (ty > 20 && ty < 60)
+        // Mode buttons
+        int mx = 20;
+        const char *modes[] = {"Light", "Dark", "Custom"};
+        for (auto &m : modes)
         {
-            if (mode == "light")
-                mode = "dark";
-            else if (mode == "dark")
-                mode = "custom";
-            else
-                mode = "light";
-
-            working = (mode == "light") ? defaultLight() : (mode == "dark") ? defaultDark()
-                                                                            : current;
-            drawUI();
+            if (tx >= mx && tx <= mx + 80 && ty >= 40 && ty <= 40 + buttonHeight)
+            {
+                mode = m;
+                working = (mode == "Light") ? defaultLight() : (mode == "Dark") ? defaultDark()
+                                                                                : current;
+                scrollOffset = 0;
+                drawUI();
+                break;
+            }
+            mx += 90;
         }
 
         // OK button
-        if (tx > 20 && tx < 100 && ty > tft.height() - 50)
+        if (tx >= 20 && tx <= 20 + 80 && ty >= tft.height() - 50 && ty <= tft.height() - 50 + buttonHeight)
         {
             working.mode = mode;
+            working.mode.toLowerCase();
             saveTheme(working);
             applyTheme(working);
             running = false;
         }
 
         // Cancel button
-        if (tx > tft.width() - 100 && ty > tft.height() - 50)
+        if (tx >= tft.width() - 100 && tx <= tft.width() - 20 && ty >= tft.height() - 50 && ty <= tft.height() - 50 + buttonHeight)
         {
             running = false;
         }
 
-        // Scroll custom colors
-        if (mode == "custom")
+        // Custom color horizontal scroll
+        if (mode == "Custom")
         {
-            static int lastY = -1;
-            if (lastY != -1)
+            // Horizontal scroll
+            if (lastTouchX >= 0 && ty >= topMargin && ty <= topMargin + 100)
             {
-                int dy = tp.y - lastY;
-                scrollOffset -= dy;
+                int dx = tp.x - lastTouchX;
+                scrollOffset -= dx;
                 if (scrollOffset < 0)
                     scrollOffset = 0;
-                // Estimate max scroll
-                int totalRows = (working.colors.size() * (colorBoxSize + colorBoxMargin)) / tft.width() + 1;
-                int maxScroll = totalRows * (colorBoxSize + 30) - (tft.height() - 100);
+                int maxScroll = working.colors.size() * (colorBoxSize + spacing + 20) - tft.width() + 40;
                 if (scrollOffset > maxScroll)
                     scrollOffset = maxScroll;
                 drawUI();
             }
-            lastY = tp.y;
+            lastTouchX = tp.x;
 
-            // Check color taps
-            int x = 20, y = 80 - scrollOffset;
+            // Tap color boxes
+            int x = 20 - scrollOffset;
+            int y = topMargin + 20;
             for (size_t i = 0; i < working.colors.size(); i++)
             {
-                if (tx >= x && tx < x + colorBoxSize && ty >= y && ty < y + colorBoxSize)
+                if (tx >= x && tx <= x + colorBoxSize && ty >= y && ty <= y + colorBoxSize)
                 {
-                    // Cycle RGB
                     uint16_t c = working.colors[i];
                     uint8_t r = (c >> 11) & 0x1F;
                     uint8_t g = (c >> 5) & 0x3F;
@@ -304,12 +333,7 @@ static inline void openDesigner()
                     drawUI();
                     break;
                 }
-                x += colorBoxSize + colorBoxMargin;
-                if (x + colorBoxSize > tft.width())
-                {
-                    x = 20;
-                    y += colorBoxSize + 30;
-                }
+                x += colorBoxSize + spacing + 20;
             }
         }
 

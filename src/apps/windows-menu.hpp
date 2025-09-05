@@ -285,7 +285,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     }
                     else if (shortCut.name == "Folders")
                     {
-                        filePicker();
+                        Serial.println(ENC_FS::readFileString(ENC_FS::str2Path(filePicker("/"))));
                         return;
                     }
                     break;
