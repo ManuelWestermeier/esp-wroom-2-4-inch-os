@@ -75,7 +75,7 @@ void executeApplication(const std::vector<String> &args)
     BaseType_t res = xTaskCreate(
         AppRunTask,                          // task function
         (String("App>>") + args[0]).c_str(), // name
-        16384,                               // stack (words) -> erhöht für Stabilität
+        8172,                               // stack (words) -> erhöht für Stabilität
         taskArgsPtr,                         // parameter (heap-allocated copy)
         1,                                   // priority
         &WindowAppRunHandle                  // task handle (optional)
@@ -125,7 +125,7 @@ void startWindowRender()
     BaseType_t res = xTaskCreate(
         AppRenderTask,
         "AppRenderTask",
-        4096, // etwas größerer Stack
+        8172, // etwas größerer Stack
         NULL,
         2, // etwas höhere Prio als App-Tasks
         &WindowAppRenderHandle);

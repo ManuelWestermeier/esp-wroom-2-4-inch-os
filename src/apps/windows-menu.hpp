@@ -14,45 +14,47 @@ struct AppRenderData
 {
     String name;
     ENC_FS::Path path;
-    uint16_t icon[20 * 20]; // nur ein Icon-Buffer
+    uint16_t icon[20 * 20];
     bool hasIcon = false;
+
+    bool loadMetaData()
+    {
+        auto namePath = path;
+        namePath.push_back("name.txt");
+        name = ENC_FS::readFileString(namePath);
+
+        auto iconPath = path;
+        iconPath.push_back("icon-20x20.raw");
+        return loadIcon(iconPath);
+    }
 
     bool loadIcon(const ENC_FS::Path &filename, uint16_t bgColor = PRIMARY, uint8_t radius = 5)
     {
-
         if (!ENC_FS::exists(filename))
             return false;
-
-        // defensive: prüfen, ob mindestens 4 bytes für w/h da sind
-        if (ENC_FS::getFileSize(filename) != 804) // 400*2+4bytes
+        if (ENC_FS::getFileSize(filename) != 804)
         {
-            Serial.println("IFCONFS dont match 804: " + ENC_FS::path2Str(filename) + " " + ENC_FS::getFileSize(filename));
+            Serial.println("Icon size mismatch (expected 804): " + ENC_FS::path2Str(filename) + " " + ENC_FS::getFileSize(filename));
             return false;
         }
 
         auto data = ENC_FS::readFile(filename, 4, 804);
-
-        Serial.println(data.size());
         if (data.size() != 800)
             return false;
 
         int bI = 0;
-        // Bilddaten einlesen
         for (int j = 0; j < 20; j++)
         {
             for (int i = 0; i < 20; i++)
             {
                 int hi = data.at(bI++);
                 int lo = data.at(bI++);
-                if (hi < 0 || lo < 0)
-                    icon[j * 20 + i] = bgColor;
-                else
-                    icon[j * 20 + i] = (uint16_t)((hi << 8) | lo);
+                icon[j * 20 + i] = (hi < 0 || lo < 0)
+                                       ? bgColor
+                                       : (uint16_t)((hi << 8) | lo);
             }
         }
         hasIcon = true;
-
-        // Rundung sofort einfügen → überschreibt Ecken mit bgColor
         applyRoundMask(bgColor, radius);
         return true;
     }
@@ -68,42 +70,35 @@ struct AppRenderData
         {
             for (int i = 0; i < 20; ++i)
             {
-                bool pixelVisible = true;
+                bool visible = true;
 
-                // obere linke Ecke
+                auto checkCorner = [&](int dx, int dy)
+                {
+                    return dx * dx + dy * dy >= radius * radius;
+                };
+
                 if (i < radius && j < radius)
-                {
-                    int dx = radius - 1 - i;
-                    int dy = radius - 1 - j;
-                    if (dx * dx + dy * dy >= radius * radius)
-                        pixelVisible = false;
+                { // oben links
+                    if (checkCorner(radius - 1 - i, radius - 1 - j))
+                        visible = false;
                 }
-                // obere rechte Ecke
                 else if (i >= 20 - radius && j < radius)
-                {
-                    int dx = i - (20 - radius);
-                    int dy = radius - 1 - j;
-                    if (dx * dx + dy * dy >= radius * radius)
-                        pixelVisible = false;
+                { // oben rechts
+                    if (checkCorner(i - (20 - radius), radius - 1 - j))
+                        visible = false;
                 }
-                // untere linke Ecke
                 else if (i < radius && j >= 20 - radius)
-                {
-                    int dx = radius - 1 - i;
-                    int dy = j - (20 - radius);
-                    if (dx * dx + dy * dy >= radius * radius)
-                        pixelVisible = false;
+                { // unten links
+                    if (checkCorner(radius - 1 - i, j - (20 - radius)))
+                        visible = false;
                 }
-                // untere rechte Ecke
                 else if (i >= 20 - radius && j >= 20 - radius)
-                {
-                    int dx = i - (20 - radius);
-                    int dy = j - (20 - radius);
-                    if (dx * dx + dy * dy >= radius * radius)
-                        pixelVisible = false;
+                { // unten rechts
+                    if (checkCorner(i - (20 - radius), j - (20 - radius)))
+                        visible = false;
                 }
 
-                if (!pixelVisible)
+                if (!visible)
                     icon[j * 20 + i] = bgColor;
             }
         }
@@ -139,110 +134,100 @@ std::vector<ShortCut> shortCuts = {
     {"Folders", SVG::design},
 };
 
+// Hilfsfunktion: Apps neu einlesen
+static void updateAppList(std::vector<AppRenderData> &apps,
+                          std::vector<ENC_FS::Path> &lastPaths,
+                          bool &appsChanged)
+{
+    auto entries = ENC_FS::readDir({"programs"});
+    std::vector<ENC_FS::Path> newPaths;
+    for (String &e : entries)
+        newPaths.push_back({"programs", e});
+
+    if (newPaths != lastPaths)
+    {
+        apps.clear();
+        for (auto &p : newPaths)
+        {
+            apps.emplace_back();
+            auto &app = apps.back();
+            app.path = p;
+            if (!app.loadMetaData())
+            {
+                Serial.println("App meta load failed: " + ENC_FS::path2Str(p));
+            }
+        }
+        lastPaths = newPaths;
+        appsChanged = true;
+    }
+}
+
 void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 {
     using Screen::tft;
     static int scrollYOff = SCROLL_OFF_Y_MENU_START;
     static int scrollXOff = 0;
-    int itemHeight = 30; // mehr Platz, damit Icon+Text passen
-    int itemWidth = 250;
+    const int itemHeight = 30;
+    const int itemWidth = 250;
 
     Rect screen = {{0, 0}, {320, 240}};
     Rect topSelect = {{10, 10}, {300, 60}};
     Rect programsView = {{10, topSelect.pos.y + topSelect.dimensions.y},
                          {300, screen.dimensions.y - topSelect.dimensions.y - topSelect.pos.y}};
 
-    // Persistente App-Liste
     static std::vector<AppRenderData> apps;
-    static std::vector<ENC_FS::Path> lastPaths; // für Änderungserkennung
+    static std::vector<ENC_FS::Path> lastPaths;
     static unsigned long lastMenuRender = 0;
     static unsigned long lastMenuRenderCall = 0;
 
-    bool appsChanged = false;
-    bool needRedraw = false;
-    bool topRedraw = false;
-    bool bottomRedraw = false;
+    bool appsChanged = false, needRedraw = false;
+    bool topRedraw = false, bottomRedraw = false;
 
-    // --- Periodisch Verzeichnis prüfen (nur Pfade vergleichen) ---
     if (menuUpdateTime == 0 || millis() - menuUpdateTime > 10000)
     {
         menuUpdateTime = millis();
-        auto entries = ENC_FS::readDir({"programs"});
-
-        std::vector<ENC_FS::Path> newPaths;
-        for (String &e : entries)
-            newPaths.push_back({"programs", e});
-
-        if (newPaths != lastPaths) // Änderung erkannt
-        {
-            apps.clear();
-            for (auto &p : newPaths)
-            {
-                apps.emplace_back();
-                AppRenderData &app = apps.back();
-                app.path = p;
-                auto namePath = app.path;
-                namePath.push_back("name.txt");
-                app.name = ENC_FS::readFileString(namePath);
-                Serial.println(">>> namePath: " + ENC_FS::path2Str(namePath));
-                auto iconPath = app.path;
-                iconPath.push_back("icon-20x20.raw");
-                Serial.println(app.loadIcon(iconPath) ? "Icon Loaded" : "Icon Load Failed");
-            }
-            lastPaths = newPaths;
-            appsChanged = true;
-        }
+        updateAppList(apps, lastPaths, appsChanged);
     }
 
-    if (lastMenuRender == 0 || lastMenuRenderCall == 0)
+    if (lastMenuRender == 0 || lastMenuRenderCall == 0 || appsChanged)
         needRedraw = true;
-
-    if (appsChanged)
-        needRedraw = true;
-
     if (millis() - lastMenuRenderCall > 300)
-    {
         needRedraw = true;
-    }
-    lastMenuRenderCall = millis();
 
+    lastMenuRenderCall = millis();
     if (needRedraw)
     {
-        topRedraw = true;
-        bottomRedraw = true;
+        topRedraw = bottomRedraw = true;
         tft.fillScreen(BG);
     }
 
-    // --- Scrollverhalten ---
+    // --- Scroll ---
     if (programsView.isIn(pos) && state == MouseState::Held)
     {
         int newScroll = min(SCROLL_OFF_Y_MENU_START, scrollYOff + move.y);
         if (newScroll != scrollYOff)
         {
             scrollYOff = newScroll;
-            needRedraw = true;
-            bottomRedraw = true;
+            needRedraw = bottomRedraw = true;
         }
     }
 
-    // --- Scrollverhalten ---
     if (topSelect.isIn(pos) && state == MouseState::Held)
     {
         int newScroll = min(0, scrollXOff + move.x);
         if (newScroll != scrollXOff)
         {
             scrollXOff = newScroll;
-            needRedraw = true;
-            topRedraw = true;
+            needRedraw = topRedraw = true;
         }
     }
 
-    // Klick → App starten
+    // --- Klick ---
     if (state == MouseState::Down)
     {
-        int i = 0;
         if (programsView.isIn(pos))
         {
+            int i = 0;
             for (auto &app : apps)
             {
                 i++;
@@ -250,7 +235,6 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                                 {itemWidth, itemHeight}};
                 if (!appRect.intersects(programsView))
                     continue;
-
                 if (appRect.isIn(pos))
                 {
                     executeApplication({ENC_FS::path2Str(app.path)});
@@ -270,27 +254,18 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
                 if (scPos.isIn(pos))
                 {
-                    if (shortCut.name == "Settings")
-                    {
-                    }
-                    else if (shortCut.name == "Account")
-                    {
-                    }
-                    else if (shortCut.name == "Design")
+                    if (shortCut.name == "Design")
                     {
                         return openDesigner();
                     }
-                    else if (shortCut.name == "WiFi")
-                    {
-                    }
                     else if (shortCut.name == "Folders")
                     {
-                        Serial.println(ENC_FS::readFileString(ENC_FS::str2Path(filePicker("/"))));
+                        Serial.println(ENC_FS::readFileString(
+                            ENC_FS::str2Path(filePicker("/"))));
                         return;
                     }
                     break;
                 }
-
                 scXPos += w + 5;
             }
         }
@@ -306,7 +281,9 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                           topSelect.dimensions.x, topSelect.dimensions.y, 5,
                           PRIMARY);
 
-        tft.setViewport(topSelect.pos.x, topSelect.pos.y + 5, topSelect.dimensions.x, topSelect.dimensions.y - 5, false);
+        tft.setViewport(topSelect.pos.x, topSelect.pos.y + 5,
+                        topSelect.dimensions.x, topSelect.dimensions.y - 5,
+                        false);
 
         int scXPos = topSelect.pos.x + 5 + scrollXOff;
         for (const auto &shortCut : shortCuts)
@@ -315,29 +292,32 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
             int w = max(h, (int)(shortCut.name.length() * 6 + 10));
             Rect scPos = {{scXPos, topSelect.pos.y + 5}, {w, h}};
 
-            tft.fillRoundRect(scPos.pos.x, scPos.pos.y, scPos.dimensions.x, scPos.dimensions.y, 3, BG); // BG
-
-            tft.drawString(shortCut.name, scPos.pos.x + 5, scPos.pos.y + 5, 1);
+            tft.fillRoundRect(scPos.pos.x, scPos.pos.y, scPos.dimensions.x,
+                              scPos.dimensions.y, 3, BG);
+            tft.drawCentreString(shortCut.name, scPos.pos.x + (w / 2),
+                                 scPos.pos.y + 5, 1);
 
             if (!shortCut.svg.isEmpty())
             {
                 ESP32_SVG svg;
                 int d = h - 20;
-                svg.drawString(shortCut.svg, scPos.pos.x + ((w / 2) - (d / 2)), scPos.pos.y + 15, d, d, TEXT);
+                svg.drawString(shortCut.svg,
+                               scPos.pos.x + ((w / 2) - (d / 2)),
+                               scPos.pos.y + 15, d, d, TEXT);
             }
-
             scXPos += w + 5;
         }
-
         Screen::tft.resetViewport();
     }
+
     if (bottomRedraw)
     {
         tft.setTextSize(2);
-
-        // y padding 10 => not colliding with the top bar
-        tft.setViewport(programsView.pos.x, programsView.pos.y + 10, programsView.dimensions.x, programsView.dimensions.y, false);
-        tft.fillRect(programsView.pos.x, programsView.pos.y + 10, programsView.dimensions.x, programsView.dimensions.y, BG);
+        tft.setViewport(programsView.pos.x, programsView.pos.y + 10,
+                        programsView.dimensions.x, programsView.dimensions.y,
+                        false);
+        tft.fillRect(programsView.pos.x, programsView.pos.y + 10,
+                     programsView.dimensions.x, programsView.dimensions.y, BG);
 
         int i = 0;
         for (auto &app : apps)
@@ -345,7 +325,6 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
             i++;
             Rect appRect = {{10, (scrollYOff + (i + 1) * itemHeight)},
                             {itemWidth, itemHeight}};
-
             if (!appRect.intersects(programsView))
                 continue;
 
@@ -353,23 +332,19 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                               appRect.dimensions.x, appRect.dimensions.y - 5,
                               5, PRIMARY);
 
-            // Icon zeichnen
             if (app.hasIcon)
             {
                 app.drawIcon(appRect.pos.x + 5, appRect.pos.y + 3);
             }
             else
             {
-                // Platzhalter
                 tft.fillRoundRect(appRect.pos.x + 5, appRect.pos.y + 5,
                                   20, 20, 5, PH);
             }
 
-            // Name daneben
             tft.setCursor(appRect.pos.x + 30, appRect.pos.y + 5);
             tft.print(app.name);
         }
-
         Screen::tft.resetViewport();
     }
 
