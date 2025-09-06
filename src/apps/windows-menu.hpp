@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "../sys-apps/designer.hpp"
+#include "../sys-apps/wifi-menager.hpp"
 #include "../sys-apps/file-picker.hpp"
 
 #include "../icons/index.hpp"
@@ -263,6 +264,10 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                         Serial.println(ENC_FS::readFileString(
                             ENC_FS::str2Path(filePicker("/"))));
                         return;
+                    }
+                     else if (shortCut.name == "WiFi")
+                    {
+                        return openWifiManager();
                     }
                     break;
                 }
