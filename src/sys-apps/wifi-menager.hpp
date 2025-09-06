@@ -88,6 +88,15 @@ void connectSelectedWiFi()
     WiFiItem &item = wifiList[selectedIndex];
     String pass;
 
+    if (item.known && item.secured)
+    {
+        String file = "/public/wifi/" + toHex(item.ssid) + ".wifi";
+        ENC_FS::Path encPath = {"wifi", toHex(item.ssid) + ".wifi"};
+        if (ENC_FS::exists(encPath))
+            pass = ENC_FS::readFileString(encPath);
+        else if (SD_FS::exists(file))
+            pass = SD_FS::readFile(file);
+    }
     if (item.secured && !item.known)
     {
         pass = readString("Password for " + item.ssid + ":", "");
