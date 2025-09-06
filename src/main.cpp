@@ -37,7 +37,7 @@ void setup()
 
     // Audio::init(60);
     Screen::init(120);
-    startAnimationMWOS();
+    // startAnimationMWOS();
 
     // Auth::init();
     Auth::login("m", "m");

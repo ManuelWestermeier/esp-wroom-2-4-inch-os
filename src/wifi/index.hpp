@@ -26,4 +26,5 @@ namespace UserWiFi
     void WiFiConnectTask(void *param);
     void start();
     void addPublicWifi(String ssid, String pass);
+    void addPrivateWifi(String ssid, String pass);
 }

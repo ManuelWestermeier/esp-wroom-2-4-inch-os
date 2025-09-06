@@ -157,4 +157,9 @@ namespace UserWiFi
     {
         SD_FS::writeFile("/public/wifi/" + toHex(ssid) + ".wifi", pass);
     }
+
+    void addPrivateWifi(String ssid, String pass)
+    {
+        ENC_FS::writeFileString({"wifi", toHex(ssid) + ".wifi"}, pass);
+    }
 }
