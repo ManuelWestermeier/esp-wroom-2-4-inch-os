@@ -16,7 +16,7 @@ NSVGimage *createSVG(String svgString)
 bool drawSVGString(NSVGimage *image,
                    int xOff, int yOff,
                    int targetW, int targetH,
-                   uint16_t color)
+                   uint16_t color, int steps)
 {
     if (!image || image->width <= 0 || image->height <= 0)
         return false;
@@ -47,7 +47,6 @@ bool drawSVGString(NSVGimage *image,
                 const float x4 = pts[(i + 3) * 2 + 0] * scale + xOff;
                 const float y4 = pts[(i + 3) * 2 + 1] * scale + yOff;
 
-                constexpr int steps = 10; // can be adjusted for quality/performance
                 float px = x1, py = y1;
 
                 // Use De Casteljau’s algorithm to avoid repeated powf/multiplications
