@@ -130,9 +130,9 @@ unsigned long menuUpdateTime = 0;
 static std::vector<ShortCut> shortCuts = {
     {"Settings", SVG::settings},
     {"Account", SVG::account},
-    {"Design", SVG::folder},
+    {"Design", SVG::design},
     {"WiFi", SVG::wifi},
-    {"Folders", SVG::design},
+    {"Folders", SVG::folder},
 };
 
 // Helper: update the app list (reads metadata & icons)
