@@ -265,7 +265,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                             ENC_FS::str2Path(filePicker("/"))));
                         return;
                     }
-                     else if (shortCut.name == "WiFi")
+                    else if (shortCut.name == "WiFi")
                     {
                         return openWifiManager();
                     }
@@ -306,9 +306,13 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
             {
                 ESP32_SVG svg;
                 int d = h - 20;
+                tft.drawRect(scPos.pos.x + ((w / 2) - (d / 2)),
+                             scPos.pos.y + 15, d, d, TFT_RED);
                 svg.drawString(shortCut.svg,
                                scPos.pos.x + ((w / 2) - (d / 2)),
                                scPos.pos.y + 15, d, d, TEXT);
+                Serial.println("Drawed SVG: " + shortCut.name);
+                Serial.println(shortCut.svg);
             }
             scXPos += w + 5;
         }
