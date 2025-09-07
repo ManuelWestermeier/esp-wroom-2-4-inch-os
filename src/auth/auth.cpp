@@ -137,16 +137,14 @@ namespace Auth
             tft.fillRoundRect(createBtn.pos.x, createBtn.pos.y, createBtn.dimensions.x, createBtn.dimensions.y, 10, PRIMARY);
             tft.setTextSize(2);
 
-            ESP32_SVG loginSvg;
             int d = loginBtn.dimensions.y - 5;
-            loginSvg.drawString(SVG::login, loginBtn.pos.x, loginBtn.pos.y + 3, d, d, TEXT);
+            drawSVGString(SVG::login, loginBtn.pos.x, loginBtn.pos.y + 3, d, d, TEXT);
 
             tft.setCursor(loginBtn.pos.x + 5 + d, loginBtn.pos.y + 13);
             tft.print("LOGIN");
 
-            ESP32_SVG signinSvg;
             d = createBtn.dimensions.y;
-            signinSvg.drawString(SVG::signin, createBtn.pos.x, createBtn.pos.y, d, d, TEXT);
+            drawSVGString(SVG::signin, createBtn.pos.x, createBtn.pos.y, d, d, TEXT);
 
             tft.setCursor(createBtn.pos.x + 5 + d, createBtn.pos.y + 13);
             tft.print("CREATE ACCOUNT");

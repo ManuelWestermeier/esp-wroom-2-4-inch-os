@@ -7,10 +7,10 @@ extern "C"
 
 #include "svg.hpp"
 
-bool ESP32_SVG::drawString(const String &svgString,
-                           int xOff, int yOff,
-                           int targetW, int targetH,
-                           uint16_t color)
+bool drawSVGString(String svgString,
+                   int xOff, int yOff,
+                   int targetW, int targetH,
+                   uint16_t color)
 {
     NSVGimage *image = nsvgParse((char *)svgString.c_str(), "px", 96.0f);
     if (!image)

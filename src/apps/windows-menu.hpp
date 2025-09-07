@@ -79,22 +79,22 @@ struct AppRenderData
                 };
 
                 if (i < radius && j < radius)
-                { // oben links
+                { // top-left
                     if (checkCorner(radius - 1 - i, radius - 1 - j))
                         visible = false;
                 }
                 else if (i >= 20 - radius && j < radius)
-                { // oben rechts
+                { // top-right
                     if (checkCorner(i - (20 - radius), radius - 1 - j))
                         visible = false;
                 }
                 else if (i < radius && j >= 20 - radius)
-                { // unten links
+                { // bottom-left
                     if (checkCorner(radius - 1 - i, j - (20 - radius)))
                         visible = false;
                 }
                 else if (i >= 20 - radius && j >= 20 - radius)
-                { // unten rechts
+                { // bottom-right
                     if (checkCorner(i - (20 - radius), j - (20 - radius)))
                         visible = false;
                 }
@@ -127,7 +127,7 @@ unsigned long menuUpdateTime = 0;
 
 #define SCROLL_OFF_Y_MENU_START 20
 
-std::vector<ShortCut> shortCuts = {
+static std::vector<ShortCut> shortCuts = {
     {"Settings", SVG::settings},
     {"Account", SVG::account},
     {"Design", SVG::folder},
@@ -135,7 +135,7 @@ std::vector<ShortCut> shortCuts = {
     {"Folders", SVG::design},
 };
 
-// Hilfsfunktion: Apps neu einlesen
+// Helper: update the app list (reads metadata & icons)
 static void updateAppList(std::vector<AppRenderData> &apps,
                           std::vector<ENC_FS::Path> &lastPaths,
                           bool &appsChanged)
@@ -166,6 +166,7 @@ static void updateAppList(std::vector<AppRenderData> &apps,
 void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 {
     using Screen::tft;
+
     static int scrollYOff = SCROLL_OFF_Y_MENU_START;
     static int scrollXOff = 0;
     const int itemHeight = 30;
@@ -176,20 +177,24 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     Rect programsView = {{10, topSelect.pos.y + topSelect.dimensions.y},
                          {300, screen.dimensions.y - topSelect.dimensions.y - topSelect.pos.y}};
 
+    // persistent app list + state
     static std::vector<AppRenderData> apps;
     static std::vector<ENC_FS::Path> lastPaths;
     static unsigned long lastMenuRender = 0;
     static unsigned long lastMenuRenderCall = 0;
 
-    bool appsChanged = false, needRedraw = false;
+    bool appsChanged = false;
+    bool needRedraw = false;
     bool topRedraw = false, bottomRedraw = false;
 
+    // periodic directory check (only every 10s)
     if (menuUpdateTime == 0 || millis() - menuUpdateTime > 10000)
     {
         menuUpdateTime = millis();
         updateAppList(apps, lastPaths, appsChanged);
     }
 
+    // determine redraw needs
     if (lastMenuRender == 0 || lastMenuRenderCall == 0 || appsChanged)
         needRedraw = true;
     if (millis() - lastMenuRenderCall > 300)
@@ -198,11 +203,12 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     lastMenuRenderCall = millis();
     if (needRedraw)
     {
+        // default: redraw both sections; later we refine when interacting
         topRedraw = bottomRedraw = true;
         tft.fillScreen(BG);
     }
 
-    // --- Scroll ---
+    // --- handle scroll gestures ---
     if (programsView.isIn(pos) && state == MouseState::Held)
     {
         int newScroll = min(SCROLL_OFF_Y_MENU_START, scrollYOff + move.y);
@@ -223,7 +229,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         }
     }
 
-    // --- Klick ---
+    // --- handle clicks (apps + shortcuts) ---
     if (state == MouseState::Down)
     {
         if (programsView.isIn(pos))
@@ -232,8 +238,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
             for (auto &app : apps)
             {
                 i++;
-                Rect appRect = {{10, (scrollYOff + (i + 1) * itemHeight)},
-                                {itemWidth, itemHeight}};
+                Rect appRect = {{10, (scrollYOff + (i + 1) * itemHeight)}, {itemWidth, itemHeight}};
                 if (!appRect.intersects(programsView))
                     continue;
                 if (appRect.isIn(pos))
@@ -279,16 +284,14 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     if (!needRedraw)
         return;
 
-    // --- Render ---
+    // ---------- RENDER TOP (SHORTCUTS + SVGs) ----------
     if (topRedraw)
     {
-        tft.fillRoundRect(topSelect.pos.x, topSelect.pos.y,
-                          topSelect.dimensions.x, topSelect.dimensions.y, 5,
-                          PRIMARY);
+        // draw rounded container
+        tft.fillRoundRect(topSelect.pos.x, topSelect.pos.y, topSelect.dimensions.x, topSelect.dimensions.y, 5, PRIMARY);
 
-        tft.setViewport(topSelect.pos.x, topSelect.pos.y + 5,
-                        topSelect.dimensions.x, topSelect.dimensions.y - 5,
-                        false);
+        // set viewport for inner area (so subsequent draws are clipped)
+        tft.setViewport(topSelect.pos.x, topSelect.pos.y + 5, topSelect.dimensions.x, topSelect.dimensions.y - 5, false);
 
         int scXPos = topSelect.pos.x + 5 + scrollXOff;
         for (const auto &shortCut : shortCuts)
@@ -297,63 +300,67 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
             int w = max(h, (int)(shortCut.name.length() * 6 + 10));
             Rect scPos = {{scXPos, topSelect.pos.y + 5}, {w, h}};
 
-            tft.fillRoundRect(scPos.pos.x, scPos.pos.y, scPos.dimensions.x,
-                              scPos.dimensions.y, 3, BG);
-            tft.drawCentreString(shortCut.name, scPos.pos.x + (w / 2),
-                                 scPos.pos.y + 5, 1);
+            // background pill for each shortcut
+            tft.fillRoundRect(scPos.pos.x, scPos.pos.y, scPos.dimensions.x, scPos.dimensions.y, 3, BG);
 
+            // name (centered vertically)
+            tft.drawCentreString(shortCut.name, scPos.pos.x + (w / 2), scPos.pos.y + 5, 1);
+
+            // draw svg if present
             if (!shortCut.svg.isEmpty())
             {
-                ESP32_SVG svg;
                 int d = h - 20;
-                tft.drawRect(scPos.pos.x + ((w / 2) - (d / 2)),
-                             scPos.pos.y + 15, d, d, TFT_RED);
-                svg.drawString(shortCut.svg,
-                               scPos.pos.x + ((w / 2) - (d / 2)),
-                               scPos.pos.y + 15, d, d, TEXT);
-                Serial.println("Drawed SVG: " + shortCut.name);
-                Serial.println(shortCut.svg);
+                // compute icon top-left inside scPos
+                int iconX = scPos.pos.x + ((w / 2) - (d / 2));
+                int iconY = scPos.pos.y + 15;
+
+                drawSVGString(shortCut.svg, iconX, iconY, d, d, TEXT);
             }
+
             scXPos += w + 5;
         }
+
         Screen::tft.resetViewport();
     }
 
+    // ---------- RENDER BOTTOM (PROGRAM LIST with icons, clipped & scrolled) ----------
     if (bottomRedraw)
     {
         tft.setTextSize(2);
-        tft.setViewport(programsView.pos.x, programsView.pos.y + 10,
-                        programsView.dimensions.x, programsView.dimensions.y,
-                        false);
-        tft.fillRect(programsView.pos.x, programsView.pos.y + 10,
-                     programsView.dimensions.x, programsView.dimensions.y, BG);
+        // viewport offset +10 px top padding so items don't overlap top bar
+        tft.setViewport(programsView.pos.x, programsView.pos.y + 10, programsView.dimensions.x, programsView.dimensions.y, false);
+
+        // clear programs area (only inside viewport)
+        tft.fillRect(programsView.pos.x, programsView.pos.y + 10, programsView.dimensions.x, programsView.dimensions.y, BG);
 
         int i = 0;
         for (auto &app : apps)
         {
             i++;
-            Rect appRect = {{10, (scrollYOff + (i + 1) * itemHeight)},
-                            {itemWidth, itemHeight}};
+            Rect appRect = {{10, (scrollYOff + (i + 1) * itemHeight)}, {itemWidth, itemHeight}};
+
+            // skip items not visible in the programsView
             if (!appRect.intersects(programsView))
                 continue;
 
-            tft.fillRoundRect(appRect.pos.x, appRect.pos.y,
-                              appRect.dimensions.x, appRect.dimensions.y - 5,
-                              5, PRIMARY);
+            // draw item card
+            tft.fillRoundRect(appRect.pos.x, appRect.pos.y, appRect.dimensions.x, appRect.dimensions.y - 5, 5, PRIMARY);
 
+            // draw icon (if available) or placeholder
             if (app.hasIcon)
             {
                 app.drawIcon(appRect.pos.x + 5, appRect.pos.y + 3);
             }
             else
             {
-                tft.fillRoundRect(appRect.pos.x + 5, appRect.pos.y + 5,
-                                  20, 20, 5, PH);
+                tft.fillRoundRect(appRect.pos.x + 5, appRect.pos.y + 5, 20, 20, 5, PH);
             }
 
+            // app name
             tft.setCursor(appRect.pos.x + 30, appRect.pos.y + 5);
             tft.print(app.name);
         }
+
         Screen::tft.resetViewport();
     }
 
