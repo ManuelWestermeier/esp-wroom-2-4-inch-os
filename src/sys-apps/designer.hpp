@@ -181,81 +181,143 @@ static inline uint16_t rgbTo565(uint8_t r, uint8_t g, uint8_t b)
     return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
 
-// Simple color picker: maps x/y in a fixed rectangle to RGB565
-// x,y = touch coordinates
-// rect = area of the color picker on screen
-static inline uint16_t pickColor(int x, int y, int rectX = 20, int rectY = 80, int width = 300, int height = 50)
+// ---------- Fullscreen Color Picker ----------
+// Returns the selected color (if OK) or the original color (if Cancel)
+static inline uint16_t fullscreenColorPicker(uint16_t initialColor)
 {
     TFT_eSPI &tft = Screen::tft;
 
-    // Clamp x/y inside rect
-    if (x < rectX)
-        x = rectX;
-    if (x > rectX + width)
-        x = rectX + width;
-    if (y < rectY)
-        y = rectY;
-    if (y > rectY + height)
-        y = rectY + height;
+    // Clear screen with bg (or black) while picking
+    tft.fillScreen(TFT_BLACK);
 
-    // Map x to hue (0..360)
-    float hue = float(x - rectX) / float(width) * 360.0f;
+    const int btnW = 100, btnH = 40;
+    const int okX = 20, okY = 12;
+    const int cancelX = tft.width() - btnW - 20, cancelY = 12;
 
-    // Full saturation and value
-    float s = 1.0f;
-    float v = 1.0f;
+    // Picker area starts below buttons, leaves a top margin
+    const int pickerTop = okY + btnH + 8;
+    const int pickerLeft = 0;
+    const int pickerWidth = tft.width();
+    const int pickerHeight = tft.height() - pickerTop - 20; // small bottom margin
 
-    // HSV -> RGB
-    int hi = int(hue / 60.0f) % 6;
-    float f = (hue / 60.0f) - hi;
-    float p = v * (1 - s);
-    float q = v * (1 - f * s);
-    float t_val = v * (1 - (1 - f) * s);
+    // initial selected
+    uint16_t selected = initialColor;
+    bool accepted = false;
+    bool running = true;
 
-    float r = 0, g = 0, b = 0;
-    switch (hi)
+    // Helper: convert HSV (h:0-360, s:0-1, v:0-1) -> RGB565
+    auto hsvTo565 = [&](float h, float s, float v) -> uint16_t {
+        float hh = h;
+        if (hh >= 360.0f) hh = 0.0f;
+        float f = (hh / 60.0f);
+        int i = int(f);
+        float frac = f - float(i);
+        float p = v * (1.0f - s);
+        float q = v * (1.0f - s * frac);
+        float t = v * (1.0f - s * (1.0f - frac));
+        float rr=0, gg=0, bb=0;
+        switch (i)
+        {
+        case 0: rr = v; gg = t; bb = p; break;
+        case 1: rr = q; gg = v; bb = p; break;
+        case 2: rr = p; gg = v; bb = t; break;
+        case 3: rr = p; gg = q; bb = v; break;
+        case 4: rr = t; gg = p; bb = v; break;
+        case 5: rr = v; gg = p; bb = q; break;
+        default: rr = v; gg = p; bb = q; break;
+        }
+        return rgbTo565(uint8_t(rr * 255.0f), uint8_t(gg * 255.0f), uint8_t(bb * 255.0f));
+    };
+
+    // Draw the picker gradient: hue across X (0..360), saturation across Y (0..1), fixed V=1
+    // We'll render column by column to keep memory footprint small.
+    for (int x = 0; x < pickerWidth; x++)
     {
-    case 0:
-        r = v;
-        g = t_val;
-        b = p;
-        break;
-    case 1:
-        r = q;
-        g = v;
-        b = p;
-        break;
-    case 2:
-        r = p;
-        g = v;
-        b = t_val;
-        break;
-    case 3:
-        r = p;
-        g = q;
-        b = v;
-        break;
-    case 4:
-        r = t_val;
-        g = p;
-        b = v;
-        break;
-    case 5:
-        r = v;
-        g = p;
-        b = q;
-        break;
+        float hue = float(x) / float(max(1, pickerWidth - 1)) * 360.0f;
+        // For each column, draw vertical gradient for saturation (top = 0 => white-ish, bottom = 1 => full hue)
+        for (int y = 0; y < pickerHeight; y++)
+        {
+            // y=0 => saturation = 0 (white), y=pickerHeight => saturation = 1 (full color)
+            float sat = float(y) / float(max(1, pickerHeight - 1));
+            // Because we want top to be desaturated (more white) and bottom full color, but keep V=1.
+            uint16_t c = hsvTo565(hue, sat, 1.0f);
+            tft.drawPixel(pickerLeft + x, pickerTop + y, c);
+        }
     }
 
-    // Convert float 0..1 to 0..255
-    uint8_t R = uint8_t(r * 255);
-    uint8_t G = uint8_t(g * 255);
-    uint8_t B = uint8_t(b * 255);
+    // Draw OK and Cancel buttons
+    tft.fillRoundRect(okX, okY, btnW, btnH, 6, Style::Colors::primary);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextSize(2);
+    tft.setTextColor(Style::Colors::accentText, Style::Colors::primary);
+    tft.drawString("OK", okX + btnW / 2, okY + btnH / 2);
 
-    // Optionally draw a preview rectangle
-    tft.fillRect(rectX, rectY, width, height, rgbTo565(R, G, B));
+    tft.fillRoundRect(cancelX, cancelY, btnW, btnH, 6, Style::Colors::danger);
+    tft.setTextColor(Style::Colors::accentText, Style::Colors::danger);
+    tft.drawString("Cancel", cancelX + btnW / 2, cancelY + btnH / 2);
+    tft.setTextSize(1);
 
-    return rgbTo565(R, G, B);
+    // Initial preview circle (top center)
+    auto drawPreview = [&](uint16_t col) {
+        int cx = tft.width() / 2;
+        int cy = okY + btnH / 2;
+        int r = 16;
+        tft.fillCircle(cx, cy, r + 2, Style::Colors::primary); // border
+        tft.fillCircle(cx, cy, r, col);
+    };
+
+    drawPreview(selected);
+
+    // Main pick loop
+    while (running)
+    {
+        auto evt = Screen::getTouchPos();
+        if (!evt.clicked)
+        {
+            delay(10);
+            continue;
+        }
+
+        // Check OK
+        if (evt.x >= okX && evt.x <= okX + btnW && evt.y >= okY && evt.y <= okY + btnH)
+        {
+            accepted = true;
+            running = false;
+            break;
+        }
+
+        // Check Cancel
+        if (evt.x >= cancelX && evt.x <= cancelX + btnW && evt.y >= cancelY && evt.y <= cancelY + btnH)
+        {
+            accepted = false;
+            running = false;
+            break;
+        }
+
+        // If touched inside picker area -> compute color from coordinates
+        if (evt.y >= pickerTop && evt.y < pickerTop + pickerHeight && evt.x >= pickerLeft && evt.x < pickerLeft + pickerWidth)
+        {
+            int px = evt.x - pickerLeft;
+            int py = evt.y - pickerTop;
+
+            float hue = float(px) / float(max(1, pickerWidth - 1)) * 360.0f;
+            float sat = float(py) / float(max(1, pickerHeight - 1));
+            // Limit sat to [0,1]
+            if (sat < 0.0f) sat = 0.0f;
+            if (sat > 1.0f) sat = 1.0f;
+
+            uint16_t col = hsvTo565(hue, sat, 1.0f);
+            selected = col;
+
+            // Draw preview
+            drawPreview(selected);
+        }
+
+        delay(20);
+    }
+
+    // If accepted, return selected (apply); otherwise original
+    return accepted ? selected : initialColor;
 }
 
 // ---------- Designer ----------
@@ -375,7 +437,7 @@ static inline void openDesigner()
             continue;
         }
 
-        // Custom colors touch
+        // Custom colors touch -> open fullscreen picker
         if (mode.equalsIgnoreCase("custom"))
         {
             int xStart = 20 - scrollOffset;
@@ -387,53 +449,21 @@ static inline void openDesigner()
                 if (evt.x >= x0 && evt.x <= x0 + colorBoxSize &&
                     evt.y >= y0 && evt.y <= y0 + colorBoxSize)
                 {
-                    // Create a color picker at the bottom of the screen
-                    const int pickerHeight = 100;
-                    const int pickerY = tft.height() - pickerHeight - 10;
-                    const int pickerWidth = tft.width() - 40;
-
-                    // Draw color picker
-                    tft.fillRect(20, pickerY, pickerWidth, pickerHeight, TFT_BLACK);
-
-                    // Draw gradient for color selection
-                    for (int px = 0; px < pickerWidth; px++)
+                    // Fullscreen color picker returns either original (cancel) or new color (ok)
+                    uint16_t newColor = fullscreenColorPicker(working.colors[i]);
+                    // If changed, update and apply
+                    if (newColor != working.colors[i])
                     {
-                        uint16_t color = pickColor(20 + px, pickerY + pickerHeight / 2,
-                                                   20, pickerY, pickerWidth, pickerHeight);
-                        tft.drawFastVLine(20 + px, pickerY, pickerHeight, color);
+                        working.colors[i] = newColor;
+                        applyTheme(working);
                     }
-
-                    // Instructions
-                    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-                    tft.setTextDatum(TC_DATUM);
-                    tft.drawString("Tap on the color strip to select", tft.width() / 2, pickerY - 15);
-
-                    // Wait for color selection
-                    bool selecting = true;
-                    while (selecting)
-                    {
-                        auto colorEvt = Screen::getTouchPos();
-                        if (colorEvt.clicked)
-                        {
-                            if (colorEvt.y >= pickerY && colorEvt.y <= pickerY + pickerHeight)
-                            {
-                                working.colors[i] = pickColor(colorEvt.x, colorEvt.y,
-                                                              20, pickerY, pickerWidth, pickerHeight);
-                                // Apply the new color in real-time
-                                applyTheme(working);
-                                selecting = false;
-                            }
-                        }
-                        delay(50);
-                    }
-
                     drawUI();
                     break;
                 }
             }
         }
 
-        // Save & Exit button
+        // Save & Exit / Cancel buttons
         if (evt.y > tft.height() - 40 && evt.y < tft.height() - 10)
         {
             if (evt.x >= 20 && evt.x <= 120)
