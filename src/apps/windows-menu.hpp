@@ -120,7 +120,7 @@ struct AppRenderData
 struct ShortCut
 {
     String name;
-    String svg;
+    NSVGimage * svg;
 };
 
 unsigned long menuUpdateTime = 0;
@@ -307,7 +307,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
             tft.drawCentreString(shortCut.name, scPos.pos.x + (w / 2), scPos.pos.y + 5, 1);
 
             // draw svg if present
-            if (!shortCut.svg.isEmpty())
+            if (shortCut.svg)
             {
                 int d = h - 20;
                 // compute icon top-left inside scPos

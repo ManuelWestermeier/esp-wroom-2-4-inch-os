@@ -7,12 +7,17 @@ extern "C"
 
 #include "svg.hpp"
 
-bool drawSVGString(String svgString,
+NSVGimage *createSVG(String svgString)
+{
+    NSVGimage *image = nsvgParse((char *)svgString.c_str(), "px", 96.0f);
+    return image;
+}
+
+bool drawSVGString(NSVGimage *image,
                    int xOff, int yOff,
                    int targetW, int targetH,
                    uint16_t color)
 {
-    NSVGimage *image = nsvgParse((char *)svgString.c_str(), "px", 96.0f);
     if (!image)
         return false;
 
