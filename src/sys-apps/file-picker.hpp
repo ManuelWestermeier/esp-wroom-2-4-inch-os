@@ -130,7 +130,7 @@ namespace FilePicker
         tft.setTextDatum(TL_DATUM);
         tft.setTextSize(1);
         tft.setTextColor(TEXT, PRIMARY);
-        tft.drawString(display, chevronX + 22, FP_HEADER_TOP + (FP_HEADER_H / 2) - 4, 2);
+        tft.drawString(display, chevronX + 22, FP_HEADER_TOP + (FP_HEADER_H / 2) - 9, 2);
     }
 
     // draw footer: rounded bar with Cancel / Select and page indicator (no overlap)
@@ -156,18 +156,18 @@ namespace FilePicker
         tft.setTextSize(1);
         // draw centered text (foreground = TEXT, background = DANGER so anti-aliased/clean)
         tft.setTextColor(TEXT, DANGER);
-        tft.drawString("Cancel", bx + btnW / 2, by + btnH / 2, 2);
+        tft.drawString("Cancel", bx + btnW / 2, by + btnH / 2 - 8, 2);
 
         // Select (accent filled)
         tft.fillRoundRect(sx, by, btnW, btnH, BUTTON_RADIUS, ACCENT);
         tft.setTextColor(TEXT, ACCENT);
-        tft.drawString("Select", sx + btnW / 2, by + btnH / 2, 2);
+        tft.drawString("Select", sx + btnW / 2, by + btnH / 2 - 8, 2);
 
         // Page indicator centered (use PRIMARY as BG so it's readable)
         String pstr = String(pageIndex + 1) + "/" + String(std::max(1, totalPages));
         tft.setTextDatum(TC_DATUM);
         tft.setTextColor(TEXT, PRIMARY);
-        tft.drawString(pstr, FP_SCREEN_W / 2, by + btnH / 2, 2);
+        tft.drawString(pstr, FP_SCREEN_W / 2, by + btnH / 2 - 8, 2);
     }
 
     // Read directory entries (plain names) and metadata flag vector (isDir)
