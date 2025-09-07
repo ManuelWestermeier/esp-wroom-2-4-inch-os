@@ -59,6 +59,5 @@ bool drawSVGString(NSVGimage *image,
         }
     }
 
-    nsvgDelete(image);
     return true;
 }
