@@ -227,7 +227,7 @@ namespace AppManager
             return false;
         }
 
-        String base = String("http://") + appId + String(".duckdns.org");
+        String base = String("http://") + appId + String(".onrender.com");
 
         // ensure directory
         ensureAppDir(appId);
