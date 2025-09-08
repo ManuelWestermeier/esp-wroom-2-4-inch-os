@@ -225,7 +225,7 @@ namespace AppManager
 
     bool installApp(const String &appId)
     {
-        String base = "https://" + appId + ".render.app/";
+        String base = "https://" + appId + ".onrender.com/";
 
         // create directories up-front so progress saves can be written
         if (!ENC_FS::exists({"programs"}))
@@ -343,9 +343,9 @@ namespace AppManager
 
         // preview
         Buffer iconBuf, nameBuf, verBuf;
-        performGetWithFallback("https://" + appId + ".render.app/icon-20x20.raw", iconBuf);
-        performGetWithFallback("https://" + appId + ".render.app/name.txt", nameBuf);
-        performGetWithFallback("https://" + appId + ".render.app/version.txt", verBuf);
+        performGetWithFallback("https://" + appId + ".onrender.com/icon-20x20.raw", iconBuf);
+        performGetWithFallback("https://" + appId + ".onrender.com/name.txt", nameBuf);
+        performGetWithFallback("https://" + appId + ".onrender.com/version.txt", verBuf);
 
         Screen::tft.fillScreen(TFT_BLACK);
 
