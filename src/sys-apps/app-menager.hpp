@@ -58,9 +58,28 @@ namespace AppManager
         return out;
     }
 
+    // safe WiFi check with logging
+    static bool ensureWiFiConnected(unsigned long timeoutMs = 8000)
+    {
+        if (WiFi.status() == WL_CONNECTED)
+            return true;
+        unsigned long start = millis();
+        Serial.println("Waiting for WiFi...");
+        while (millis() - start < timeoutMs)
+        {
+            if (WiFi.status() == WL_CONNECTED)
+                return true;
+            delay(100);
+        }
+        Serial.println("WiFi not connected (timeout)");
+        return false;
+    }
+
     // perform GET: robust reading of stream (works if getSize()==0 or unknown)
+    // also rejects overly-large responses to avoid OOM/crashes
     bool performGet(const String &url, Buffer &buf, bool useHttps)
     {
+        const size_t MAX_BYTES = 4 + (size_t)Screen::tft.width() * (size_t)Screen::tft.height() * 2 + 1024; // safe cap
         if (WiFi.status() != WL_CONNECTED)
         {
             Serial.println("performGet: WiFi not connected");
@@ -86,24 +105,38 @@ namespace AppManager
                 {
                     WiFiClient *stream = &http.getStream();
                     size_t len = http.getSize();
+                    if (len > 0 && len > MAX_BYTES)
+                    {
+                        Serial.printf("performGet: Content-Length %u exceeds cap %u\n", (unsigned)len, (unsigned)MAX_BYTES);
+                        http.end();
+                        return false;
+                    }
+
                     if (len > 0)
                     {
                         buf.data.resize(len);
                         size_t read = 0;
+                        unsigned long start = millis();
                         while (read < len)
                         {
                             size_t r = stream->readBytes(buf.data.data() + read, len - read);
                             if (r == 0)
-                                break;
+                            {
+                                // safety timeout to avoid infinite loop
+                                if (millis() - start > 15000)
+                                    break;
+                                delay(1);
+                                continue;
+                            }
                             read += r;
                         }
                     }
                     else
                     {
-                        // read until stream closed / no data
+                        // unknown size, read until closed or cap reached
                         buf.data.clear();
                         unsigned long start = millis();
-                        while (stream->connected() || stream->available())
+                        while ((stream->connected() || stream->available()) && buf.data.size() < MAX_BYTES)
                         {
                             while (stream->available())
                             {
@@ -112,7 +145,6 @@ namespace AppManager
                                     break;
                                 buf.data.push_back((uint8_t)c);
                             }
-                            // safety timeout in case stream hangs
                             if (millis() - start > 15000)
                                 break;
                             delay(1);
@@ -143,15 +175,28 @@ namespace AppManager
                 {
                     WiFiClient *stream = &http.getStream();
                     size_t len = http.getSize();
+                    if (len > 0 && len > MAX_BYTES)
+                    {
+                        Serial.printf("performGet: Content-Length %u exceeds cap %u\n", (unsigned)len, (unsigned)MAX_BYTES);
+                        http.end();
+                        return false;
+                    }
+
                     if (len > 0)
                     {
                         buf.data.resize(len);
                         size_t read = 0;
+                        unsigned long start = millis();
                         while (read < len)
                         {
                             size_t r = stream->readBytes(buf.data.data() + read, len - read);
                             if (r == 0)
-                                break;
+                            {
+                                if (millis() - start > 15000)
+                                    break;
+                                delay(1);
+                                continue;
+                            }
                             read += r;
                         }
                     }
@@ -159,7 +204,7 @@ namespace AppManager
                     {
                         buf.data.clear();
                         unsigned long start = millis();
-                        while (stream->connected() || stream->available())
+                        while ((stream->connected() || stream->available()) && buf.data.size() < MAX_BYTES)
                         {
                             while (stream->available())
                             {
@@ -186,9 +231,14 @@ namespace AppManager
         return success;
     }
 
-    // try https then http
+    // try https then http (returns false if WiFi not connected)
     bool performGetWithFallback(const String &url, Buffer &buf)
     {
+        if (WiFi.status() != WL_CONNECTED)
+        {
+            Serial.println("performGetWithFallback: WiFi not connected");
+            return false;
+        }
         if (performGet(url, buf, true))
             return true;
         Serial.printf("HTTPS failed for %s, trying HTTP\n", url.c_str());
@@ -321,12 +371,59 @@ namespace AppManager
             // small sleep so we don't starve CPU
             delay(10);
 
-            // optional: break out after a long timeout (not used by us, but helpful during debugging)
-            if (millis() - start > 120000) // 2 minutes timeout
+            // timeout to bail (helps debugging / prevents hang)
+            if (millis() - start > 120000)
             {
-                Serial.println("waitForTwoButtonChoice: timeout");
+                Serial.println("waitForTwoButtonChoice: timeout -> cancel");
                 return 'c';
             }
+        }
+    }
+
+    // Safely push an RGB565 image stored as: 2-byte width LE, 2-byte height LE, then w*h uint16_t pixels (big enough capacity checked earlier)
+    static void safePushImageFromBuffer(int x, int y, const Buffer &buf)
+    {
+        if (!buf.ok || buf.data.size() < 4)
+            return;
+        // parse header
+        uint16_t w = (uint16_t)buf.data[0] | ((uint16_t)buf.data[1] << 8);
+        uint16_t h = (uint16_t)buf.data[2] | ((uint16_t)buf.data[3] << 8);
+
+        // sanity checks: must fit screen and not be ridiculously large
+        if (w == 0 || h == 0)
+            return;
+        if (w > (uint16_t)Screen::tft.width() || h > (uint16_t)Screen::tft.height())
+        {
+            Serial.printf("safePushImageFromBuffer: image %u x %u too large for screen %u x %u\n", (unsigned)w, (unsigned)h, (unsigned)Screen::tft.width(), (unsigned)Screen::tft.height());
+            return;
+        }
+
+        size_t expected = (size_t)4 + (size_t)w * (size_t)h * 2;
+        if (buf.data.size() < expected)
+        {
+            Serial.printf("safePushImageFromBuffer: data too small (have %u need %u)\n", (unsigned)buf.data.size(), (unsigned)expected);
+            return;
+        }
+
+        // ensure alignment: some platforms crash on unaligned uint16_t pointer reads
+        uintptr_t addr = (uintptr_t)(buf.data.data() + 4);
+        if ((addr & 1) == 0)
+        {
+            // aligned -> cast and call directly
+            uint16_t *pix = (uint16_t *)(buf.data.data() + 4);
+            Screen::tft.pushImage(x, y, w, h, pix);
+        }
+        else
+        {
+            // unaligned -> copy into temporary uint16_t vector and push
+            std::vector<uint16_t> tmp;
+            tmp.resize((size_t)w * (size_t)h);
+            const uint8_t *p = buf.data.data() + 4;
+            for (size_t i = 0; i < tmp.size(); ++i)
+            {
+                tmp[i] = (uint16_t)p[2 * i] | ((uint16_t)p[2 * i + 1] << 8);
+            }
+            Screen::tft.pushImage(x, y, w, h, tmp.data());
         }
     }
 
@@ -337,32 +434,17 @@ namespace AppManager
         Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
         Screen::tft.drawString("Install App?", 10, 6, 2);
 
-        // parse icon header: first 4 bytes expected little-endian width(2) height(2)
+        // display icon if valid and safe
         bool showedImage = false;
         if (iconBuf.ok && iconBuf.data.size() >= 4)
         {
-            uint16_t w = (uint16_t)iconBuf.data[0] | ((uint16_t)iconBuf.data[1] << 8);
-            uint16_t h = (uint16_t)iconBuf.data[2] | ((uint16_t)iconBuf.data[3] << 8);
-            size_t expected = 4 + (size_t)w * (size_t)h * 2;
-            Serial.printf("icon header w=%u h=%u expected bytes=%u actual=%u\n", (unsigned)w, (unsigned)h, (unsigned)expected, (unsigned)iconBuf.data.size());
-            if (w > 0 && h > 0 && iconBuf.data.size() >= expected)
-            {
-                uint16_t *pix = (uint16_t *)(iconBuf.data.data() + 4);
-                // safe to call pushImage now
-                Screen::tft.pushImage(10, 36, w, h, pix);
-                showedImage = true;
-            }
-            else
-            {
-                Serial.println("Icon header invalid or data too small; skipping image.");
-            }
+            // header parsing & checks are inside safePushImageFromBuffer
+            safePushImageFromBuffer(10, 36, iconBuf);
+            showedImage = true; // safePushImage already logs if skipped
         }
 
         if (!showedImage)
-        {
-            Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
             Screen::tft.drawString("[no icon]", 10, 36, 2);
-        }
 
         if (appName.length() > 0)
             Screen::tft.drawString("Name: " + trimLines(appName), 40, 36, 2);
@@ -381,7 +463,8 @@ namespace AppManager
     // top-level install; requires files to be downloaded after user confirmation
     bool installApp(const String &rawAppId)
     {
-        if (WiFi.status() != WL_CONNECTED)
+        // make sure WiFi connected before any network op
+        if (!ensureWiFiConnected(10000))
         {
             Serial.println("installApp: WiFi not connected - aborting");
             Screen::tft.fillScreen(TFT_RED);
@@ -399,35 +482,31 @@ namespace AppManager
         }
         else if (rawAppId.indexOf('/') != -1 && rawAppId.indexOf('.') != -1)
         {
-            // treat as host/path
             base = rawAppId;
         }
         else
         {
-            // default domain if user supplied a simple id
             base = "https://" + rawAppId + ".onrender.com/";
         }
         if (!base.endsWith("/"))
             base += "/";
 
-        // folder name for disk (sanitized)
         String folderName = sanitizeFolderName(rawAppId);
 
-        // metadata fetch (name, version, icon) WITHOUT creating folders yet
+        // metadata fetch WITHOUT writing files yet
         Buffer nameBuf, verBuf, iconBuf;
-        performGetWithFallback(base + "name.txt", nameBuf);
-        performGetWithFallback(base + "version.txt", verBuf);
-        performGetWithFallback(base + "icon-20x20.raw", iconBuf);
+        bool nameOk = performGetWithFallback(base + "name.txt", nameBuf);
+        bool verOk = performGetWithFallback(base + "version.txt", verBuf);
+        bool iconOk = performGetWithFallback(base + "icon-20x20.raw", iconBuf);
 
         String name = "";
-        if (nameBuf.ok)
+        if (nameOk && nameBuf.ok && nameBuf.data.size() < 1024)
             name = String((const char *)nameBuf.data.data(), nameBuf.data.size());
 
         String version = "";
-        if (verBuf.ok)
+        if (verOk && verBuf.ok && verBuf.data.size() < 1024)
             version = String((const char *)verBuf.data.data(), verBuf.data.size());
 
-        // ask user to confirm using the metadata
         bool confirmed = confirmInstallPrompt(name, iconBuf, version);
         if (!confirmed)
         {
@@ -435,7 +514,7 @@ namespace AppManager
             return false;
         }
 
-        // create directories
+        // create directories safely
         if (!ENC_FS::exists({"programs"}))
         {
             if (!ENC_FS::mkDir({"programs"}))
@@ -468,6 +547,13 @@ namespace AppManager
             Screen::tft.drawString("Downloading:", 10, 150, 2);
             Screen::tft.drawString(core[i].second, 10, 170, 2);
 
+            if (!ensureWiFiConnected(5000))
+            {
+                Serial.println("Lost WiFi during download");
+                Screen::tft.drawString("WiFi lost", 10, 190, 2);
+                return false;
+            }
+
             bool ok = fetchAndWrite(core[i].first, core[i].second, folderName, true);
             if (!ok)
             {
@@ -499,6 +585,12 @@ namespace AppManager
             Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
             Screen::tft.drawString("Extra:", 10, 150, 2);
             Screen::tft.drawString(extraFiles[i], 10, 170, 2);
+
+            if (!ensureWiFiConnected(5000))
+            {
+                Serial.println("Lost WiFi during extra downloads");
+                return false;
+            }
 
             bool ok = fetchAndWrite(base + extraFiles[i], extraFiles[i], folderName, false);
 
