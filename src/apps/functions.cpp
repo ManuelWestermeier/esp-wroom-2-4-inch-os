@@ -171,6 +171,43 @@ namespace LuaApps::LuaFunctions
         return 1;
     }
 
+    int lua_getTheme(lua_State *L)
+    {
+        lua_newtable(L); // create a new table
+
+        lua_pushinteger(L, Style::Colors::bg);
+        lua_setfield(L, -2, "bg");
+
+        lua_pushinteger(L, Style::Colors::primary);
+        lua_setfield(L, -2, "primary");
+
+        lua_pushinteger(L, Style::Colors::text);
+        lua_setfield(L, -2, "text");
+
+        lua_pushinteger(L, Style::Colors::placeholder);
+        lua_setfield(L, -2, "placeholder");
+
+        lua_pushinteger(L, Style::Colors::accent);
+        lua_setfield(L, -2, "accent");
+
+        lua_pushinteger(L, Style::Colors::accent2);
+        lua_setfield(L, -2, "accent2");
+
+        lua_pushinteger(L, Style::Colors::accent3);
+        lua_setfield(L, -2, "accent3");
+
+        lua_pushinteger(L, Style::Colors::accentText);
+        lua_setfield(L, -2, "accentText");
+
+        lua_pushinteger(L, Style::Colors::pressed);
+        lua_setfield(L, -2, "pressed");
+
+        lua_pushinteger(L, Style::Colors::danger);
+        lua_setfield(L, -2, "danger");
+
+        return 1; // return the table
+    }
+
     int luaDelay(lua_State *L)
     {
         int time = luaL_checkinteger(L, 1);
@@ -358,6 +395,7 @@ namespace LuaApps::LuaFunctions
         lua_register(L, "httpReq", luaHttpRequest);
         lua_register(L, "httpsReq", luaHttpsRequest);
         lua_register(L, "RGB", lua_RGB);
+        lua_register(L, "getTheme", lua_getTheme);
 
         // window functions — we can extend WinLib::register_win_functions
         LuaApps::WinLib::register_win_functions(L);

@@ -4,14 +4,22 @@ print("APP:STARTED")
 local win = createWindow(20, 20, 240, 160)
 WIN_setName(win, "Search")
 
-local BG = RGB(20, 20, 20)
-local WIN_BG = RGB(240, 240, 240)
-local TITLE_BG = RGB(30, 120, 200)
-local TITLE_FG = RGB(255, 255, 255)
-local BOX_BG = RGB(255, 255, 255)
-local TEXT_FG = RGB(0, 0, 0)
-local RESULT_FG = RGB(10, 10, 10)
+-- pull style palette from C++ (lua_getTheme)
+local theme = getTheme()
 
+-- semantic color roles
+local BG         = theme.bg
+local WIN_BG     = theme.primary
+local TITLE_BG   = theme.accent
+local TITLE_FG   = theme.accentText
+local BOX_BG     = theme.bg
+local TEXT_FG    = theme.text
+local RESULT_FG  = theme.text
+local PLACEHOLDER= theme.placeholder
+local BORDER     = theme.accent2
+local ERROR_FG   = theme.danger
+
+-- url encoding helper
 local function url_encode(str)
     if (str == nil) then
         return ""
@@ -62,12 +70,14 @@ local function extract_results_from_ddg(body, max_items)
     return results
 end
 
+-- UI renderer
 local function draw_ui(query, results)
     -- full background
     WIN_fillRect(win, 1, 0, 0, 240, 160, BG)
+
     -- main card
     WIN_fillRect(win, 1, 8, 8, 224, 144, WIN_BG)
-    WIN_drawRect(win, 1, 8, 8, 224, 144, RGB(180, 180, 180))
+    WIN_drawRect(win, 1, 8, 8, 224, 144, BORDER)
 
     -- title bar
     WIN_fillRect(win, 1, 8, 8, 224, 26, TITLE_BG)
@@ -76,11 +86,12 @@ local function draw_ui(query, results)
     -- search box label and box
     WIN_writeText(win, 1, 16, 40, "Search:", 1, TEXT_FG)
     WIN_fillRect(win, 1, 64, 36, 152, 22, BOX_BG)
-    WIN_drawRect(win, 1, 64, 36, 152, 22, RGB(160, 160, 160))
+    WIN_drawRect(win, 1, 64, 36, 152, 22, BORDER)
+
     if query and #query > 0 then
         WIN_writeText(win, 1, 68, 40, query, 1, RESULT_FG)
     else
-        WIN_writeText(win, 1, 68, 40, "(click box to type a query)", 1, RGB(140, 140, 140))
+        WIN_writeText(win, 1, 68, 40, "(click box to type a query)", 1, PLACEHOLDER)
     end
 
     -- results header
@@ -92,39 +103,39 @@ local function draw_ui(query, results)
     if results then
         for i = 1, #results do
             local text = results[i]
+            local color = RESULT_FG
+            if text:match("^%u") and (text:find("error") or text:find("Error") or text:find("HTTP")) then
+                color = ERROR_FG
+            end
             -- naive wrap: split by words so it fits approx into 30 chars per line
             local maxchars = 30
             local start = 1
             while start <= #text and y + line_h <= 8 + 144 do
                 local sub = text:sub(start, start + maxchars - 1)
-                -- try to not cut mid-word
                 local cut = sub:match("^(.*)%s") or sub
                 if #cut < #sub and #cut > 0 then
                     sub = cut
                 end
-                WIN_writeText(win, 1, 16, y, sub, 1, RESULT_FG)
+                WIN_writeText(win, 1, 16, y, sub, 1, color)
                 start = start + #sub
-                -- skip space if present
                 if text:sub(start, start) == " " then
                     start = start + 1
                 end
                 y = y + line_h
             end
-            y = y + 4 -- small gap between results
-            if y > 8 + 144 then
-                break
-            end
+            y = y + 4
+            if y > 8 + 144 then break end
         end
     end
 end
 
+-- search function
 local function perform_search(query)
     if not query or query == "" then
         return {"(empty query)"}
     end
     local q = url_encode(query)
     local url = "https://api.duckduckgo.com/?q=" .. q .. "&format=json&no_html=1&skip_disambig=1"
-    -- use httpsReq (registered in C++)
     local res = httpsReq {
         method = "GET",
         url = url
@@ -138,32 +149,23 @@ local function perform_search(query)
     return extract_results_from_ddg(res.body, 8)
 end
 
--- main loop: draw UI, wait for user to click the search box (WIN_readText),
--- then search & display results. Loop so user can run multiple queries.
+-- main loop
 local query = ""
 local results = nil
 
 draw_ui(query, results)
 
 while true do
-    -- prompt: WIN_readText returns ok, out. ok is true only after window was clicked (see your C++)
     local ok, out = WIN_readText(win, "Search DuckDuckGo:", query)
     if ok then
         query = out or ""
-        -- give immediate visual feedback
         draw_ui(query, {"Searching..."})
-        -- perform search
-        local okResults = perform_search(query)
-        results = okResults
+        results = perform_search(query)
         draw_ui(query, results)
     else
-        -- no input yet: redraw UI occasionally so the window remains responsive
         draw_ui(query, results)
     end
-
-    -- yield a bit so other tasks (rendering) run; use your delay wrapper
     delay(100)
 end
 
--- unreachable, but kept for style:
 print("APP:EXITED")

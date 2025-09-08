@@ -19,6 +19,7 @@ extern "C"
 #include "../wifi/index.hpp"
 #include "../fs/enc-fs.hpp"
 #include "index.hpp"
+#include "../styles/global.hpp"
 
 namespace LuaApps::LuaFunctions
 {
@@ -26,6 +27,7 @@ namespace LuaApps::LuaFunctions
     int luaExec(lua_State *L);
     int setLED(lua_State *L);
     int lua_RGB(lua_State *L);
+    int lua_getTheme(lua_State *L);
     int luaDelay(lua_State *L);
     int luaHttpRequest(lua_State *L);
     int luaHttpsRequest(lua_State *L);
