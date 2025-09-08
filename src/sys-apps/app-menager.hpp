@@ -1,9 +1,11 @@
 #pragma once
+
 #include <Arduino.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <FS.h>
 #include <vector>
+
 #include "../io/read-string.hpp"
 #include "../screen/index.hpp"
 #include "../fs/enc-fs.hpp"
@@ -94,21 +96,34 @@ namespace AppManager
         return success;
     }
 
-    bool fetchAndWrite(const String &url, const String &path, const String &appId, bool required)
+    // wrapper that tries https then http fallback automatically
+    bool performGetWithFallback(const String &url, Buffer &buf)
     {
-        Buffer data;
-        bool ok = performGet(url, data, true);
+        bool ok = performGet(url, buf, true);
         if (!ok)
         {
             Serial.printf("HTTPS failed for %s, trying HTTP...\n", url.c_str());
-            ok = performGet(String("http://") + url.substring(url.indexOf("//") + 2), data, false);
+            int p = url.indexOf("//");
+            String httpUrl = url;
+            if (p >= 0)
+            {
+                httpUrl = String("http://") + url.substring(p + 2);
+            }
+            ok = performGet(httpUrl, buf, false);
         }
-        if (!ok || !data.ok)
+        return ok && buf.ok;
+    }
+
+    bool fetchAndWrite(const String &url, const String &path, const String &appId, bool required)
+    {
+        Buffer data;
+        bool ok = performGetWithFallback(url, data);
+        if (!ok)
         {
             Serial.printf("Failed to download %s\n", url.c_str());
             if (required)
                 return false;
-            return true;
+            return true; // optional file failed but not fatal
         }
 
         // ensure directory exists
@@ -155,64 +170,185 @@ namespace AppManager
         return out;
     }
 
+    // simple rectangle helper
+    struct Rect
+    {
+        int x, y, w, h;
+        bool contains(int px, int py) const
+        {
+            return px >= x && px < (x + w) && py >= y && py < (y + h);
+        }
+    };
+
+    static void drawButton(const Rect &r, const char *label, uint16_t bg = TFT_BLUE, uint16_t fg = TFT_WHITE)
+    {
+        Screen::tft.fillRoundRect(r.x, r.y, r.w, r.h, 8, bg);
+        Screen::tft.setTextColor(fg, bg);
+        Screen::tft.drawString(label, r.x + 10, r.y + (r.h - 16) / 2, 2);
+    }
+
+    // Wait for choice between two buttons using Screen::getTouchPos() with serial fallback.
+    // returns 'i' for first button, 'c' for second button
+    static char waitForTwoButtonChoice(const Rect &a, const Rect &b)
+    {
+        while (true)
+        {
+            // use Screen touch API
+            Screen::TouchPos tp = Screen::getTouchPos();
+            if (tp.clicked)
+            {
+                int tx = (int)tp.x;
+                int ty = (int)tp.y;
+                if (a.contains(tx, ty))
+                    return 'i';
+                if (b.contains(tx, ty))
+                    return 'c';
+                // minor debounce
+                delay(50);
+            }
+
+            // serial fallback
+            if (Serial.available())
+            {
+                String s = readString("");
+                s.trim();
+                if (s.length() > 0)
+                {
+                    char c = tolower(s[0]);
+                    if (c == 'i' || c == 'c')
+                        return c;
+                }
+            }
+            delay(10);
+        }
+    }
+
     bool installApp(const String &appId)
     {
         String base = "https://" + appId + ".duckdns.org/";
 
-        if (!fetchAndWrite(base + "entry.lua", "entry.lua", appId, true))
-            return false;
-        if (!fetchAndWrite(base + "icon-20x20.raw", "icon-20x20.raw", appId, true))
-            return false;
-        if (!fetchAndWrite(base + "name.txt", "name.txt", appId, true))
-            return false;
-        if (!fetchAndWrite(base + "version.txt", "version.txt", appId, true))
-            return false;
+        // create directories up-front so progress saves can be written
+        if (!ENC_FS::exists({"programs"}))
+            ENC_FS::mkDir({"programs"});
+        if (!ENC_FS::exists({"programs", appId}))
+            ENC_FS::mkDir({"programs", appId});
 
-        Buffer pkg;
-        if (!performGet(base + "pkg.txt", pkg, true))
+        // core files
+        std::vector<std::pair<String, String>> toFetch;
+        toFetch.push_back({base + "entry.lua", "entry.lua"});
+        toFetch.push_back({base + "icon-20x20.raw", "icon-20x20.raw"});
+        toFetch.push_back({base + "name.txt", "name.txt"});
+        toFetch.push_back({base + "version.txt", "version.txt"});
+
+        for (size_t i = 0; i < toFetch.size(); ++i)
         {
-            Serial.printf("Failed to fetch pkg.txt\n");
-            return false;
-        }
-        auto files = parsePkgTxt(pkg);
-        for (auto &rp : files)
-        {
-            if (!fetchAndWrite(base + rp, rp, appId, false))
+            String url = toFetch[i].first;
+            String path = toFetch[i].second;
+
+            Screen::tft.fillRect(0, 100, 320, 60, TFT_BLACK);
+            Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
+            Screen::tft.drawString("Downloading:", 10, 100, 2);
+            Screen::tft.drawString(path, 10, 120, 2);
+
+            bool ok = fetchAndWrite(url, path, appId, true);
+            if (!ok)
             {
-                Serial.printf("Failed extra: %s\n", rp.c_str());
+                Serial.printf("Required file failed: %s\n", path.c_str());
+                return false;
+            }
+
+            int pct = (int)((i + 1) * 100 / toFetch.size());
+            Screen::tft.fillRect(10, 160, 300, 12, TFT_DARKGREY);
+            Screen::tft.fillRect(10, 160, (int)(3.0 * pct), 12, TFT_GREEN);
+        }
+
+        // pkg.txt
+        Buffer pkg;
+        bool fetchedPkg = performGetWithFallback(base + "pkg.txt", pkg);
+        if (!fetchedPkg)
+        {
+            Screen::tft.fillRect(0, 100, 320, 40, TFT_BLACK);
+            Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
+            Screen::tft.drawString("No pkg.txt found, done.", 10, 100, 2);
+            delay(800);
+            return true;
+        }
+
+        auto files = parsePkgTxt(pkg);
+        if (files.empty())
+        {
+            Screen::tft.fillRect(0, 100, 320, 40, TFT_BLACK);
+            Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
+            Screen::tft.drawString("pkg.txt empty, done.", 10, 100, 2);
+            delay(600);
+            return true;
+        }
+
+        for (size_t i = 0; i < files.size(); ++i)
+        {
+            String rp = files[i];
+            Screen::tft.fillRect(0, 100, 320, 60, TFT_BLACK);
+            Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
+            Screen::tft.drawString("Extra file:", 10, 100, 2);
+            Screen::tft.drawString(rp, 10, 120, 2);
+
+            bool ok = fetchAndWrite(base + rp, rp, appId, false);
+
+            int pct = (int)((i + 1) * 100 / files.size());
+            Screen::tft.fillRect(10, 160, 300, 12, TFT_DARKGREY);
+            Screen::tft.fillRect(10, 160, (int)(3.0 * pct), 12, TFT_GREEN);
+
+            if (!ok)
+            {
+                Serial.printf("Optional file failed: %s\n", rp.c_str());
+                Screen::tft.drawString("Optional file failed", 10, 180, 2);
+                delay(400);
+            }
+            else
+            {
+                Screen::tft.drawString("Saved", 10, 180, 2);
+                delay(200);
             }
         }
+
         return true;
     }
 
     void showInstaller()
     {
+        // header
         Screen::tft.fillScreen(TFT_BLACK);
         Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
         Screen::tft.drawString("App Manager", 10, 10, 2);
 
-        // buttons
-        Screen::tft.fillRoundRect(20, 50, 120, 40, 8, TFT_BLUE);
-        Screen::tft.drawString("Install new app", 30, 60, 2);
-        Screen::tft.fillRoundRect(160, 50, 80, 40, 8, TFT_RED);
-        Screen::tft.drawString("Cancel", 170, 60, 2);
+        Rect installRect{20, 50, 160, 50};
+        Rect cancelRect{200, 50, 100, 50};
 
-        // wait for input
-        String cmd = readString("Enter 'i' to install or 'c' to cancel: ");
-        if (cmd != "i")
+        // buttons
+        drawButton(installRect, "Install new app", TFT_GREEN, TFT_BLACK);
+        drawButton(cancelRect, "Cancel", TFT_RED, TFT_BLACK);
+
+        char choice = waitForTwoButtonChoice(installRect, cancelRect);
+        if (choice != 'i')
             return;
 
-        String appId = readString("Enter app id: ");
+        // get app id via serial (on-screen keyboard not provided)
+        Screen::tft.fillScreen(TFT_BLACK);
+        Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
+        Screen::tft.drawString("Enter App ID on serial input", 10, 10, 2);
+        String appId = readString("App ID: ");
+        appId.trim();
+        if (appId.length() == 0)
+            return;
 
         // preview
-        Buffer iconBuf;
-        performGet("https://" + appId + ".duckdns.org/icon-20x20.raw", iconBuf, true);
-        Buffer nameBuf;
-        performGet("https://" + appId + ".duckdns.org/name.txt", nameBuf, true);
-        Buffer verBuf;
-        performGet("https://" + appId + ".duckdns.org/version.txt", verBuf, true);
+        Buffer iconBuf, nameBuf, verBuf;
+        performGetWithFallback("https://" + appId + ".duckdns.org/icon-20x20.raw", iconBuf);
+        performGetWithFallback("https://" + appId + ".duckdns.org/name.txt", nameBuf);
+        performGetWithFallback("https://" + appId + ".duckdns.org/version.txt", verBuf);
 
         Screen::tft.fillScreen(TFT_BLACK);
+
         if (iconBuf.ok && iconBuf.data.size() >= 4 + 20 * 20 * 2)
         {
             uint16_t *pix = (uint16_t *)(iconBuf.data.data() + 4);
@@ -221,6 +357,7 @@ namespace AppManager
         if (nameBuf.ok)
         {
             String n((const char *)nameBuf.data.data(), nameBuf.data.size());
+            Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
             Screen::tft.drawString("Name: " + trimLines(n), 40, 10, 2);
         }
         if (verBuf.ok)
@@ -229,17 +366,21 @@ namespace AppManager
             Screen::tft.drawString("Version: " + trimLines(v), 40, 30, 2);
         }
 
-        // OK / Cancel
-        Screen::tft.fillRoundRect(20, 60, 80, 40, 8, TFT_GREEN);
-        Screen::tft.drawString("OK", 40, 70, 2);
-        Screen::tft.fillRoundRect(120, 60, 80, 40, 8, TFT_RED);
-        Screen::tft.drawString("Cancel", 130, 70, 2);
+        Rect okRect{20, 60, 100, 50};
+        Rect cancel2Rect{140, 60, 100, 50};
+        drawButton(okRect, "Install", TFT_GREEN, TFT_BLACK);
+        drawButton(cancel2Rect, "Cancel", TFT_RED, TFT_BLACK);
 
-        String ok = readString("Enter 'y' to confirm: ");
-        if (ok != "y")
+        char confirm = waitForTwoButtonChoice(okRect, cancel2Rect);
+        if (confirm != 'i')
             return;
 
+        Screen::tft.fillScreen(TFT_BLACK);
+        Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
+        Screen::tft.drawString("Installing...", 10, 10, 2);
+
         bool result = installApp(appId);
+
         Screen::tft.fillScreen(result ? TFT_GREEN : TFT_RED);
         Screen::tft.setTextColor(TFT_BLACK, result ? TFT_GREEN : TFT_RED);
         Screen::tft.drawString(result ? "Installed" : "Install failed", 10, 10, 2);
