@@ -15,4 +15,5 @@ namespace SVG
     extern NSVGimage *account;
     extern NSVGimage *login;
     extern NSVGimage *signin;
+    extern NSVGimage *apps;
 }

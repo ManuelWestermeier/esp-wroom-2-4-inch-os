@@ -6,6 +6,7 @@
 #include "../sys-apps/designer.hpp"
 #include "../sys-apps/wifi-menager.hpp"
 #include "../sys-apps/file-picker.hpp"
+#include "../sys-apps/app-menager.hpp"
 
 #include "../icons/index.hpp"
 
@@ -120,7 +121,7 @@ struct AppRenderData
 struct ShortCut
 {
     String name;
-    NSVGimage * svg;
+    NSVGimage *svg;
 };
 
 unsigned long menuUpdateTime = 0;
@@ -132,6 +133,7 @@ static std::vector<ShortCut> shortCuts = {
     {"Account", SVG::account},
     {"Design", SVG::design},
     {"WiFi", SVG::wifi},
+    {"Apps", SVG::apps},
     {"Folders", SVG::folder},
 };
 
@@ -273,6 +275,19 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     else if (shortCut.name == "WiFi")
                     {
                         return openWifiManager();
+                    }
+                    else if (shortCut.name == "Apps")
+                    {
+                        appManager();
+                        return;
+                    }
+                    else if (shortCut.name == "Settings")
+                    {
+                        Serial.println("Settings clicked");
+                    }
+                    else if (shortCut.name == "Account")
+                    {
+                        Serial.println("Account clicked");
                     }
                     break;
                 }
