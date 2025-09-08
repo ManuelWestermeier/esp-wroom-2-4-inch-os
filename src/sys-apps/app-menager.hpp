@@ -5,6 +5,7 @@
 #include <HTTPClient.h>
 #include <FS.h>
 #include <vector>
+#include <algorithm>
 
 #include "../io/read-string.hpp"
 #include "../screen/index.hpp"
@@ -13,13 +14,15 @@
 namespace AppManager
 {
 
+    // simple byte-buffer wrapper used throughout this file
     struct Buffer
     {
         std::vector<uint8_t> data;
         bool ok = false;
     };
 
-    // trim helper
+    // ---------- helpers ----------
+
     String trimLines(const String &s)
     {
         int start = 0;
@@ -34,7 +37,7 @@ namespace AppManager
     }
 
     // sanitize a string to use as a safe folder name: replace non-alnum with '_'
-    String sanitizeFolderName(const String &s)
+    static String sanitizeFolderName(const String &s)
     {
         String out;
         out.reserve(s.length());
@@ -45,41 +48,49 @@ namespace AppManager
                 (c >= 'A' && c <= 'Z') ||
                 (c >= '0' && c <= '9') ||
                 c == '-' || c == '_')
-            {
                 out += c;
-            }
             else
-            {
                 out += '_';
-            }
         }
         if (out.length() == 0)
             out = "app";
         return out;
     }
 
-    // safe WiFi check with logging
-    static bool ensureWiFiConnected(unsigned long timeoutMs = 8000)
+    // draw a string clipped to max width using TFT_eSPI::textWidth
+    static void drawClippedString(int x, int y, int maxW, int font, const String &s)
     {
-        if (WiFi.status() == WL_CONNECTED)
-            return true;
-        unsigned long start = millis();
-        Serial.println("Waiting for WiFi...");
-        while (millis() - start < timeoutMs)
+        if (s.length() == 0)
+            return;
+        const char *cs = s.c_str();
+        int w = Screen::tft.textWidth(cs, font);
+        if (w <= maxW)
         {
-            if (WiFi.status() == WL_CONNECTED)
-                return true;
-            delay(100);
+            Screen::tft.drawString(s, x, y, font);
+            return;
         }
-        Serial.println("WiFi not connected (timeout)");
-        return false;
+        // shorten until fits, append ellipsis
+        String t = s;
+        while (t.length() > 0)
+        {
+            t = t.substring(0, t.length() - 1);
+            String tp = t + "...";
+            if (Screen::tft.textWidth(tp.c_str(), font) <= maxW)
+            {
+                Screen::tft.drawString(tp, x, y, font);
+                return;
+            }
+        }
+        // nothing fits; draw nothing
     }
 
-    // perform GET: robust reading of stream (works if getSize()==0 or unknown)
-    // also rejects overly-large responses to avoid OOM/crashes
-    bool performGet(const String &url, Buffer &buf, bool useHttps)
+    // ---------- networking (robust read) ----------
+
+    // perform GET: robust reading of stream (works if getSize()==0 or unknown).
+    // Limits response size to avoid OOM.
+    static bool performGet(const String &url, Buffer &outBuf, bool useHttps)
     {
-        const size_t MAX_BYTES = 4 + (size_t)Screen::tft.width() * (size_t)Screen::tft.height() * 2 + 1024; // safe cap
+        const size_t MAX_BYTES = 200 * 1024; // 200 KB cap
         if (WiFi.status() != WL_CONNECTED)
         {
             Serial.println("performGet: WiFi not connected");
@@ -96,68 +107,7 @@ namespace AppManager
             if (!http.begin(client, url))
             {
                 Serial.printf("http.begin (https) failed: %s\n", url.c_str());
-            }
-            else
-            {
-                int code = http.GET();
-                Serial.printf("http GET %s -> %d\n", url.c_str(), code);
-                if (code == HTTP_CODE_OK)
-                {
-                    WiFiClient *stream = &http.getStream();
-                    size_t len = http.getSize();
-                    if (len > 0 && len > MAX_BYTES)
-                    {
-                        Serial.printf("performGet: Content-Length %u exceeds cap %u\n", (unsigned)len, (unsigned)MAX_BYTES);
-                        http.end();
-                        return false;
-                    }
-
-                    if (len > 0)
-                    {
-                        buf.data.resize(len);
-                        size_t read = 0;
-                        unsigned long start = millis();
-                        while (read < len)
-                        {
-                            size_t r = stream->readBytes(buf.data.data() + read, len - read);
-                            if (r == 0)
-                            {
-                                // safety timeout to avoid infinite loop
-                                if (millis() - start > 15000)
-                                    break;
-                                delay(1);
-                                continue;
-                            }
-                            read += r;
-                        }
-                    }
-                    else
-                    {
-                        // unknown size, read until closed or cap reached
-                        buf.data.clear();
-                        unsigned long start = millis();
-                        while ((stream->connected() || stream->available()) && buf.data.size() < MAX_BYTES)
-                        {
-                            while (stream->available())
-                            {
-                                int c = stream->read();
-                                if (c < 0)
-                                    break;
-                                buf.data.push_back((uint8_t)c);
-                            }
-                            if (millis() - start > 15000)
-                                break;
-                            delay(1);
-                        }
-                    }
-                    buf.ok = !buf.data.empty();
-                    success = buf.ok;
-                }
-                else
-                {
-                    Serial.printf("HTTP code %d for %s\n", code, url.c_str());
-                }
-                http.end();
+                return false;
             }
         }
         else
@@ -166,79 +116,74 @@ namespace AppManager
             if (!http.begin(client, url))
             {
                 Serial.printf("http.begin (http) failed: %s\n", url.c_str());
-            }
-            else
-            {
-                int code = http.GET();
-                Serial.printf("http GET %s -> %d\n", url.c_str(), code);
-                if (code == HTTP_CODE_OK)
-                {
-                    WiFiClient *stream = &http.getStream();
-                    size_t len = http.getSize();
-                    if (len > 0 && len > MAX_BYTES)
-                    {
-                        Serial.printf("performGet: Content-Length %u exceeds cap %u\n", (unsigned)len, (unsigned)MAX_BYTES);
-                        http.end();
-                        return false;
-                    }
-
-                    if (len > 0)
-                    {
-                        buf.data.resize(len);
-                        size_t read = 0;
-                        unsigned long start = millis();
-                        while (read < len)
-                        {
-                            size_t r = stream->readBytes(buf.data.data() + read, len - read);
-                            if (r == 0)
-                            {
-                                if (millis() - start > 15000)
-                                    break;
-                                delay(1);
-                                continue;
-                            }
-                            read += r;
-                        }
-                    }
-                    else
-                    {
-                        buf.data.clear();
-                        unsigned long start = millis();
-                        while ((stream->connected() || stream->available()) && buf.data.size() < MAX_BYTES)
-                        {
-                            while (stream->available())
-                            {
-                                int c = stream->read();
-                                if (c < 0)
-                                    break;
-                                buf.data.push_back((uint8_t)c);
-                            }
-                            if (millis() - start > 15000)
-                                break;
-                            delay(1);
-                        }
-                    }
-                    buf.ok = !buf.data.empty();
-                    success = buf.ok;
-                }
-                else
-                {
-                    Serial.printf("HTTP code %d for %s\n", code, url.c_str());
-                }
-                http.end();
+                return false;
             }
         }
+
+        int code = http.GET();
+        Serial.printf("http GET %s -> %d\n", url.c_str(), code);
+        if (code != HTTP_CODE_OK)
+        {
+            http.end();
+            Serial.printf("HTTP code %d for %s\n", code, url.c_str());
+            return false;
+        }
+
+        WiFiClient *stream = &http.getStream();
+        int len = http.getSize(); // may be -1 if unknown
+        if (len > 0)
+        {
+            if ((size_t)len > MAX_BYTES)
+            {
+                Serial.printf("performGet: Content-Length %d exceeds cap %u\n", len, (unsigned)MAX_BYTES);
+                http.end();
+                return false;
+            }
+            outBuf.data.resize((size_t)len);
+            size_t read = 0;
+            unsigned long start = millis();
+            while (read < (size_t)len)
+            {
+                size_t r = stream->readBytes(outBuf.data.data() + read, (size_t)len - read);
+                if (r == 0)
+                {
+                    if (millis() - start > 15000)
+                        break;
+                    delay(1);
+                    continue;
+                }
+                read += r;
+            }
+        }
+        else
+        {
+            // unknown size — read until closed or cap reached
+            outBuf.data.clear();
+            unsigned long start = millis();
+            while ((stream->connected() || stream->available()) && outBuf.data.size() < MAX_BYTES)
+            {
+                while (stream->available())
+                {
+                    int c = stream->read();
+                    if (c < 0)
+                        break;
+                    outBuf.data.push_back((uint8_t)c);
+                }
+                if (millis() - start > 15000)
+                    break;
+                delay(1);
+            }
+        }
+
+        outBuf.ok = !outBuf.data.empty();
+        success = outBuf.ok;
+        http.end();
         return success;
     }
 
-    // try https then http (returns false if WiFi not connected)
-    bool performGetWithFallback(const String &url, Buffer &buf)
+    // try https then http
+    static bool performGetWithFallback(const String &url, Buffer &buf)
     {
-        if (WiFi.status() != WL_CONNECTED)
-        {
-            Serial.println("performGetWithFallback: WiFi not connected");
-            return false;
-        }
         if (performGet(url, buf, true))
             return true;
         Serial.printf("HTTPS failed for %s, trying HTTP\n", url.c_str());
@@ -251,19 +196,21 @@ namespace AppManager
         return false;
     }
 
-    bool fetchAndWrite(const String &url, const String &path, const String &folderName, bool required)
+    // ---------- filesystem + fetch ----------
+
+    static bool fetchAndWrite(const String &url, const String &path, const String &folderName, bool required)
     {
-        Buffer data;
-        bool ok = performGetWithFallback(url, data);
+        Buffer dataBuf;
+        bool ok = performGetWithFallback(url, dataBuf);
         if (!ok)
         {
             Serial.printf("Failed to download %s\n", url.c_str());
             if (required)
                 return false;
-            return true; // optional file failed but not fatal
+            return true;
         }
 
-        // ensure directory exists
+        // ensure directory exists (ENC_FS)
         if (!ENC_FS::exists({"programs"}))
         {
             if (!ENC_FS::mkDir({"programs"}))
@@ -283,7 +230,7 @@ namespace AppManager
             }
         }
 
-        bool written = ENC_FS::writeFile({"programs", folderName, path}, 0, 0, data.data);
+        bool written = ENC_FS::writeFile({"programs", folderName, path}, 0, 0, dataBuf.data);
         if (!written)
         {
             Serial.printf("ENC_FS::writeFile failed for %s\n", path.c_str());
@@ -292,12 +239,12 @@ namespace AppManager
         return true;
     }
 
-    std::vector<String> parsePkgTxt(const Buffer &buf)
+    // parse pkg.txt into vector of relative paths
+    static std::vector<String> parsePkgTxt(const Buffer &buf)
     {
         std::vector<String> out;
         if (!buf.ok)
             return out;
-
         String s((const char *)buf.data.data(), buf.data.size());
         int idx = 0;
         while (idx < (int)s.length())
@@ -321,25 +268,49 @@ namespace AppManager
         return out;
     }
 
-    // simple rectangle helper
-    struct Rect
+    // ---------- icon handling ----------
+    // all icons are 20x20 RGB565 with 4-byte header (ignored).
+    // Build a 20x20 temporary buffer, pad/truncate to 800 bytes and push.
+    static void safePush20x20Icon(int x, int y, const Buffer &buf)
+    {
+        const size_t ICON_PIX = 20 * 20;
+        const size_t ICON_BYTES = ICON_PIX * 2; // 800
+        if (!buf.ok || buf.data.size() < 4)
+            return;
+        const uint8_t *p = buf.data.data() + 4;
+        size_t payload = buf.data.size() - 4;
+
+        // temporary buffer (stack) is OK for 800 uint16_t
+        uint16_t tmp[ICON_PIX];
+        for (size_t i = 0; i < ICON_PIX; ++i)
+        {
+            size_t off = i * 2;
+            if (off + 1 < payload)
+                tmp[i] = (uint16_t)p[off] | ((uint16_t)p[off + 1] << 8);
+            else
+                tmp[i] = 0; // pad black
+        }
+
+        Screen::tft.pushImage(x, y, 20, 20, tmp);
+    }
+
+    // ---------- UI helpers (no Rect redefinition) ----------
+    // Use a unique button rectangle type to avoid colliding with project Rect
+    struct BtnRect
     {
         int x, y, w, h;
-        bool contains(int px, int py) const
-        {
-            return px >= x && px < (x + w) && py >= y && py < (y + h);
-        }
+        bool contains(int px, int py) const { return px >= x && px < (x + w) && py >= y && py < (y + h); }
     };
 
-    static void drawButton(const Rect &r, const char *label, uint16_t bg = TFT_BLUE, uint16_t fg = TFT_WHITE)
+    static void drawButton(const BtnRect &r, const char *label, uint16_t bg = TFT_BLUE, uint16_t fg = TFT_WHITE)
     {
         Screen::tft.fillRoundRect(r.x, r.y, r.w, r.h, 8, bg);
         Screen::tft.setTextColor(fg, bg);
-        Screen::tft.drawString(label, r.x + 10, r.y + (r.h - 16) / 2, 2);
+        drawClippedString(r.x + 6, r.y + (r.h - 16) / 2, r.w - 12, 2, String(label));
     }
 
-    // Wait for user to tap one of two buttons using Screen::getTouchPos(); serial fallback returns 'i' or 'c'.
-    static char waitForTwoButtonChoice(const Rect &a, const Rect &b)
+    // wait for two-button choice using Screen::getTouchPos() + serial fallback
+    static char waitForTwoButtonChoice(const BtnRect &a, const BtnRect &b)
     {
         unsigned long start = millis();
         while (true)
@@ -347,15 +318,13 @@ namespace AppManager
             Screen::TouchPos tp = Screen::getTouchPos();
             if (tp.clicked)
             {
-                int tx = (int)tp.x;
-                int ty = (int)tp.y;
+                int tx = (int)tp.x, ty = (int)tp.y;
                 if (a.contains(tx, ty))
                     return 'i';
                 if (b.contains(tx, ty))
                     return 'c';
                 delay(50);
             }
-
             if (Serial.available())
             {
                 String s = readString("");
@@ -367,11 +336,7 @@ namespace AppManager
                         return c;
                 }
             }
-
-            // small sleep so we don't starve CPU
             delay(10);
-
-            // timeout to bail (helps debugging / prevents hang)
             if (millis() - start > 120000)
             {
                 Serial.println("waitForTwoButtonChoice: timeout -> cancel");
@@ -380,131 +345,83 @@ namespace AppManager
         }
     }
 
-    // Safely push an RGB565 image stored as: 2-byte width LE, 2-byte height LE, then w*h uint16_t pixels (big enough capacity checked earlier)
-    static void safePushImageFromBuffer(int x, int y, const Buffer &buf)
-    {
-        if (!buf.ok || buf.data.size() < 4)
-            return;
-        // parse header
-        uint16_t w = (uint16_t)buf.data[0] | ((uint16_t)buf.data[1] << 8);
-        uint16_t h = (uint16_t)buf.data[2] | ((uint16_t)buf.data[3] << 8);
-
-        // sanity checks: must fit screen and not be ridiculously large
-        if (w == 0 || h == 0)
-            return;
-        if (w > (uint16_t)Screen::tft.width() || h > (uint16_t)Screen::tft.height())
-        {
-            Serial.printf("safePushImageFromBuffer: image %u x %u too large for screen %u x %u\n", (unsigned)w, (unsigned)h, (unsigned)Screen::tft.width(), (unsigned)Screen::tft.height());
-            return;
-        }
-
-        size_t expected = (size_t)4 + (size_t)w * (size_t)h * 2;
-        if (buf.data.size() < expected)
-        {
-            Serial.printf("safePushImageFromBuffer: data too small (have %u need %u)\n", (unsigned)buf.data.size(), (unsigned)expected);
-            return;
-        }
-
-        // ensure alignment: some platforms crash on unaligned uint16_t pointer reads
-        uintptr_t addr = (uintptr_t)(buf.data.data() + 4);
-        if ((addr & 1) == 0)
-        {
-            // aligned -> cast and call directly
-            uint16_t *pix = (uint16_t *)(buf.data.data() + 4);
-            Screen::tft.pushImage(x, y, w, h, pix);
-        }
-        else
-        {
-            // unaligned -> copy into temporary uint16_t vector and push
-            std::vector<uint16_t> tmp;
-            tmp.resize((size_t)w * (size_t)h);
-            const uint8_t *p = buf.data.data() + 4;
-            for (size_t i = 0; i < tmp.size(); ++i)
-            {
-                tmp[i] = (uint16_t)p[2 * i] | ((uint16_t)p[2 * i + 1] << 8);
-            }
-            Screen::tft.pushImage(x, y, w, h, tmp.data());
-        }
-    }
-
-    // Show a confirmation dialog with app name and icon; returns true if user confirms
+    // confirmation dialog: show icon (20x20), name and version
     static bool confirmInstallPrompt(const String &appName, const Buffer &iconBuf, const String &version)
     {
+        const int LEFT = 8;
+        const int TOP = 8;
+        const int AVAIL_W = 320 - LEFT * 2;
+
         Screen::tft.fillScreen(TFT_BLACK);
         Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        Screen::tft.drawString("Install App?", 10, 6, 2);
+        drawClippedString(LEFT, TOP, AVAIL_W, 4, String("Install App?"));
 
-        // display icon if valid and safe
-        bool showedImage = false;
-        if (iconBuf.ok && iconBuf.data.size() >= 4)
-        {
-            // header parsing & checks are inside safePushImageFromBuffer
-            safePushImageFromBuffer(10, 36, iconBuf);
-            showedImage = true; // safePushImage already logs if skipped
-        }
+        int iconY = TOP + 28;
+        safePush20x20Icon(LEFT, iconY, iconBuf);
 
-        if (!showedImage)
-            Screen::tft.drawString("[no icon]", 10, 36, 2);
+        int textX = LEFT + 28;
+        drawClippedString(textX, iconY, AVAIL_W - 28, 2, String("Name: ") + trimLines(appName));
+        drawClippedString(textX, iconY + 20, AVAIL_W - 28, 2, String("Version: ") + trimLines(version));
 
-        if (appName.length() > 0)
-            Screen::tft.drawString("Name: " + trimLines(appName), 40, 36, 2);
-        if (version.length() > 0)
-            Screen::tft.drawString("Version: " + trimLines(version), 40, 56, 2);
-
-        Rect yes{40, 100, 100, 50};
-        Rect no{180, 100, 80, 50};
-        drawButton(yes, "Yes", TFT_GREEN, TFT_BLACK);
-        drawButton(no, "No", TFT_RED, TFT_BLACK);
+        BtnRect yes{LEFT + 20, 160, 110, 50};
+        BtnRect no{LEFT + 160, 160, 110, 50};
+        drawButton(yes, "Install", TFT_GREEN, TFT_BLACK);
+        drawButton(no, "Cancel", TFT_RED, TFT_BLACK);
 
         char c = waitForTwoButtonChoice(yes, no);
         return (c == 'i');
     }
 
-    // top-level install; requires files to be downloaded after user confirmation
-    bool installApp(const String &rawAppId)
+    // ---------- high level install flow ----------
+
+    static bool ensureWiFiConnected(unsigned long timeoutMs = 8000)
     {
-        // make sure WiFi connected before any network op
+        if (WiFi.status() == WL_CONNECTED)
+            return true;
+        unsigned long start = millis();
+        Serial.println("Waiting for WiFi...");
+        while (millis() - start < timeoutMs)
+        {
+            if (WiFi.status() == WL_CONNECTED)
+                return true;
+            delay(100);
+        }
+        Serial.println("WiFi not connected (timeout)");
+        return false;
+    }
+
+    static bool installApp(const String &rawAppId)
+    {
         if (!ensureWiFiConnected(10000))
         {
             Serial.println("installApp: WiFi not connected - aborting");
             Screen::tft.fillScreen(TFT_RED);
             Screen::tft.setTextColor(TFT_WHITE, TFT_RED);
-            Screen::tft.drawString("WiFi not connected", 10, 10, 2);
+            drawClippedString(8, 10, 320 - 16, 2, String("WiFi not connected"));
             delay(800);
             return false;
         }
 
-        // build base URL and sanitized folder name
-        String base;
-        if (rawAppId.indexOf("http://") == 0 || rawAppId.indexOf("https://") == 0)
-        {
-            base = rawAppId;
-        }
-        else if (rawAppId.indexOf('/') != -1 && rawAppId.indexOf('.') != -1)
-        {
-            base = rawAppId;
-        }
-        else
-        {
+        // build base URL
+        String base = rawAppId;
+        if (rawAppId.indexOf("http://") == -1 && rawAppId.indexOf("https://") == -1 && rawAppId.indexOf('.') == -1)
             base = "https://" + rawAppId + ".onrender.com/";
-        }
         if (!base.endsWith("/"))
             base += "/";
 
         String folderName = sanitizeFolderName(rawAppId);
 
-        // metadata fetch WITHOUT writing files yet
+        // fetch metadata first (no writes)
         Buffer nameBuf, verBuf, iconBuf;
-        bool nameOk = performGetWithFallback(base + "name.txt", nameBuf);
-        bool verOk = performGetWithFallback(base + "version.txt", verBuf);
-        bool iconOk = performGetWithFallback(base + "icon-20x20.raw", iconBuf);
+        performGetWithFallback(base + "name.txt", nameBuf);
+        performGetWithFallback(base + "version.txt", verBuf);
+        performGetWithFallback(base + "icon-20x20.raw", iconBuf);
 
         String name = "";
-        if (nameOk && nameBuf.ok && nameBuf.data.size() < 1024)
+        if (nameBuf.ok && nameBuf.data.size() < 4096)
             name = String((const char *)nameBuf.data.data(), nameBuf.data.size());
-
         String version = "";
-        if (verOk && verBuf.ok && verBuf.data.size() < 1024)
+        if (verBuf.ok && verBuf.data.size() < 4096)
             version = String((const char *)verBuf.data.data(), verBuf.data.size());
 
         bool confirmed = confirmInstallPrompt(name, iconBuf, version);
@@ -514,7 +431,7 @@ namespace AppManager
             return false;
         }
 
-        // create directories safely
+        // create dirs
         if (!ENC_FS::exists({"programs"}))
         {
             if (!ENC_FS::mkDir({"programs"}))
@@ -539,28 +456,25 @@ namespace AppManager
             {base + "name.txt", "name.txt"},
             {base + "version.txt", "version.txt"}};
 
-        // download core required files
         for (size_t i = 0; i < core.size(); ++i)
         {
             Screen::tft.fillRect(0, 150, 320, 80, TFT_BLACK);
             Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
-            Screen::tft.drawString("Downloading:", 10, 150, 2);
-            Screen::tft.drawString(core[i].second, 10, 170, 2);
+            drawClippedString(8, 150, 320 - 16, 2, String("Downloading: ") + core[i].second);
 
             if (!ensureWiFiConnected(5000))
             {
                 Serial.println("Lost WiFi during download");
-                Screen::tft.drawString("WiFi lost", 10, 190, 2);
+                Screen::tft.drawString("WiFi lost", 8, 170, 2);
                 return false;
             }
 
-            bool ok = fetchAndWrite(core[i].first, core[i].second, folderName, true);
-            if (!ok)
+            if (!fetchAndWrite(core[i].first, core[i].second, folderName, true))
             {
                 Serial.printf("Failed required: %s\n", core[i].second.c_str());
                 Screen::tft.fillScreen(TFT_RED);
                 Screen::tft.setTextColor(TFT_BLACK, TFT_RED);
-                Screen::tft.drawString("Install failed", 10, 10, 2);
+                drawClippedString(8, 10, 320 - 16, 2, String("Install failed"));
                 delay(1200);
                 return false;
             }
@@ -578,51 +492,34 @@ namespace AppManager
             return true;
         }
 
-        auto extraFiles = parsePkgTxt(pkg);
-        for (size_t i = 0; i < extraFiles.size(); ++i)
+        auto extras = parsePkgTxt(pkg);
+        for (size_t i = 0; i < extras.size(); ++i)
         {
-            Screen::tft.fillRect(0, 150, 320, 80, TFT_BLACK);
-            Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
-            Screen::tft.drawString("Extra:", 10, 150, 2);
-            Screen::tft.drawString(extraFiles[i], 10, 170, 2);
-
-            if (!ensureWiFiConnected(5000))
+            drawClippedString(8, 150, 320 - 16, 2, String("Extra: ") + extras[i]);
+            if (!performGetWithFallback(base + extras[i], pkg))
             {
-                Serial.println("Lost WiFi during extra downloads");
-                return false;
+                Serial.printf("Optional failed %s\n", extras[i].c_str());
+                continue;
             }
-
-            bool ok = fetchAndWrite(base + extraFiles[i], extraFiles[i], folderName, false);
-
-            int pct = (int)((i + 1) * 100 / extraFiles.size());
-            Screen::tft.fillRect(10, 210, 300, 10, TFT_DARKGREY);
-            Screen::tft.fillRect(10, 210, (int)(3.0 * pct), 10, TFT_GREEN);
-
-            if (!ok)
+            if (!ENC_FS::writeFile({"programs", folderName, extras[i]}, 0, 0, pkg.data))
             {
-                Serial.printf("Optional download failed: %s\n", extraFiles[i].c_str());
-                Screen::tft.drawString("Optional failed", 10, 185, 2);
-                delay(300);
-            }
-            else
-            {
-                Screen::tft.drawString("Saved", 10, 185, 2);
-                delay(150);
+                Serial.printf("writeFile failed %s\n", extras[i].c_str());
             }
         }
 
         return true;
     }
 
-    void showInstaller()
+    // ---------- UI entry point ----------
+
+    static void showInstaller()
     {
-        // main screen
         Screen::tft.fillScreen(TFT_BLACK);
         Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        Screen::tft.drawString("App Manager", 10, 10, 2);
+        drawClippedString(8, 8, 320 - 16, 4, String("App Manager"));
 
-        Rect installRect{20, 50, 160, 50};
-        Rect cancelRect{200, 50, 100, 50};
+        BtnRect installRect{16, 48, 140, 44};
+        BtnRect cancelRect{172, 48, 140, 44};
 
         drawButton(installRect, "Install new app", TFT_GREEN, TFT_BLACK);
         drawButton(cancelRect, "Cancel", TFT_RED, TFT_BLACK);
@@ -631,30 +528,28 @@ namespace AppManager
         if (choice != 'i')
             return;
 
-        // ask for app id - serial entry (no on-screen keyboard)
         Screen::tft.fillScreen(TFT_BLACK);
-        Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        Screen::tft.drawString("Enter App ID on serial", 10, 10, 2);
+        drawClippedString(8, 8, 320 - 16, 2, String("Enter App ID on serial"));
         String appId = readString("App ID: ");
         appId.trim();
         if (appId.length() == 0)
             return;
 
-        // attempt install
         Screen::tft.fillScreen(TFT_BLACK);
-        Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        Screen::tft.drawString("Preparing...", 10, 10, 2);
+        drawClippedString(8, 8, 320 - 16, 2, String("Preparing..."));
 
         bool res = installApp(appId);
 
         Screen::tft.fillScreen(res ? TFT_GREEN : TFT_RED);
         Screen::tft.setTextColor(TFT_BLACK, res ? TFT_GREEN : TFT_RED);
-        Screen::tft.drawString(res ? "Installed" : "Install failed", 10, 10, 2);
+        drawClippedString(8, 8, 320 - 16, 2, res ? String("Installed") : String("Install failed"));
         delay(1200);
     }
-}
 
-void appManager()
+} // namespace AppManager
+
+// small global entry point kept for compatibility with your previous code
+inline void appManager()
 {
     AppManager::showInstaller();
 }
