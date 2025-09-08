@@ -460,12 +460,12 @@ namespace LuaApps::WinLib
             }
 
             Windows::canAccess = false;
-            
+
             w->wasClicked = false;
             out = readString(question, defaultValue);
 
             Screen::tft.fillScreen(BG);
-            
+
             Windows::canAccess = true;
         }
 
@@ -797,6 +797,59 @@ namespace LuaApps::WinLib
         return 0;
     }
 
+    int lua_WIN_drawSVG(lua_State *L)
+    {
+        if (!Windows::isRendering)
+            return 0;
+
+        Window *win = getWindow(L, 1);
+        if (!win || win->closed)
+            return 0;
+
+        int screenId = luaL_checkinteger(L, 2);
+        String svgStr = luaL_checkstring(L, 3);
+        int x = luaL_checkinteger(L, 4);
+        int y = luaL_checkinteger(L, 5);
+        int w = luaL_checkinteger(L, 6);
+        int h = luaL_checkinteger(L, 7);
+        int color = luaL_checkinteger(L, 8);
+        int steps = luaL_checkinteger(L, 9);
+
+        Rect rect = getScreenRect(win, screenId);
+
+        NSVGimage *svgImage = createSVG(svgStr);
+
+        bool ok = svgImage != nullptr;
+
+        if (ok)
+        {
+            while (!Windows::canAccess)
+            {
+                delay(rand() % 2);
+            }
+            Windows::canAccess = false;
+
+            Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+
+            ok = drawSVGString(svgImage,
+                               x, y,
+                               w, h,
+                               color, steps > 10 ? 10 : (steps < 1 ? 1 : steps));
+
+            Screen::tft.resetViewport();
+
+            Windows::canAccess = true;
+
+            nsvgDelete(svgImage);
+            svgImage = nullptr;
+        }
+        delay(5);
+
+        lua_pushboolean(L, ok);
+        
+        return 1;
+    }
+
     // register functions
     void register_win_functions(lua_State *L)
     {
@@ -830,6 +883,7 @@ namespace LuaApps::WinLib
         lua_register(L, "WIN_fillRoundRect", lua_WIN_fillRoundRect);
         lua_register(L, "WIN_drawFastVLine", lua_WIN_drawFastVLine);
         lua_register(L, "WIN_drawFastHLine", lua_WIN_drawFastHLine);
+        lua_register(L, "WIN_drawSVG", lua_WIN_drawSVG);
     }
 
 } // namespace LuaApps::WinLib

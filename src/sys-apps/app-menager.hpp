@@ -1,199 +1,140 @@
 #pragma once
-// file: app-manager.hpp
-// App Manager UI for installing apps from appid.duckdns.org
-// Uses readString() for input and ENC_FS for storage.
-
 #include <Arduino.h>
-#include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <FS.h>
 #include <vector>
-
-#include "../screen/index.hpp"   // Screen::tft, Screen::getTouchPos()
-#include "../io/read-string.hpp" // readString(prompt, initial)
+#include "../io/read-string.hpp"
+#include "../screen/index.hpp"
 #include "../fs/enc-fs.hpp"
-#include "../styles/global.hpp"
-
-using std::vector;
 
 namespace AppManager
 {
-    using Path = ENC_FS::Path;
-    using Buffer = ENC_FS::Buffer;
 
-    // Simple helper: write a buffer into ENC_FS at path (creates parent dirs)
-    static bool writeBufferToPath(const Path &p, const Buffer &data)
+    struct Buffer
     {
-        // ensure parent dirs exist
-        if (p.size() <= 1)
-            ENC_FS::mkDir(p);
-        else
-        {
-            Path parent = p;
-            parent.pop_back();
-            // create every segment along the way
-            Path accu;
-            for (size_t i = 0; i < parent.size(); ++i)
-            {
-                accu.push_back(parent[i]);
-                ENC_FS::mkDir(accu);
-            }
-        }
+        std::vector<uint8_t> data;
+        bool ok = false;
+    };
 
-        return ENC_FS::writeFile(p, 0, -1, data);
+    // trim helper
+    String trimLines(const String &s)
+    {
+        int start = 0;
+        while (start < (int)s.length() && isspace((unsigned char)s[start]))
+            start++;
+        int end = s.length() - 1;
+        while (end >= 0 && isspace((unsigned char)s[end]))
+            end--;
+        if (end < start)
+            return "";
+        return s.substring(start, end + 1);
     }
 
-    // Helper: converts ENC_FS::Buffer to Arduino String (safe)
-    static String bufferToString(const Buffer &b)
-    {
-        if (b.empty())
-            return String("");
-        // make a null-terminated copy
-        std::vector<uint8_t> tmp(b.begin(), b.end());
-        tmp.push_back('\0');
-        return String((const char *)tmp.data());
-    }
-
-    // HTTP GET an URL into buffer. Returns true on success (200) and fills out buffer.
-    static bool httpGetToBuffer(const String &url, Buffer &out)
+    // perform GET (https first, fallback to http if fallback==true)
+    bool performGet(const String &url, Buffer &buf, bool useHttps)
     {
         HTTPClient http;
-        http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-        if (!http.begin(url))
-        {
-            Serial.printf("http begin failed for %s\n", url.c_str());
-            return false;
-        }
+        bool success = false;
 
-        int code = http.GET();
-        if (code != HTTP_CODE_OK)
+        if (useHttps)
         {
-            Serial.printf("http GET %s -> %d\n", url.c_str(), code);
-            http.end();
-            return false;
-        }
-
-        WiFiClient *stream = http.getStreamPtr();
-        int contentLength = http.getSize();
-
-        out.clear();
-        if (contentLength > 0)
-        {
-            out.reserve(contentLength);
-            while (http.connected() && (contentLength > 0))
+            WiFiClientSecure client;
+            client.setInsecure();
+            if (!http.begin(client, url))
             {
-                size_t available = stream->available();
-                if (available)
-                {
-                    size_t toRead = std::min((size_t)available, (size_t)512);
-                    std::vector<uint8_t> buf(toRead);
-                    int r = stream->readBytes((char *)buf.data(), toRead);
-                    if (r > 0)
-                        out.insert(out.end(), buf.begin(), buf.begin() + r);
-                    contentLength -= r;
-                }
-                else
-                {
-                    delay(5);
-                }
+                Serial.printf("http begin failed (https) for %s\n", url.c_str());
             }
-        }
-        else
-        {
-            // unknown length -> read until end
-            while (http.connected())
+            else
             {
-                while (stream->available())
+                int code = http.GET();
+                Serial.printf("http GET %s -> %d\n", url.c_str(), code);
+                if (code == HTTP_CODE_OK)
                 {
-                    uint8_t chunk[512];
-                    int r = stream->readBytes((char *)chunk, sizeof(chunk));
-                    if (r > 0)
-                        out.insert(out.end(), chunk, chunk + r);
+                    WiFiClient *stream = &http.getStream();
+                    size_t len = http.getSize();
+                    if (len > 0)
+                    {
+                        buf.data.resize(len);
+                        stream->readBytes(buf.data.data(), len);
+                        buf.ok = true;
+                        success = true;
+                    }
                 }
-                if (!http.connected())
-                    break;
-                delay(5);
+                http.end();
             }
         }
 
-        http.end();
+        if (!success && !useHttps)
+        {
+            WiFiClient client;
+            if (!http.begin(client, url))
+            {
+                Serial.printf("http begin failed (http) for %s\n", url.c_str());
+            }
+            else
+            {
+                int code = http.GET();
+                Serial.printf("http GET %s -> %d\n", url.c_str(), code);
+                if (code == HTTP_CODE_OK)
+                {
+                    WiFiClient *stream = &http.getStream();
+                    size_t len = http.getSize();
+                    if (len > 0)
+                    {
+                        buf.data.resize(len);
+                        stream->readBytes(buf.data.data(), len);
+                        buf.ok = true;
+                        success = true;
+                    }
+                }
+                http.end();
+            }
+        }
+        return success;
+    }
+
+    bool fetchAndWrite(const String &url, const String &path, const String &appId, bool required)
+    {
+        Buffer data;
+        bool ok = performGet(url, data, true);
+        if (!ok)
+        {
+            Serial.printf("HTTPS failed for %s, trying HTTP...\n", url.c_str());
+            ok = performGet(String("http://") + url.substring(url.indexOf("//") + 2), data, false);
+        }
+        if (!ok || !data.ok)
+        {
+            Serial.printf("Failed to download %s\n", url.c_str());
+            if (required)
+                return false;
+            return true;
+        }
+
+        // ensure directory exists
+        if (!ENC_FS::exists({"programs"}))
+            ENC_FS::mkDir({"programs"});
+        if (!ENC_FS::exists({"programs", appId}))
+            ENC_FS::mkDir({"programs", appId});
+
+        bool written = ENC_FS::writeFile({"programs", appId, path}, 0, 0, data.data);
+        if (!written)
+        {
+            Serial.printf("Failed to open %s for write\n", path.c_str());
+            return false;
+        }
         return true;
     }
 
-    // Ensure programs/<appId> directory exists
-    static bool ensureAppDir(const String &appId)
+    std::vector<String> parsePkgTxt(const Buffer &buf)
     {
-        Path p;
-        p.push_back("programs");
-        p.push_back(appId);
-        return ENC_FS::mkDir(p);
-    }
+        std::vector<String> out;
+        if (!buf.ok)
+            return out;
 
-    // Write a file fetched from baseUrl + "/" + remotePath into programs/<appId>/<filename or remotePath>
-    static bool fetchAndWrite(const String &baseUrl, const String &remotePath, const String &appId, bool isBinary = true)
-    {
-        String url = baseUrl;
-        if (!url.endsWith("/"))
-            url += "/";
-        // remotePath may start with '/'
-        String rp = remotePath;
-        while (rp.startsWith("/"))
-            rp.remove(0, 1);
-        url += rp;
-
-        ENC_FS::Buffer data;
-        if (!httpGetToBuffer(url, data))
-        {
-            Serial.printf("Failed to download %s\n", url.c_str());
-            return false;
-        }
-
-        // build target path: programs / appId / (remotePath last segment or full remotePath)
-        // If remotePath contains directories we create them and keep the same structure under app dir.
-        Path target;
-        target.push_back("programs");
-        target.push_back(appId);
-
-        // split rp by '/'
-        int start = 0;
-        int len = rp.length();
-        for (int i = 0; i <= len; ++i)
-        {
-            if (i == len || rp.charAt(i) == '/')
-            {
-                if (i - start > 0)
-                {
-                    String seg = rp.substring(start, i);
-                    target.push_back(seg);
-                }
-                start = i + 1;
-            }
-        }
-
-        return writeBufferToPath(target, data);
-    }
-
-    // Trim CR/LF and whitespace from String (in place)
-    static String trimLines(String s)
-    {
-        // remove leading/trailing whitespace
-        int a = 0;
-        while (a < s.length() && isspace((unsigned char)s[a]))
-            a++;
-        int b = s.length() - 1;
-        while (b >= a && isspace((unsigned char)s[b]))
-            b--;
-        if (b < a)
-            return String("");
-        return s.substring(a, b + 1);
-    }
-
-    // Parse pkg.txt contents (raw buffer) into vector of relative paths
-    static vector<String> parsePkgTxt(const Buffer &buf)
-    {
-        vector<String> out;
-        String s = bufferToString(buf);
+        String s((const char *)buf.data.data(), buf.data.size());
         int idx = 0;
-        while (idx < s.length())
+        while (idx < (int)s.length())
         {
             int nl = s.indexOf('\n', idx);
             String line;
@@ -214,111 +155,99 @@ namespace AppManager
         return out;
     }
 
-    // High level installer: given appId, fetch the core files and pkg.txt extras
-    // Returns true if at least the core files were installed (best-effort for extras)
-    static bool installApp(const String &appId)
+    bool installApp(const String &appId)
     {
-        if (appId.length() == 0)
+        String base = "https://" + appId + ".duckdns.org/";
+
+        if (!fetchAndWrite(base + "entry.lua", "entry.lua", appId, true))
+            return false;
+        if (!fetchAndWrite(base + "icon-20x20.raw", "icon-20x20.raw", appId, true))
+            return false;
+        if (!fetchAndWrite(base + "name.txt", "name.txt", appId, true))
+            return false;
+        if (!fetchAndWrite(base + "version.txt", "version.txt", appId, true))
             return false;
 
-        if (WiFi.status() != WL_CONNECTED)
+        Buffer pkg;
+        if (!performGet(base + "pkg.txt", pkg, true))
         {
-            Serial.println("WiFi not connected");
+            Serial.printf("Failed to fetch pkg.txt\n");
             return false;
         }
-
-        String base = String("http://") + appId + String(".onrender.com");
-
-        // ensure directory
-        ensureAppDir(appId);
-
-        bool okEntry = fetchAndWrite(base, "entry.lua", appId);
-        bool okIcon = fetchAndWrite(base, "icon-20x20.raw", appId);
-        bool okName = fetchAndWrite(base, "name.txt", appId, false);
-        bool okVersion = fetchAndWrite(base, "version.txt", appId, false);
-
-        // try pkg.txt
-        ENC_FS::Buffer pkgBuf;
-        bool gotPkg = httpGetToBuffer(base + "/pkg.txt", pkgBuf);
-        if (gotPkg)
+        auto files = parsePkgTxt(pkg);
+        for (auto &rp : files)
         {
-            vector<String> extras = parsePkgTxt(pkgBuf);
-            for (auto &rp : extras)
+            if (!fetchAndWrite(base + rp, rp, appId, false))
             {
-                // skip empty/comment lines
-                if (rp.length() == 0)
-                    continue;
-                // fetch and write each path
-                bool r = fetchAndWrite(base, rp, appId);
-                if (!r)
-                    Serial.printf("Failed extra: %s\n", rp.c_str());
+                Serial.printf("Failed extra: %s\n", rp.c_str());
             }
         }
-
-        return okEntry || okName || okVersion || okIcon;
+        return true;
     }
 
-    // Simple UI: prompt for app id using readString(), then install while showing progress on the screen.
-    // Returns true if installation succeeded (at least partially).
-    static bool appManagerUI()
+    void showInstaller()
     {
-        auto &tft = Screen::tft;
-        tft.fillScreen(BG);
+        Screen::tft.fillScreen(TFT_BLACK);
+        Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
+        Screen::tft.drawString("App Manager", 10, 10, 2);
 
-        // draw a simple header
-        tft.setTextDatum(TC_DATUM);
-        tft.setTextSize(2);
-        tft.setTextColor(TEXT, BG);
-        tft.drawString("App Manager", 160, 12, 4);
+        // buttons
+        Screen::tft.fillRoundRect(20, 50, 120, 40, 8, TFT_BLUE);
+        Screen::tft.drawString("Install new app", 30, 60, 2);
+        Screen::tft.fillRoundRect(160, 50, 80, 40, 8, TFT_RED);
+        Screen::tft.drawString("Cancel", 170, 60, 2);
 
-        // prompt for app id using existing readString helper
-        String appId = readString("Install app id (example: myapp)", "");
-        if (appId.length() == 0)
+        // wait for input
+        String cmd = readString("Enter 'i' to install or 'c' to cancel: ");
+        if (cmd != "i")
+            return;
+
+        String appId = readString("Enter app id: ");
+
+        // preview
+        Buffer iconBuf;
+        performGet("https://" + appId + ".duckdns.org/icon-20x20.raw", iconBuf, true);
+        Buffer nameBuf;
+        performGet("https://" + appId + ".duckdns.org/name.txt", nameBuf, true);
+        Buffer verBuf;
+        performGet("https://" + appId + ".duckdns.org/version.txt", verBuf, true);
+
+        Screen::tft.fillScreen(TFT_BLACK);
+        if (iconBuf.ok && iconBuf.data.size() >= 4 + 20 * 20 * 2)
         {
-            // cancelled or empty
-            tft.setTextSize(1);
-            tft.setTextDatum(TC_DATUM);
-            tft.drawString("Cancelled", 160, 120, 2);
-            delay(700);
-            return false;
+            uint16_t *pix = (uint16_t *)(iconBuf.data.data() + 4);
+            Screen::tft.pushImage(10, 10, 20, 20, pix);
+        }
+        if (nameBuf.ok)
+        {
+            String n((const char *)nameBuf.data.data(), nameBuf.data.size());
+            Screen::tft.drawString("Name: " + trimLines(n), 40, 10, 2);
+        }
+        if (verBuf.ok)
+        {
+            String v((const char *)verBuf.data.data(), verBuf.data.size());
+            Screen::tft.drawString("Version: " + trimLines(v), 40, 30, 2);
         }
 
-        // show installing message
-        tft.fillRect(10, 48, 300, 160, BG);
-        tft.setTextDatum(TL_DATUM);
-        tft.setTextSize(1);
-        tft.setTextColor(TEXT, BG);
-        tft.drawString(String("Installing: ") + appId, 16, 64, 2);
+        // OK / Cancel
+        Screen::tft.fillRoundRect(20, 60, 80, 40, 8, TFT_GREEN);
+        Screen::tft.drawString("OK", 40, 70, 2);
+        Screen::tft.fillRoundRect(120, 60, 80, 40, 8, TFT_RED);
+        Screen::tft.drawString("Cancel", 130, 70, 2);
 
-        unsigned long start = millis();
-        bool res = installApp(appId);
-        unsigned long dur = millis() - start;
+        String ok = readString("Enter 'y' to confirm: ");
+        if (ok != "y")
+            return;
 
-        // show result
-        tft.fillRect(10, 92, 300, 100, BG);
-        tft.setTextDatum(TC_DATUM);
-        tft.setTextSize(1);
-        if (res)
-        {
-            tft.setTextColor(TEXT, BG);
-            tft.drawString("Install finished", 160, 120, 2);
-            tft.drawString(String("Time: ") + String(dur / 1000.0, 2) + "s", 160, 140, 2);
-        }
-        else
-        {
-            tft.setTextColor(TEXT, BG);
-            tft.drawString("Install failed", 160, 120, 2);
-            tft.drawString(String("Time: ") + String(dur / 1000.0, 2) + "s", 160, 140, 2);
-        }
-
-        delay(1200);
-        return res;
+        bool result = installApp(appId);
+        Screen::tft.fillScreen(result ? TFT_GREEN : TFT_RED);
+        Screen::tft.setTextColor(TFT_BLACK, result ? TFT_GREEN : TFT_RED);
+        Screen::tft.drawString(result ? "Installed" : "Install failed", 10, 10, 2);
+        delay(1500);
     }
+}
 
-} // namespace AppManager
-
-// Public wrapper
-static inline bool appManager()
+void appManager()
 {
-    return AppManager::appManagerUI();
+    AppManager::showInstaller();
 }

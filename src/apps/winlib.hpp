@@ -4,6 +4,7 @@
 #include <lua.hpp>
 
 #include "../io/read-string.hpp"
+#include "../screen/svg.hpp"
 #include "app.hpp"
 
 namespace LuaApps::WinLib
@@ -35,6 +36,7 @@ namespace LuaApps::WinLib
     int lua_WIN_fillRoundRect(lua_State *L);
     int lua_WIN_drawFastVLine(lua_State *L);
     int lua_WIN_drawFastHLine(lua_State *L);
+    int lua_WIN_drawSVG(lua_State *L);
     // --- Ende neue Funktionen ---
 
     // Registration of functions to Lua
