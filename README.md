@@ -1,50 +1,24 @@
 # ESP 32 WROOM 2.4 inch display os
 
-8059 LINES OF CODE
+11619 LINES OF CODE
 
-```txt
+## Create app
 
--GLOBALS:
+https://[name].onrender.com/entry.lua => lua entry script
 
-HASH = Sha256
-ENC = AES 256 + IV
+https://[name].onrender.com/icon-20x20.raw => icon 20x20, use https://manuelwestermeier.github.io/image-to-16-bit/ to convert
 
--ENTRY:
+https://[name].onrender.com/pkg.txt => all additional files, to download
 
-GET USER_NAME, USER_PASSWORD
+https://[name].onrender.com/version.txt => version
 
-UID = HASH(USER_NAME)
-PSS = HASH(USER_PASSWORD)
+https://[name].onrender.com/name.txt => version
 
-/GLOBAL/ = UNENCRYPTED FILES GLOBAL
-ROOT_PATH = /{UID}/
 
-ROOT_PATH/os/password == PSS
-=>
+### lua api
 
-ROOT_PATH/os/settings/
-ROOT_PATH/os/env/urls
-ROOT_PATH/os/env/default
-ROOT_PATH/os/env/paths
-ROOT_PATH/os/env/open
-ROOT_PATH/os/apps/
-ROOT_PATH/os/libs/
+#### Func type X
 
-ROOT_PATH/user/home/
-ROOT_PATH/user/docs/
-ROOT_PATH/user/img/
-ROOT_PATH/user/vid/
-ROOT_PATH/user/audio/
-
-OPEN HOME
-
--APPS:
-
-ROOT_PATH/os/apps/{APP-NAME}/
-    app.exe.lua
-    app.name
-    app.icon
-    app.shortcuts
-    app-data/
-
+```lua
+local ret1, ret2 = functionx(p1, p2)
 ```

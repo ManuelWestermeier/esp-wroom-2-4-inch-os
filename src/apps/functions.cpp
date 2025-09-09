@@ -400,5 +400,6 @@ namespace LuaApps::LuaFunctions
         // window functions — we can extend WinLib::register_win_functions
         LuaApps::WinLib::register_win_functions(L);
         LuaApps::FsLib::register_fs_functions(L);
+        LuaApps::Network::register_network_functions(L);
     }
 } // namespace LuaFunctions

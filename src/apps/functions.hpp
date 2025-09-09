@@ -14,6 +14,7 @@ extern "C"
 }
 
 #include "winlib.hpp"
+#include "network.hpp"
 #include "fslib.hpp"
 #include "../auth/auth.hpp"
 #include "../wifi/index.hpp"

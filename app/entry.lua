@@ -1,6 +1,5 @@
 -- DuckDuckGo minimal search app (clean UI, click + resize, single button with SVG)
 -- Requirements: createWindow, WIN_*, getTheme, httpsReq, delay, url encoding available below.
-
 print("APP:STARTED")
 
 -- create window
@@ -9,28 +8,30 @@ WIN_setName(win, "Search")
 
 -- pull theme from C++
 local theme = getTheme() or {}
-local BG          = theme.bg or 0x0000
-local WIN_BG      = theme.primary or 0xFFFF
-local TITLE_BG    = theme.accent or 0x7BEF
-local TITLE_FG    = theme.accentText or 0x0000
-local BOX_BG      = theme.bg or 0xFFFF
-local TEXT_FG     = theme.text or 0x0000
-local RESULT_FG   = theme.text or 0x0000
+local BG = theme.bg or 0x0000
+local WIN_BG = theme.primary or 0xFFFF
+local TITLE_BG = theme.accent or 0x7BEF
+local TITLE_FG = theme.accentText or 0x0000
+local BOX_BG = theme.bg or 0xFFFF
+local TEXT_FG = theme.text or 0x0000
+local RESULT_FG = theme.text or 0x0000
 local PLACEHOLDER = theme.placeholder or 0x7BEF
-local BORDER      = theme.accent2 or 0x4208
-local ERROR_FG    = theme.danger or 0xF800
+local BORDER = theme.accent2 or 0x4208
+local ERROR_FG = theme.danger or 0xF800
 
 -- simple URL encode
 local function url_encode(str)
-    if not str then return "" end
+    if not str then
+        return ""
+    end
     str = tostring(str)
     local out = {}
     for i = 1, #str do
         local c = str:sub(i, i)
         if c:match("[%w%-_%.~]") then
-            out[#out+1] = c
+            out[#out + 1] = c
         else
-            out[#out+1] = string.format("%%%02X", string.byte(c))
+            out[#out + 1] = string.format("%%%02X", string.byte(c))
         end
     end
     return table.concat(out)
@@ -75,9 +76,10 @@ local function perform_search(query)
     end
 
     local q = url_encode(query)
-    local url = "https://corsproxy.io/?url=https://api.duckduckgo.com/?q=" .. q .. "&format=json&no_html=1&skip_disambig=1"
+    local url = "https://corsproxy.io/?url=https://api.duckduckgo.com/?q=" .. q ..
+                    "&format=json&no_html=1&skip_disambig=1"
 
-    local res = httpsReq{
+    local res = httpsReq {
         method = "GET",
         url = url,
         headers = {
@@ -106,7 +108,12 @@ local MAG_SVG = [[
 ]]
 
 -- keep last rect to detect resize
-local lastRect = {x = 0, y = 0, w = 0, h = 0}
+local lastRect = {
+    x = 0,
+    y = 0,
+    w = 0,
+    h = 0
+}
 
 -- UI state
 local query = ""
@@ -136,14 +143,21 @@ end
 local function draw_ui()
     -- query window rect
     local x, y, w, h = WIN_getRect(win)
-    local rect = {x = x, y = y, w = w, h = h}
+    local rect = {
+        x = x,
+        y = y,
+        w = w,
+        h = h
+    }
     lastRect = rect
 
     local L = layout_for(rect)
 
     -- solid window background (cover full window)
     -- WIN_fillBg exists and uses screenId & color; using screenId 1 for left sprite
-    pcall(function() WIN_fillBg(win, 1, BG) end)
+    pcall(function()
+        WIN_fillBg(win, 1, BG)
+    end)
 
     -- main card area (slightly inset)
     local card_x, card_y, card_w, card_h = 4, 4, w - 8, h - 8
@@ -210,11 +224,15 @@ local function draw_ui()
                 end
                 WIN_writeText(win, 1, content_x, yptr, sub, 1, color)
                 start = start + #sub
-                if text:sub(start, start) == " " then start = start + 1 end
+                if text:sub(start, start) == " " then
+                    start = start + 1
+                end
                 yptr = yptr + line_h
             end
             yptr = yptr + 4
-            if yptr > max_h then break end
+            if yptr > max_h then
+                break
+            end
         end
     end
 
@@ -230,7 +248,10 @@ end
 local function button_rect()
     local x, y, w, h = WIN_getRect(win)
     local card_x, card_y, card_w = 4, 4, w - 8
-    local L = layout_for({w = w, h = h})
+    local L = layout_for({
+        w = w,
+        h = h
+    })
     local sb_x = card_x + 8
     local sb_y = card_y + L.title_h + L.gap
     local sb_w = card_w - 8 - L.btn_w
