@@ -10,6 +10,19 @@
 #include "../io/read-string.hpp"
 #include "../screen/index.hpp"
 #include "../fs/enc-fs.hpp"
+#include "../styles/global.hpp"
+
+// Macros for style colors
+#define BG Style::Colors::bg
+#define TEXT Style::Colors::text
+#define PRIMARY Style::Colors::primary
+#define ACCENT Style::Colors::accent
+#define ACCENT2 Style::Colors::accent2
+#define ACCENT3 Style::Colors::accent3
+#define DANGER Style::Colors::danger
+#define PRESSED Style::Colors::pressed
+#define PH Style::Colors::placeholder
+#define AT Style::Colors::accentText
 
 namespace AppManager
 {
@@ -79,6 +92,60 @@ namespace AppManager
         }
     }
 
+    // ---------- UI helpers ----------
+
+    static void clearScreen(uint16_t color = BG)
+    {
+        Screen::tft.fillScreen(color);
+    }
+
+    static void drawTitle(const String &title)
+    {
+        Screen::tft.setTextColor(TEXT, BG);
+        drawClippedString(8, 8, 320 - 16, 4, title);
+    }
+
+    static void drawMessage(const String &msg, int y, int font = 2, uint16_t fg = TEXT, uint16_t bg = BG)
+    {
+        Screen::tft.setTextColor(fg, bg);
+        drawClippedString(8, y, 320 - 16, font, msg);
+    }
+
+    struct BtnRect
+    {
+        int x, y, w, h;
+        bool contains(int px, int py) const { return px >= x && px < x + w && py >= y && py < y + h; }
+    };
+
+    static void drawButton(const BtnRect &r, const char *label, uint16_t bg = PRIMARY, uint16_t fg = AT)
+    {
+        Screen::tft.fillRoundRect(r.x, r.y, r.w, r.h, 10, bg);
+        Screen::tft.drawRoundRect(r.x, r.y, r.w, r.h, 10, ACCENT2);
+        Screen::tft.setTextColor(fg, bg);
+        drawClippedString(r.x + 6, r.y + (r.h - 16) / 2, r.w - 12, 2, String(label));
+
+        // Also show label below button
+        Screen::tft.setTextColor(TEXT, BG);
+        drawClippedString(r.x, r.y + r.h + 4, r.w, 1, String(label));
+    }
+
+    static void drawError(const String &msg)
+    {
+        clearScreen(DANGER);
+        Screen::tft.setTextColor(AT, DANGER);
+        drawClippedString(8, 8, 320 - 16, 2, "Error:");
+        drawClippedString(8, 32, 320 - 16, 2, msg);
+        delay(2000);
+    }
+
+    static void drawSuccess(const String &msg)
+    {
+        clearScreen(PRIMARY);
+        Screen::tft.setTextColor(AT, PRIMARY);
+        drawClippedString(8, 8, 320 - 16, 2, msg);
+        delay(1500);
+    }
+
     // ---------- networking ----------
 
     static bool performGet(const String &url, Buffer &outBuf, bool useHttps)
@@ -89,7 +156,7 @@ namespace AppManager
 
         if (WiFi.status() != WL_CONNECTED)
         {
-            Serial.println("performGet: WiFi not connected");
+            drawError("WiFi not connected");
             return false;
         }
 
@@ -110,7 +177,7 @@ namespace AppManager
 
         if (!http.begin(*clientPtr, url))
         {
-            Serial.printf("http.begin failed: %s\n", url.c_str());
+            drawError("http.begin failed");
             delete clientPtr;
             return false;
         }
@@ -118,7 +185,7 @@ namespace AppManager
         int code = http.GET();
         if (code != HTTP_CODE_OK)
         {
-            Serial.printf("HTTP GET failed: code=%d for %s\n", code, url.c_str());
+            drawError("HTTP GET failed");
             http.end();
             delete clientPtr;
             return false;
@@ -130,7 +197,7 @@ namespace AppManager
             size_t len = (size_t)body.length();
             if (len > MAX_BYTES)
             {
-                Serial.printf("Body length %u too large\n", (unsigned)len);
+                drawError("Body too large");
                 http.end();
                 delete clientPtr;
                 return false;
@@ -149,7 +216,6 @@ namespace AppManager
     {
         if (performGet(url, buf, true))
             return true;
-        Serial.printf("HTTPS failed for %s, trying HTTP\n", url.c_str());
         int p = url.indexOf("//");
         if (p >= 0)
         {
@@ -164,7 +230,8 @@ namespace AppManager
         Buffer dataBuf;
         if (!performGetWithFallback(url, dataBuf))
         {
-            Serial.printf("Failed to download %s\n", url.c_str());
+            if (required)
+                drawError("Failed to download " + path);
             return !required;
         }
 
@@ -174,6 +241,8 @@ namespace AppManager
             ENC_FS::mkDir({"programs", folderName});
 
         bool written = ENC_FS::writeFile({"programs", folderName, path}, 0, 0, dataBuf.data);
+        if (!written && required)
+            drawError("Failed to save " + path);
         return written;
     }
 
@@ -223,18 +292,7 @@ namespace AppManager
         Screen::tft.pushImage(x, y, 20, 20, tmp);
     }
 
-    struct BtnRect
-    {
-        int x, y, w, h;
-        bool contains(int px, int py) const { return px >= x && px < x + w && py >= y && py < y + h; }
-    };
-
-    static void drawButton(const BtnRect &r, const char *label, uint16_t bg = TFT_BLUE, uint16_t fg = TFT_WHITE)
-    {
-        Screen::tft.fillRoundRect(r.x, r.y, r.w, r.h, 8, bg);
-        Screen::tft.setTextColor(fg, bg);
-        drawClippedString(r.x + 6, r.y + (r.h - 16) / 2, r.w - 12, 2, String(label));
-    }
+    // ---------- user interaction ----------
 
     static char waitForTwoButtonChoice(const BtnRect &a, const BtnRect &b)
     {
@@ -269,23 +327,19 @@ namespace AppManager
 
     static bool confirmInstallPrompt(const String &appName, const Buffer &iconBuf, const String &version)
     {
-        const int LEFT = 8;
-        const int TOP = 8;
-        const int AVAIL_W = 320 - LEFT * 2;
+        clearScreen();
+        drawTitle("Install App?");
 
-        Screen::tft.fillScreen(TFT_BLACK);
-        Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        drawClippedString(LEFT, TOP, AVAIL_W, 4, "Install App?");
+        safePush20x20Icon(8, 40, iconBuf);
 
-        safePush20x20Icon(LEFT, TOP + 28, iconBuf);
+        drawMessage("Name: " + trimLines(appName), 40, 2);
+        drawMessage("Version: " + trimLines(version), 60, 2);
 
-        drawClippedString(LEFT + 28, TOP + 28, AVAIL_W - 28, 2, "Name: " + trimLines(appName));
-        drawClippedString(LEFT + 28, TOP + 48, AVAIL_W - 28, 2, "Version: " + trimLines(version));
+        BtnRect yes{30, 160, 110, 50};
+        BtnRect no{180, 160, 110, 50};
 
-        BtnRect yes{LEFT + 20, 160, 110, 50};
-        BtnRect no{LEFT + 160, 160, 110, 50};
-        drawButton(yes, "Install", TFT_GREEN, TFT_BLACK);
-        drawButton(no, "Cancel", TFT_RED, TFT_BLACK);
+        drawButton(yes, "Install", ACCENT, AT);
+        drawButton(no, "Cancel", DANGER, AT);
 
         char c = waitForTwoButtonChoice(yes, no);
         return (c == 'i');
@@ -302,6 +356,7 @@ namespace AppManager
                 return true;
             delay(100);
         }
+        drawError("WiFi not connected");
         return false;
     }
 
@@ -323,8 +378,8 @@ namespace AppManager
         performGetWithFallback(base + "version.txt", verBuf);
         performGetWithFallback(base + "icon-20x20.raw", iconBuf);
 
-        String name = nameBuf.ok ? String((const char *)nameBuf.data.data(), nameBuf.data.size()) : "";
-        String version = verBuf.ok ? String((const char *)verBuf.data.data(), verBuf.data.size()) : "";
+        String name = nameBuf.ok ? String((const char *)nameBuf.data.data(), nameBuf.data.size()) : "Unknown";
+        String version = verBuf.ok ? String((const char *)verBuf.data.data(), verBuf.data.size()) : "?";
 
         if (!confirmInstallPrompt(name, iconBuf, version))
             return false;
@@ -358,35 +413,38 @@ namespace AppManager
 
     static void showInstaller()
     {
-        Screen::tft.fillScreen(TFT_BLACK);
-        Screen::tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        drawClippedString(8, 8, 320 - 16, 4, "App Manager");
+        clearScreen();
+        drawTitle("App Manager");
 
-        BtnRect installRect{16, 48, 140, 44};
-        BtnRect cancelRect{172, 48, 140, 44};
-        drawButton(installRect, "Install new app", TFT_GREEN, TFT_BLACK);
-        drawButton(cancelRect, "Cancel", TFT_RED, TFT_BLACK);
+        BtnRect installRect{30, 80, 120, 44};
+        BtnRect cancelRect{170, 80, 120, 44};
+
+        drawButton(installRect, "Install new app", ACCENT3, AT);
+        drawButton(cancelRect, "Cancel", DANGER, AT);
 
         char choice = waitForTwoButtonChoice(installRect, cancelRect);
         if (choice != 'i')
             return;
 
-        Screen::tft.fillScreen(TFT_BLACK);
-        drawClippedString(8, 8, 320 - 16, 2, "Enter App ID on serial");
+        clearScreen();
+        drawMessage("Enter App ID on serial", 80);
         String appId = readString("App ID: ");
         appId.trim();
         if (appId.length() == 0)
+        {
+            drawError("No App ID entered");
             return;
+        }
 
-        Screen::tft.fillScreen(TFT_BLACK);
-        drawClippedString(8, 8, 320 - 16, 2, "Preparing...");
+        clearScreen();
+        drawMessage("Preparing...", 100);
 
         bool res = installApp(appId);
 
-        Screen::tft.fillScreen(res ? TFT_GREEN : TFT_RED);
-        Screen::tft.setTextColor(TFT_BLACK, res ? TFT_GREEN : TFT_RED);
-        drawClippedString(8, 8, 320 - 16, 2, res ? "Installed" : "Install failed");
-        delay(1200);
+        if (res)
+            drawSuccess("Installed successfully");
+        else
+            drawError("Install failed");
     }
 
 } // namespace AppManager
