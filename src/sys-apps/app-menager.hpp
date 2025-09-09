@@ -136,6 +136,9 @@ namespace AppManager
 
     // ---------- networking ----------
 
+    static WiFiClientSecure secureClient; // global reusable
+    static WiFiClient normalClient;
+
     static bool performGet(const String &url, Buffer &outBuf, bool useHttps)
     {
         const size_t MAX_BYTES = 200 * 1024;
@@ -149,24 +152,21 @@ namespace AppManager
         }
 
         HTTPClient http;
-
         WiFiClient *clientPtr = nullptr;
+
         if (useHttps)
         {
-            WiFiClientSecure *client = new WiFiClientSecure();
-            client->setCACert(nullptr);
-            client->setInsecure();
-            clientPtr = client;
+            secureClient.setInsecure(); // keine Zertifikatsprüfung
+            clientPtr = &secureClient;
         }
         else
         {
-            clientPtr = new WiFiClient();
+            clientPtr = &normalClient;
         }
 
         if (!http.begin(*clientPtr, url))
         {
             drawError("http.begin failed");
-            delete clientPtr;
             return false;
         }
 
@@ -175,29 +175,31 @@ namespace AppManager
         {
             drawError("HTTP GET failed");
             http.end();
-            delete clientPtr;
             return false;
         }
 
-        String body = http.getString();
-        if (body.length() > 0)
+        WiFiClient &stream = http.getStream();
+        size_t len = http.getSize();
+
+        if (len <= 0 || len > MAX_BYTES)
         {
-            size_t len = (size_t)body.length();
-            if (len > MAX_BYTES)
-            {
-                drawError("Body too large");
-                http.end();
-                delete clientPtr;
-                return false;
-            }
-            outBuf.data.resize(len);
-            memcpy(outBuf.data.data(), (const char *)body.c_str(), len);
-            outBuf.ok = true;
+            drawError("Invalid body size");
+            http.end();
+            return false;
         }
 
+        outBuf.data.resize(len);
+        size_t readLen = stream.readBytes(outBuf.data.data(), len);
+        if (readLen != len)
+        {
+            drawError("Stream read failed");
+            http.end();
+            return false;
+        }
+
+        outBuf.ok = true;
         http.end();
-        delete clientPtr;
-        return outBuf.ok;
+        return true;
     }
 
     static bool performGetWithFallback(const String &url, Buffer &buf)
