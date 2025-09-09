@@ -152,10 +152,13 @@ static void updateAppList(std::vector<AppRenderData> &apps,
         apps.clear();
         for (auto &p : newPaths)
         {
-            apps.emplace_back();
-            auto &app = apps.back();
+            AppRenderData app;
             app.path = p;
-            if (!app.loadMetaData())
+            if (app.loadMetaData())
+            {
+                apps.push_back(std::move(app));
+            }
+            else
             {
                 Serial.println("App meta load failed: " + ENC_FS::path2Str(p));
             }
@@ -279,6 +282,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     else if (shortCut.name == "Apps")
                     {
                         appManager();
+                        updateAppList(apps, lastPaths, appsChanged);
                         return;
                     }
                     else if (shortCut.name == "Settings")
