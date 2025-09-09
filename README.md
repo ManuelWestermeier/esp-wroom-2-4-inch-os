@@ -134,6 +134,10 @@ local result = exec(4, "username/repo/main.lua")
 - `0xF81F` - Magenta
 - `0x07FF` - Cyan
 
+```lua
+local color = RGB(red, green, blue) -- all from 0-255
+```
+
 ---
 
 ## Example Application
