@@ -90,6 +90,12 @@ namespace LuaApps
         }
 
         lua_close(L);
+
+        // for (const auto id : windows)
+        // {
+        // WinLib::removeWindowById(id, *this);
+        // }
+
         return lastExitCode;
     }
 
