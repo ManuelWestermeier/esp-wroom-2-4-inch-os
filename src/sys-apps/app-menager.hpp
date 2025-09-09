@@ -12,18 +12,6 @@
 #include "../fs/enc-fs.hpp"
 #include "../styles/global.hpp"
 
-// Macros for style colors
-#define BG Style::Colors::bg
-#define TEXT Style::Colors::text
-#define PRIMARY Style::Colors::primary
-#define ACCENT Style::Colors::accent
-#define ACCENT2 Style::Colors::accent2
-#define ACCENT3 Style::Colors::accent3
-#define DANGER Style::Colors::danger
-#define PRESSED Style::Colors::pressed
-#define PH Style::Colors::placeholder
-#define AT Style::Colors::accentText
-
 namespace AppManager
 {
 

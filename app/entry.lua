@@ -75,7 +75,7 @@ local function perform_search(query)
     end
 
     local q = url_encode(query)
-    local url = "https://api.duckduckgo.com/?q=" .. q .. "&format=json&no_html=1&skip_disambig=1"
+    local url = "https://corsproxy.io/?url=https://api.duckduckgo.com/?q=" .. q .. "&format=json&no_html=1&skip_disambig=1"
 
     local res = httpsReq{
         method = "GET",
