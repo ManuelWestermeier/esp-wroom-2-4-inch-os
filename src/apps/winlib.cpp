@@ -2,6 +2,10 @@
 #include "apps/windows.hpp"
 #include "screen/index.hpp"
 
+#include <Arduino.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+
 #include <unordered_map>
 #include <memory>
 #include <string>
@@ -846,8 +850,96 @@ namespace LuaApps::WinLib
         delay(5);
 
         lua_pushboolean(L, ok);
-        
+
         return 1;
+    }
+
+    int lua_WIN_drawVideo(lua_State *L)
+    {
+        // --- get window from Lua ---
+        Window *w = getWindow(L, 1);
+        if (!w || w->closed)
+            return 0;
+
+        // --- only proceed if the window was clicked on top ---
+        if (!w->wasClicked)
+            return 0;
+
+        // --- rendering guard ---
+        if (!Windows::isRendering || !UserWiFi::hasInternet)
+            return 0;
+
+        while (!Windows::canAccess)
+            delay(rand() % 2);
+
+        Windows::canAccess = false;
+
+        const char *url = luaL_checkstring(L, 2); // second Lua argument = URL
+
+        WiFiClientSecure client;
+        client.setInsecure(); // skip SSL validation (testing only)
+
+        HTTPClient https;
+        if (!https.begin(client, url))
+        {
+            Windows::canAccess = true;
+            return 0;
+        }
+
+        int httpCode = https.GET();
+        if (httpCode != HTTP_CODE_OK)
+        {
+            https.end();
+            Windows::canAccess = true;
+            return 0;
+        }
+
+        WiFiClient *stream = https.getStreamPtr();
+
+        // --- read header ---
+        uint8_t header[8];
+        if (stream->readBytes(header, 8) != 8)
+        {
+            https.end();
+            Windows::canAccess = true;
+            return 0;
+        }
+
+        uint16_t w_px = (header[0] << 8) | header[1];
+        uint16_t h_px = (header[2] << 8) | header[3];
+        uint32_t framesCount = (header[4] << 24) | (header[5] << 16) | (header[6] << 8) | header[7];
+
+        uint8_t *line = new uint8_t[w_px * 2]; // RGB565
+
+        const int frameDelay = 50; // 20 fps
+
+        for (uint32_t f = 0; f < framesCount; f++)
+        {
+            // **optional:** stop playing if window is closed during playback
+            if (w->closed)
+                break;
+
+            for (int y = 0; y < h_px; y++)
+            {
+                int bytesRead = stream->readBytes(line, w_px * 2);
+                if (bytesRead != w_px * 2)
+                {
+                    delete[] line;
+                    https.end();
+                    Windows::canAccess = true;
+                    return 0;
+                }
+
+                Screen::tft.pushImage(0, y, w_px, 1, (uint16_t *)line);
+            }
+            delay(frameDelay);
+        }
+
+        delete[] line;
+        https.end();
+        Windows::canAccess = true;
+
+        return 0;
     }
 
     // register functions
@@ -884,6 +976,7 @@ namespace LuaApps::WinLib
         lua_register(L, "WIN_drawFastVLine", lua_WIN_drawFastVLine);
         lua_register(L, "WIN_drawFastHLine", lua_WIN_drawFastHLine);
         lua_register(L, "WIN_drawSVG", lua_WIN_drawSVG);
+        lua_register(L, "WIN_drawVideo", lua_WIN_drawVideo);
     }
 
 } // namespace LuaApps::WinLib

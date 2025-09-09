@@ -60,29 +60,29 @@ namespace AppManager
 
     static void drawClippedString(int x, int y, int maxW, int font, const String &s)
     {
-        if (s.length() == 0)
-            return;
-        const char *cs = s.c_str();
-        int w = Screen::tft.textWidth(cs, font);
-        if (w <= maxW)
-        {
-            Screen::tft.drawString(s, x, y, font);
-            return;
-        }
+        // if (s.length() == 0)
+        //     return;
+        // const char *cs = s.c_str();
+        // int w = Screen::tft.textWidth(cs, font);
+        // if (w <= maxW)
+        // {
+        //     Screen::tft.drawString(s, x, y, font);
+        //     return;
+        // }
 
-        // Add ellipsis for overflow text
-        String ellipsis = "...";
-        int ellipsisWidth = Screen::tft.textWidth(ellipsis.c_str(), font);
+        // // Add ellipsis for overflow text
+        // String ellipsis = "...";
+        // int ellipsisWidth = Screen::tft.textWidth(ellipsis.c_str(), font);
 
-        String displayText = s;
-        while (displayText.length() > 0 &&
-               Screen::tft.textWidth(displayText.c_str(), font) + ellipsisWidth > maxW)
-        {
-            displayText.remove(displayText.length() - 1);
-        }
+        // String displayText = s;
+        // while (displayText.length() > 0 &&
+        //        Screen::tft.textWidth(displayText.c_str(), font) + ellipsisWidth > maxW)
+        // {
+        //     displayText.remove(displayText.length() - 1);
+        // }
 
-        displayText += ellipsis;
-        Screen::tft.drawString(displayText, x, y, font);
+        // displayText += ellipsis;
+        Screen::tft.drawString(s, x, y, font);
     }
 
     // ---------- UI helpers ----------
