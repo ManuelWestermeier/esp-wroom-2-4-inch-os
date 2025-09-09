@@ -21,6 +21,8 @@ namespace AppManager
         bool ok = false;
     };
 
+    // Root CA certificate for onrender.co
+
     // ---------- helpers ----------
 
     String trimLines(const String &s)
@@ -67,17 +69,20 @@ namespace AppManager
             Screen::tft.drawString(s, x, y, font);
             return;
         }
-        String t = s;
-        while (t.length() > 0)
+
+        // Add ellipsis for overflow text
+        String ellipsis = "...";
+        int ellipsisWidth = Screen::tft.textWidth(ellipsis.c_str(), font);
+
+        String displayText = s;
+        while (displayText.length() > 0 &&
+               Screen::tft.textWidth(displayText.c_str(), font) + ellipsisWidth > maxW)
         {
-            t = t.substring(0, t.length() - 1);
-            String tp = t + "...";
-            if (Screen::tft.textWidth(tp.c_str(), font) <= maxW)
-            {
-                Screen::tft.drawString(tp, x, y, font);
-                return;
-            }
+            displayText.remove(displayText.length() - 1);
         }
+
+        displayText += ellipsis;
+        Screen::tft.drawString(displayText, x, y, font);
     }
 
     // ---------- UI helpers ----------
@@ -90,13 +95,13 @@ namespace AppManager
     static void drawTitle(const String &title)
     {
         Screen::tft.setTextColor(TEXT, BG);
-        drawClippedString(8, 8, 320 - 16, 4, title);
+        Screen::tft.drawString(title, 8, 8, 4);
     }
 
     static void drawMessage(const String &msg, int y, int font = 2, uint16_t fg = TEXT, uint16_t bg = BG)
     {
         Screen::tft.setTextColor(fg, bg);
-        drawClippedString(8, y, 320 - 16, font, msg);
+        Screen::tft.drawString(msg, 8, y, font);
     }
 
     struct BtnRect
@@ -110,19 +115,16 @@ namespace AppManager
         Screen::tft.fillRoundRect(r.x, r.y, r.w, r.h, 10, bg);
         Screen::tft.drawRoundRect(r.x, r.y, r.w, r.h, 10, ACCENT2);
         Screen::tft.setTextColor(fg, bg);
-        drawClippedString(r.x + 6, r.y + (r.h - 16) / 2, r.w - 12, 2, String(label));
-
-        // Also show label below button
-        Screen::tft.setTextColor(TEXT, BG);
-        drawClippedString(r.x, r.y + r.h + 4, r.w, 1, String(label));
+        Screen::tft.drawString(label, r.x + (r.w - Screen::tft.textWidth(label, 2)) / 2, r.y + (r.h - 16) / 2, 2);
     }
 
     static void drawError(const String &msg)
     {
         clearScreen(DANGER);
         Screen::tft.setTextColor(AT, DANGER);
-        drawClippedString(8, 8, 320 - 16, 2, "Error:");
-        drawClippedString(8, 32, 320 - 16, 2, msg);
+        Screen::tft.drawString("Error:", 8, 8, 2);
+        drawClippedString(8, 32, 304, 2, msg);
+        Serial.println("[ERROR] " + msg);
         delay(2000);
     }
 
@@ -130,8 +132,30 @@ namespace AppManager
     {
         clearScreen(PRIMARY);
         Screen::tft.setTextColor(AT, PRIMARY);
-        drawClippedString(8, 8, 320 - 16, 2, msg);
+        drawClippedString(8, 8, 304, 2, msg);
+        Serial.println("[SUCCESS] " + msg);
         delay(1500);
+    }
+
+    static void drawProgressBar(int x, int y, int width, int height, int progress, uint16_t color = PRIMARY)
+    {
+        // Draw border
+        Screen::tft.drawRoundRect(x, y, width, height, 5, ACCENT2);
+
+        // Calculate fill width
+        int fillWidth = (progress * (width - 4)) / 100;
+
+        // Draw progress
+        if (fillWidth > 0)
+        {
+            Screen::tft.fillRoundRect(x + 2, y + 2, fillWidth, height - 4, 3, color);
+        }
+
+        // Draw percentage text
+        String percent = String(progress) + "%";
+        Screen::tft.setTextColor(TEXT, BG);
+        Screen::tft.drawString(percent, x + (width - Screen::tft.textWidth(percent.c_str(), 2)) / 2,
+                               y + (height - 16) / 2, 2);
     }
 
     // ---------- networking ----------
@@ -141,9 +165,9 @@ namespace AppManager
 
     static bool performGet(const String &url, Buffer &outBuf, bool useHttps)
     {
-        const size_t MAX_BYTES = 200 * 1024;
         outBuf.data.clear();
         outBuf.ok = false;
+        Serial.println("[GET] URL: " + url);
 
         if (WiFi.status() != WL_CONNECTED)
         {
@@ -152,49 +176,69 @@ namespace AppManager
         }
 
         HTTPClient http;
-        WiFiClient *clientPtr = nullptr;
 
         if (useHttps)
         {
-            secureClient.setInsecure(); // keine Zertifikatsprüfung
-            clientPtr = &secureClient;
+            secureClient.setInsecure(); // <-- Hier wird das Zertifikat ignoriert
+            if (!http.begin(secureClient, url))
+            {
+                drawError("http.begin failed");
+                return false;
+            }
         }
         else
         {
-            clientPtr = &normalClient;
+            if (!http.begin(normalClient, url))
+            {
+                drawError("http.begin failed");
+                return false;
+            }
         }
 
-        if (!http.begin(*clientPtr, url))
-        {
-            drawError("http.begin failed");
-            return false;
-        }
+        http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+        http.setTimeout(10000);
 
         int code = http.GET();
         if (code != HTTP_CODE_OK)
         {
-            drawError("HTTP GET failed");
+            Serial.printf("[ERROR] HTTP GET failed: %d\n", code);
             http.end();
             return false;
         }
 
         WiFiClient &stream = http.getStream();
-        size_t len = http.getSize();
+        int len = http.getSize();
+        Serial.printf("[HTTP] Content-Length: %d\n", len);
 
-        if (len <= 0 || len > MAX_BYTES)
+        if (len > 0)
         {
-            drawError("Invalid body size");
-            http.end();
-            return false;
+            outBuf.data.resize(len);
+            size_t readLen = stream.readBytes(outBuf.data.data(), len);
+            Serial.printf("[HTTP] Bytes read: %u\n", readLen);
+            if (readLen != (size_t)len)
+            {
+                Serial.println("[ERROR] Stream read failed");
+                http.end();
+                return false;
+            }
         }
-
-        outBuf.data.resize(len);
-        size_t readLen = stream.readBytes(outBuf.data.data(), len);
-        if (readLen != len)
+        else
         {
-            drawError("Stream read failed");
-            http.end();
-            return false;
+            // Chunked/unknown size
+            uint8_t tmp[512];
+            while (stream.connected() || stream.available())
+            {
+                int r = stream.read(tmp, sizeof(tmp));
+                if (r > 0)
+                    outBuf.data.insert(outBuf.data.end(), tmp, tmp + r);
+                else if (r < 0)
+                {
+                    Serial.println("[ERROR] Stream read error");
+                    http.end();
+                    return false;
+                }
+                delay(1);
+            }
         }
 
         outBuf.ok = true;
@@ -204,19 +248,33 @@ namespace AppManager
 
     static bool performGetWithFallback(const String &url, Buffer &buf)
     {
+        Serial.println("[Fallback] Trying HTTPS first...");
         if (performGet(url, buf, true))
             return true;
+
+        // If HTTPS fails, try HTTP
         int p = url.indexOf("//");
         if (p >= 0)
         {
             String httpUrl = String("http://") + url.substring(p + 2);
+            Serial.println("[Fallback] HTTPS failed, trying HTTP: " + httpUrl);
             return performGet(httpUrl, buf, false);
         }
         return false;
     }
 
-    static bool fetchAndWrite(const String &url, const String &path, const String &folderName, bool required)
+    static bool fetchAndWrite(const String &url, const String &path, const String &folderName, bool required, int &progress, int totalFiles, int currentFile)
     {
+        Serial.println("[Download] " + url + " -> " + path);
+
+        // Update progress
+        progress = (currentFile * 100) / totalFiles;
+        clearScreen();
+        drawTitle("Installing App");
+        drawMessage("Downloading files...", 40);
+        drawProgressBar(20, 80, 280, 30, progress);
+        drawClippedString(20, 120, 280, 2, "Downloading: " + path);
+
         Buffer dataBuf;
         if (!performGetWithFallback(url, dataBuf))
         {
@@ -231,6 +289,8 @@ namespace AppManager
             ENC_FS::mkDir({"programs", folderName});
 
         bool written = ENC_FS::writeFile({"programs", folderName, path}, 0, 0, dataBuf.data);
+        Serial.println("[Write] File " + path + (written ? " OK" : " FAILED"));
+
         if (!written && required)
             drawError("Failed to save " + path);
         return written;
@@ -322,8 +382,8 @@ namespace AppManager
 
         safePush20x20Icon(8, 40, iconBuf);
 
-        drawMessage("Name: " + trimLines(appName), 40, 2);
-        drawMessage("Version: " + trimLines(version), 60, 2);
+        drawClippedString(35, 40, 277, 2, "Name: " + trimLines(appName));
+        drawClippedString(35, 60, 277, 2, "Version: " + trimLines(version));
 
         BtnRect yes{30, 160, 110, 50};
         BtnRect no{180, 160, 110, 50};
@@ -339,6 +399,11 @@ namespace AppManager
     {
         if (WiFi.status() == WL_CONNECTED)
             return true;
+
+        clearScreen();
+        drawTitle("Connecting to WiFi");
+        drawMessage("Please wait...", 100);
+
         unsigned long start = millis();
         while (millis() - start < timeoutMs)
         {
@@ -355,11 +420,16 @@ namespace AppManager
         if (!ensureWiFiConnected(10000))
             return false;
 
-        String base = rawAppId;
+        String base;
         if (!rawAppId.startsWith("http://") && !rawAppId.startsWith("https://"))
             base = "https://" + rawAppId + ".onrender.com/";
+        else
+            base = rawAppId;
+
         if (!base.endsWith("/"))
             base += "/";
+
+        Serial.println("[Install] Base URL: " + base);
 
         String folderName = sanitizeFolderName(rawAppId);
 
@@ -371,6 +441,9 @@ namespace AppManager
         String name = nameBuf.ok ? String((const char *)nameBuf.data.data(), nameBuf.data.size()) : "Unknown";
         String version = verBuf.ok ? String((const char *)verBuf.data.data(), verBuf.data.size()) : "?";
 
+        Serial.println("[Install] App name: " + name);
+        Serial.println("[Install] Version: " + version);
+
         if (!confirmInstallPrompt(name, iconBuf, version))
             return false;
 
@@ -381,22 +454,47 @@ namespace AppManager
             {base + "name.txt", "name.txt"},
             {base + "version.txt", "version.txt"}};
 
+        int progress = 0;
+        int totalFiles = core.size();
+        int currentFile = 0;
+
         for (auto &p : core)
         {
-            if (!fetchAndWrite(p.first, p.second, folderName, true))
+            currentFile++;
+            if (!fetchAndWrite(p.first, p.second, folderName, true, progress, totalFiles, currentFile))
                 return false;
         }
 
         // optional pkg.txt
         Buffer pkg;
-        if (!performGetWithFallback(base + "pkg.txt", pkg))
-            return true;
-        auto extras = parsePkgTxt(pkg);
-        for (auto &f : extras)
+        if (performGetWithFallback(base + "pkg.txt", pkg))
         {
-            if (performGetWithFallback(base + f, pkg))
-                ENC_FS::writeFile({"programs", folderName, f}, 0, 0, pkg.data);
+            auto extras = parsePkgTxt(pkg);
+            totalFiles += extras.size();
+
+            for (auto &f : extras)
+            {
+                currentFile++;
+                if (performGetWithFallback(base + f, pkg))
+                {
+                    ENC_FS::writeFile({"programs", folderName, f}, 0, 0, pkg.data);
+                }
+                // Update progress for optional files too
+                progress = (currentFile * 100) / totalFiles;
+                clearScreen();
+                drawTitle("Installing App");
+                drawMessage("Downloading additional files...", 40);
+                drawProgressBar(20, 80, 280, 30, progress);
+                drawClippedString(20, 120, 280, 2, "Downloading: " + f);
+            }
         }
+
+        // Final progress
+        clearScreen();
+        drawTitle("Installing App");
+        drawMessage("Finalizing installation...", 40);
+        drawProgressBar(20, 80, 280, 30, 100);
+        delay(500);
 
         return true;
     }
@@ -417,7 +515,10 @@ namespace AppManager
             return;
 
         clearScreen();
-        drawMessage("Enter App ID on serial", 80);
+        drawTitle("Enter App ID");
+        drawMessage("Please enter the App ID", 60);
+        drawMessage("on the serial monitor", 80);
+
         String appId = readString("App ID: ");
         appId.trim();
         if (appId.length() == 0)
@@ -427,7 +528,8 @@ namespace AppManager
         }
 
         clearScreen();
-        drawMessage("Preparing...", 100);
+        drawTitle("Preparing Installation");
+        drawMessage("Please wait...", 100);
 
         bool res = installApp(appId);
 
