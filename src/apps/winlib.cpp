@@ -879,15 +879,16 @@ namespace LuaApps::WinLib
             return 0;
         }
 
-        // Acquire single-threaded access
+        // Acquire single-threaded access (spin with tiny random backoff)
         Serial.println("[lua_WIN_drawVideo] waiting for Windows::canAccess...");
         int waitLoops = 0;
         while (!Windows::canAccess)
         {
-            delay(rand() % 2);
+            delay(rand() % 3);
             waitLoops++;
             if ((waitLoops & 127) == 0)
                 Serial.printf("[lua_WIN_drawVideo] still waiting for access (loops=%d)\n", waitLoops);
+            yield();
         }
         Windows::canAccess = false;
         Serial.println("[lua_WIN_drawVideo] acquired access");
@@ -896,7 +897,7 @@ namespace LuaApps::WinLib
         String url = String(url_c);
         Serial.printf("[lua_WIN_drawVideo] original URL: %s\n", url_c);
 
-        // quick GitHub raw redirect fix
+        // Quick GitHub raw redirect fix
         if (url.indexOf("https://github.com/") == 0 && url.indexOf("/raw/refs/heads/") != -1)
         {
             url.replace("https://github.com/", "https://raw.githubusercontent.com/");
@@ -952,7 +953,7 @@ namespace LuaApps::WinLib
 
         WiFiClient *stream = https.getStreamPtr();
 
-        // read 8-byte header (little-endian for width/height, framesCount)
+        // read 8-byte header (little-endian width/height, framesCount)
         uint8_t header[8];
         if (stream->readBytes(header, 8) != 8)
         {
@@ -962,110 +963,208 @@ namespace LuaApps::WinLib
             return 0;
         }
 
-        uint16_t w_px = (header[1] << 8) | header[0];
-        uint16_t h_px = (header[3] << 8) | header[2];
+        uint16_t w_px = (uint16_t)((header[1] << 8) | header[0]);
+        uint16_t h_px = (uint16_t)((header[3] << 8) | header[2]);
         uint32_t framesCount = ((uint32_t)header[7] << 24) | ((uint32_t)header[6] << 16) | ((uint32_t)header[5] << 8) | header[4];
+
+        // validate and clamp sizes to avoid corruption / massive allocations
+        const uint16_t MAX_W = 320;
+        const uint16_t MAX_H = 240;
+        if (w_px == 0 || h_px == 0 || w_px > 2000 || h_px > 2000)
+        {
+            Serial.printf("[lua_WIN_drawVideo] suspicious dimensions: %u x %u; aborting\n", (unsigned)w_px, (unsigned)h_px);
+            https.end();
+            Windows::canAccess = true;
+            return 0;
+        }
+        if (w_px > MAX_W)
+        {
+            Serial.printf("[lua_WIN_drawVideo] clamping width %u -> %u\n", (unsigned)w_px, (unsigned)MAX_W);
+            w_px = MAX_W;
+        }
+        if (h_px > MAX_H)
+        {
+            Serial.printf("[lua_WIN_drawVideo] clamping height %u -> %u\n", (unsigned)h_px, (unsigned)MAX_H);
+            h_px = MAX_H;
+        }
+
+        // protect framesCount (avoid insane counts)
+        if (framesCount == 0 || framesCount > 2000000UL)
+        {
+            Serial.printf("[lua_WIN_drawVideo] suspicious framesCount=%u; aborting\n", (unsigned)framesCount);
+            https.end();
+            Windows::canAccess = true;
+            return 0;
+        }
 
         Serial.printf("[lua_WIN_drawVideo] header parsed: width=%u, height=%u, frames=%u\n",
                       (unsigned)w_px, (unsigned)h_px, (unsigned)framesCount);
 
         Screen::tft.fillScreen(BG);
 
-        // allocate one persistent line buffer (avoid per-frame malloc)
+        // prepare single persistent aligned buffer for one row (2 bytes per pixel)
         const size_t bytesPerLine = (size_t)w_px * 2;
-        uint8_t *line = (uint8_t *)heap_caps_malloc(bytesPerLine, MALLOC_CAP_8BIT);
-        if (!line)
+        const size_t allocSize = bytesPerLine + 2; // +2 to allow aligning to 2 bytes
+        uint8_t *rawBuf = (uint8_t *)heap_caps_malloc(allocSize, MALLOC_CAP_8BIT);
+        if (!rawBuf)
         {
             Serial.println("[lua_WIN_drawVideo] failed to allocate line buffer");
             https.end();
             Windows::canAccess = true;
             return 0;
         }
+        // ensure 2-byte alignment for safe uint16_t cast
+        uint8_t *line = rawBuf;
+        if (((uintptr_t)line & 1) != 0)
+            line++; // shift by one; safe because we allocated +2
 
-        const unsigned long frameDelay = 50UL; // target ms per frame (20 fps)
-        unsigned long nextFrameTarget = millis();
+        // timing: full redraw at start and every 5000ms, per-line updates at 20fps
+        const unsigned long FULL_REDRAW_INTERVAL_MS = 5000UL;
+        const unsigned long LINE_INTERVAL_MS = 50UL; // 20 fps -> 50 ms
+        unsigned long startMs = millis();
+        unsigned long nextFullRedrawAt = startMs + FULL_REDRAW_INTERVAL_MS;
+        unsigned long nextLineTarget = startMs; // immediate availability to draw first line
+        bool didInitialFull = false;
 
-        for (uint32_t f = 0; f < framesCount; f++)
+        // defensive loop: if the stream stalls, break cleanly.
+        for (uint32_t f = 0; f < framesCount; ++f)
         {
             if (w->closed)
             {
                 Serial.printf("[lua_WIN_drawVideo] window closed during playback at frame %u; breaking\n", (unsigned)f);
                 break;
             }
+            if (!Windows::isRendering || !UserWiFi::hasInternet)
+            {
+                Serial.printf("[lua_WIN_drawVideo] rendering stopped or internet lost at frame %u; breaking\n", (unsigned)f);
+                break;
+            }
 
-            if ((f % 10) == 0 || f == framesCount - 1)
+            if ((f % 50) == 0)
                 Serial.printf("[lua_WIN_drawVideo] frame %u / %u\n", (unsigned)f, (unsigned)framesCount);
 
             unsigned long frameStart = millis();
 
-            bool onTime = (frameStart <= nextFrameTarget + frameDelay);
-            int rowOffset = f % 3; // interleave rows across 3 frames
-
-            // If we are too far behind, skip rendering this frame (but still consume bytes)
-            if (!onTime)
+            // Decide whether to perform a full redraw this frame
+            bool needFullRedraw = false;
+            unsigned long now = frameStart;
+            if (!didInitialFull)
             {
-                // read and discard rows quickly
-                for (uint16_t y = 0; y < h_px; y++)
-                {
-                    int bytesRead = stream->readBytes(line, bytesPerLine);
-                    if (bytesRead != (int)bytesPerLine)
-                    {
-                        Serial.printf("[lua_WIN_drawVideo] bytesRead mismatch while skipping frame %u row %u\n", (unsigned)f, (unsigned)y);
-                        heap_caps_free(line);
-                        https.end();
-                        Windows::canAccess = true;
-                        return 0;
-                    }
-                    // yield occasionally so WiFi can run
-                    if ((y & 15) == 0)
-                        yield();
-                }
-                // resync target to now
-                nextFrameTarget = millis();
-                continue;
+                needFullRedraw = true;
+                didInitialFull = true;
+                nextFullRedrawAt = now + FULL_REDRAW_INTERVAL_MS;
+            }
+            else if (now >= nextFullRedrawAt)
+            {
+                needFullRedraw = true;
+                // schedule next
+                // add interval to avoid drift if we're late
+                nextFullRedrawAt = now + FULL_REDRAW_INTERVAL_MS;
             }
 
-            // Render: read each row, push only every 3rd row with shifting offset
-            for (uint16_t y = 0; y < h_px; y++)
+            // compute which single line we should update for this moment (20 fps)
+            unsigned long elapsed = now - startMs;
+            uint16_t targetLine = (uint16_t)((elapsed / LINE_INTERVAL_MS) % h_px);
+
+            // If we are falling behind too much (heavy backlog), we still must consume bytes but avoid long blocking drawing.
+            bool behind = (now > nextLineTarget + (LINE_INTERVAL_MS * 4)); // arbitrary 4-frame slack
+            // If behind, we don't attempt extra delays to catch up; we just try to keep drawing minimal.
+
+            // Read rows for this frame. We must consume all rows to keep stream in sync.
+            for (uint16_t y = 0; y < h_px; ++y)
             {
-                int bytesRead = stream->readBytes(line, bytesPerLine);
-                if (bytesRead != (int)bytesPerLine)
+                // read exactly one line
+                int got = stream->readBytes(line, bytesPerLine);
+                if (got != (int)bytesPerLine)
                 {
-                    Serial.printf("[lua_WIN_drawVideo] bytesRead mismatch at frame %u, row %u\n", (unsigned)f, (unsigned)y);
-                    heap_caps_free(line);
+                    Serial.printf("[lua_WIN_drawVideo] bytesRead mismatch at frame %u, row %u (got=%d, expect=%u). Aborting.\n",
+                                  (unsigned)f, (unsigned)y, got, (unsigned)bytesPerLine);
+                    heap_caps_free(rawBuf);
                     https.end();
                     Windows::canAccess = true;
                     return 0;
                 }
 
-                // draw only rows matching current interleave offset
-                if ((y % 3) == rowOffset)
+                // Decide whether to draw this row:
+                // - draw all rows on full redraw
+                // - otherwise draw only the targetLine (one line per frame at 20 fps)
+                if (needFullRedraw)
                 {
-                    // cast to uint16_t* because converter writes bytes in MSB-first (big-endian) order that this pushImage expects
-                    // if your pushImage expects different order, adjust the converter instead.
+                    // draw full frame row
+                    // pushImage expects uint16_t* pixel data in the format your display expects.
                     Screen::tft.pushImage(0, y, w_px, 1, (uint16_t *)line);
                 }
+                else
+                {
+                    if (y == targetLine)
+                    {
+                        // update only the current time-derived line
+                        Screen::tft.pushImage(0, y, w_px, 1, (uint16_t *)line);
+                    }
+                    // else: skip drawing this row (we already consumed it)
+                }
 
+                // yield periodically so WiFi / background tasks don't starve
                 if ((y & 15) == 0)
+                {
                     yield();
-            }
+                    // small cooperative delay to keep watchdog happy but not too big to block network
+                    // only delay a little if we're not behind; if behind, skip the delay to catch up
+                    if (!behind)
+                        delay(1);
+                }
 
+                // if window closed or rendering stopped mid-frame, break out early
+                if (w->closed || !Windows::isRendering || !UserWiFi::hasInternet)
+                    break;
+            } // end rows loop
+
+            // finished reading the entire frame
             unsigned long frameTime = millis() - frameStart;
-            if (frameTime < frameDelay)
+
+            // throttle so line updates happen approx every LINE_INTERVAL_MS
+            if (!needFullRedraw)
             {
-                delay(frameDelay - frameTime);
-                nextFrameTarget += frameDelay;
+                // increase nextLineTarget by one tick (attempt to keep 20 fps cadence)
+                nextLineTarget += LINE_INTERVAL_MS;
+                long sleepMs = (long)nextLineTarget - (long)millis();
+                if (sleepMs > 0)
+                {
+                    // if the sleep is very small, do a tiny delay+yield to be cooperative
+                    if (sleepMs <= 5)
+                        delay((uint32_t)sleepMs);
+                    else
+                    {
+                        // longer sleep: we choose to sleep in small chunks and yield to be safe
+                        unsigned long end = millis() + (unsigned long)sleepMs;
+                        while (millis() < end)
+                        {
+                            yield();
+                            delay(1);
+                        }
+                    }
+                }
+                else
+                {
+                    // we are late; resync nextLineTarget to now to avoid drift
+                    nextLineTarget = millis();
+                }
             }
             else
             {
-                // We consumed longer than a frame: resync to now
-                nextFrameTarget = millis();
+                // after a full redraw we don't want to force delay — but keep a tiny yield to avoid watchdog
+                yield();
             }
-        }
 
-        heap_caps_free(line);
+            // allow an early exit if window closed or rendering stopped
+            if (w->closed || !Windows::isRendering || !UserWiFi::hasInternet)
+                break;
+        } // end frames loop
+
+        // cleanup
+        heap_caps_free(rawBuf);
         https.end();
-        Screen::tft.fillScreen(BG);
+        Screen::tft.fillScreen(BG); // optional: clear after playback
         Windows::canAccess = true;
 
         Serial.printf("[lua_WIN_drawVideo] finished, released access; freeHeap=%u\n", (unsigned)ESP.getFreeHeap());
