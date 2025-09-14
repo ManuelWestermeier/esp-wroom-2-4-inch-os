@@ -278,11 +278,12 @@ int lua_WIN_drawVideo(lua_State *L)
 
     heap_caps_free(rawBuf);
     https.end();
-    Screen::tft.fillRect(dstX, dstY, v_w, v_h, BG);
+
+    Screen::tft.fillScreen(BG);
+
     Windows::canAccess = true;
 
     Serial.printf("[lua_WIN_drawVideo] finished; freeHeap=%u\n", (unsigned)ESP.getFreeHeap());
-    
-    Screen::tft.fillScreen(BG);
+
     return 0;
 }
