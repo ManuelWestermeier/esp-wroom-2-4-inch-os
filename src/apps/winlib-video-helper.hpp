@@ -1,6 +1,5 @@
 void drawVideoTime(uint32_t currentSec, uint32_t totalSec, int x, int y, int w, int h)
 {
-    // Format mm:ss for current and total
     auto formatTime = [](uint32_t s) -> String
     {
         uint32_t m = s / 60;
@@ -18,15 +17,46 @@ void drawVideoTime(uint32_t currentSec, uint32_t totalSec, int x, int y, int w, 
 
     Screen::tft.setTextSize(1);
     Screen::tft.setTextColor(AT);
-    Screen::tft.fillRoundRect(x, y, w, h, 4, ACCENT);
-    Screen::tft.setCursor(x + 6, y + 4);
+    Screen::tft.setCursor(x, y);
     Screen::tft.print(timeStr);
     Screen::tft.setTextColor(TEXT);
 }
 
+void drawMenuBar(bool paused, uint32_t currentFrame, uint32_t framesCount)
+{
+    int menuHeight = 20;
+    Screen::tft.fillRect(0, 0, 320, menuHeight, TFT_DARKGREY);
+
+    // Pause/Play Button (links)
+    if (paused)
+    {
+        Screen::tft.fillTriangle(6, 5, 6, 15, 14, 10, TFT_WHITE); // Play
+    }
+    else
+    {
+        Screen::tft.fillRect(6, 5, 4, 10, TFT_WHITE);  // Pause Strich 1
+        Screen::tft.fillRect(12, 5, 4, 10, TFT_WHITE); // Pause Strich 2
+    }
+
+    // Timeline (Mitte)
+    int tlX = 30, tlY = 6, tlW = 200, tlH = 8;
+    Screen::tft.fillRect(tlX, tlY, tlW, tlH, TFT_BLACK);
+    int px = tlX + (currentFrame * tlW / framesCount);
+    Screen::tft.fillRect(tlX, tlY, px - tlX, tlH, TFT_RED);
+
+    // Zeit anzeigen
+    drawVideoTime(currentFrame / 20, framesCount / 20, tlX, tlY - 6, tlW, 10);
+
+    // Exit Button (rechts)
+    int exitX = 320 - 20, exitY = 0;
+    Screen::tft.fillRect(exitX, exitY, 20, 20, TFT_RED);
+    Screen::tft.drawLine(exitX + 4, exitY + 4, exitX + 16, exitY + 16, TFT_WHITE);
+    Screen::tft.drawLine(exitX + 16, exitY + 4, exitX + 4, exitY + 16, TFT_WHITE);
+}
+
 int lua_WIN_drawVideo(lua_State *L)
 {
-    esp_task_wdt_delete(NULL); // Disable watchdog
+    esp_task_wdt_delete(NULL);
     Serial.println("[lua_WIN_drawVideo] called");
 
     if (!Windows::isRendering || !UserWiFi::hasInternet)
@@ -50,7 +80,6 @@ int lua_WIN_drawVideo(lua_State *L)
     }
     w->wasClicked = false;
 
-    // Acquire access
     int waitLoops = 0;
     while (!Windows::canAccess)
     {
@@ -64,7 +93,6 @@ int lua_WIN_drawVideo(lua_State *L)
     Screen::tft.drawString("...Loading Video...", 100, 100);
     Serial.println("[lua_WIN_drawVideo] acquired access");
 
-    // Get URL
     const char *url_c = luaL_checkstring(L, 2);
     String url = String(url_c);
     if (url.startsWith("https://github.com/") && url.indexOf("/raw/refs/heads/") != -1)
@@ -122,7 +150,6 @@ int lua_WIN_drawVideo(lua_State *L)
         return 0;
     }
 
-    // Read header
     uint8_t header[8];
     if (stream->readBytes(header, 8) != 8)
     {
@@ -188,27 +215,23 @@ int lua_WIN_drawVideo(lua_State *L)
     {
         auto touch = Screen::getTouchPos();
 
-        // Exit button area
-        int exitX = dstX + v_w - 32, exitY = dstY;
-        if (touch.clicked && touch.x >= exitX && touch.x <= exitX + 28 && touch.y >= exitY && touch.y <= exitY + 28)
+        // Exit Button
+        if (touch.clicked && touch.x >= 300 && touch.y < 20)
         {
             exitRequested = true;
             break;
         }
 
-        // Toggle pause
-        static bool wasTouched = false;
-        if (touch.clicked && !wasTouched && !(touch.x >= exitX && touch.x <= exitX + 28 && touch.y >= exitY && touch.y <= exitY + 28))
+        // Pause/Play Button
+        if (touch.clicked && touch.x >= 0 && touch.x <= 20 && touch.y < 20)
         {
             paused = !paused;
         }
-        wasTouched = touch.clicked;
 
-        // Timeline seek
-        int tlY = dstY + v_h - 12;
-        if (touch.clicked && touch.y >= tlY && touch.y <= tlY + 8)
+        // Timeline Seek
+        if (touch.clicked && touch.x >= 30 && touch.x <= 230 && touch.y >= 6 && touch.y <= 14)
         {
-            float pos = (float)(touch.x - dstX) / v_w;
+            float pos = (float)(touch.x - 30) / 200.0f;
             if (pos < 0)
                 pos = 0;
             if (pos > 1)
@@ -220,20 +243,11 @@ int lua_WIN_drawVideo(lua_State *L)
             continue;
         }
 
-        // Draw timeline
-        Screen::tft.fillRect(dstX, tlY, v_w, 8, TFT_DARKGREY);
-        int px = dstX + (currentFrame * v_w / framesCount);
-        Screen::tft.fillRect(dstX, tlY, px - dstX, 8, TFT_RED);
-
-        // Show time
-        drawVideoTime(currentFrame / 20, framesCount / 20, dstX, tlY - 12, v_w, 16);
-        Windows::drawTime();
-
-        // Draw exit button
-        Screen::tft.fillRect(exitX, exitY, 28, 28, TFT_DARKGREY);
-        Screen::tft.drawRect(exitX, exitY, 28, 28, TFT_WHITE);
-        Screen::tft.drawLine(exitX + 4, exitY + 4, exitX + 24, exitY + 24, TFT_WHITE);
-        Screen::tft.drawLine(exitX + 24, exitY + 4, exitX + 4, exitY + 24, TFT_WHITE);
+        // Menübar zeichnen (nur wenn pausiert)
+        if (paused)
+        {
+            drawMenuBar(paused, currentFrame, framesCount);
+        }
 
         if (!paused)
         {
@@ -257,15 +271,6 @@ int lua_WIN_drawVideo(lua_State *L)
             if (delayMs > 0)
                 delay(delayMs);
             lastFrameTime = now;
-
-            // Auto-resync if we are 40 frames behind
-            int expectedFrame = (millis() - lastFrameTime) / 50;
-            if ((int)currentFrame < expectedFrame - 40)
-            {
-                https.end();
-                stream = openStream(expectedFrame, v_w);
-                currentFrame = expectedFrame;
-            }
         }
 
         delay(1);
