@@ -931,7 +931,7 @@ namespace LuaApps::WinLib
         client.setInsecure();
         HTTPClient https;
 
-        auto openStream = [&](uint32_t frameStart) -> WiFiClient *
+        auto openStream = [&](uint32_t frameStart, int v_w) -> WiFiClient *
         {
             if (!https.begin(client, url))
             {
@@ -941,22 +941,35 @@ namespace LuaApps::WinLib
 
             if (frameStart > 0)
             {
-                uint32_t byteOffset = 8 + frameStart * 2 * 240; // assuming 240px width, 2 bytes per pixel
+                uint32_t byteOffset = 8 + frameStart * 2 * v_w;
                 https.addHeader("Range", "bytes=" + String(byteOffset) + "-");
             }
 
-            int code = https.GET();
-            if (code != HTTP_CODE_OK && code != HTTP_CODE_PARTIAL_CONTENT)
+            int httpCode = https.GET();
+            while (httpCode == 302 || httpCode == 301)
             {
-                Serial.printf("[lua_WIN_drawVideo] HTTP GET failed: %d\n", code);
+                String redirect = https.getLocation();
                 https.end();
-                return nullptr;
+                if (!https.begin(client, redirect))
+                {
+                    Serial.println("[lua_WIN_drawVideo] redirect https.begin() failed");
+                    Windows::canAccess = true;
+                    return 0;
+                }
+                httpCode = https.GET();
+            }
+            if (httpCode != HTTP_CODE_OK && httpCode != HTTP_CODE_PARTIAL_CONTENT)
+            {
+                Serial.printf("[lua_WIN_drawVideo] HTTP GET failed: %d\n", httpCode);
+                https.end();
+                Windows::canAccess = true;
+                return 0;
             }
 
             return https.getStreamPtr();
         };
 
-        WiFiClient *stream = openStream(0);
+        WiFiClient *stream = openStream(0, 240);
         if (!stream)
         {
             Windows::canAccess = true;
@@ -1057,7 +1070,7 @@ namespace LuaApps::WinLib
                 uint32_t targetFrame = pos * framesCount;
                 currentFrame = targetFrame;
                 https.end();
-                stream = openStream(currentFrame);
+                stream = openStream(currentFrame, v_w);
                 continue;
             }
 
@@ -1104,7 +1117,7 @@ namespace LuaApps::WinLib
                 if ((int)currentFrame < expectedFrame - 40)
                 {
                     https.end();
-                    stream = openStream(expectedFrame);
+                    stream = openStream(expectedFrame, v_w);
                     currentFrame = expectedFrame;
                 }
             }
