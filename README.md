@@ -22,7 +22,7 @@ Each application consists of several required files hosted on a web server:
 
 Use [this converter](https://manuelwestermeier.github.io/image-to-16-bit/) to convert images to the required 16-bit RAW format.
 
-Use [this converter](https://manuelwestermeier.github.io/image-to-16-bit/vide) to convert videos to the required 16-bit RAW format.
+Use [this converter](https://manuelwestermeier.github.io/image-to-16-bit/video) to convert videos to the required 16-bit RAW format.
 
 ---
 

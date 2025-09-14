@@ -858,7 +858,6 @@ namespace LuaApps::WinLib
     {
         Serial.println("[lua_WIN_drawVideo] called");
 
-        // --- get window from Lua ---
         Window *w = getWindow(L, 1);
         if (!w || w->closed)
         {
@@ -866,7 +865,6 @@ namespace LuaApps::WinLib
             return 0;
         }
 
-        // --- only proceed if the window was clicked on top ---
         if (!w->wasClicked)
         {
             Serial.println("[lua_WIN_drawVideo] window not clicked on top; returning");
@@ -874,7 +872,6 @@ namespace LuaApps::WinLib
         }
         w->wasClicked = false;
 
-        // --- rendering guard ---
         if (!Windows::isRendering || !UserWiFi::hasInternet)
         {
             Serial.printf("[lua_WIN_drawVideo] rendering=%d, hasInternet=%d; returning\n",
@@ -882,6 +879,7 @@ namespace LuaApps::WinLib
             return 0;
         }
 
+        // Acquire single-threaded access
         Serial.println("[lua_WIN_drawVideo] waiting for Windows::canAccess...");
         int waitLoops = 0;
         while (!Windows::canAccess)
@@ -891,15 +889,14 @@ namespace LuaApps::WinLib
             if ((waitLoops & 127) == 0)
                 Serial.printf("[lua_WIN_drawVideo] still waiting for access (loops=%d)\n", waitLoops);
         }
-
         Windows::canAccess = false;
         Serial.println("[lua_WIN_drawVideo] acquired access");
 
-        const char *url_c = luaL_checkstring(L, 2); // second Lua argument = URL
+        const char *url_c = luaL_checkstring(L, 2);
         String url = String(url_c);
         Serial.printf("[lua_WIN_drawVideo] original URL: %s\n", url_c);
 
-        // --- quick fix for GitHub "raw/refs/heads" redirect: convert to raw.githubusercontent.com ---
+        // quick GitHub raw redirect fix
         if (url.indexOf("https://github.com/") == 0 && url.indexOf("/raw/refs/heads/") != -1)
         {
             url.replace("https://github.com/", "https://raw.githubusercontent.com/");
@@ -907,22 +904,17 @@ namespace LuaApps::WinLib
             Serial.printf("[lua_WIN_drawVideo] converted to raw URL: %s\n", url.c_str());
         }
 
-        // Diagnostics: heap/WiFi before network op
         Serial.printf("[lua_WIN_drawVideo] WiFi.status()=%d, freeHeap=%u\n", WiFi.status(), (unsigned)ESP.getFreeHeap());
 
         WiFiClientSecure client;
-        client.setInsecure(); // skip SSL validation (testing only)
-
+        client.setInsecure();
         HTTPClient https;
-
-        // Use the String for begin so we can pass the modified URL
         if (!https.begin(client, url))
         {
             Serial.println("[lua_WIN_drawVideo] https.begin() failed");
             Windows::canAccess = true;
             return 0;
         }
-        Serial.println("[lua_WIN_drawVideo] https.begin() success");
 
         const int maxRetries = 3;
         int tries = 0;
@@ -931,39 +923,28 @@ namespace LuaApps::WinLib
         {
             httpCode = https.GET();
             Serial.printf("[lua_WIN_drawVideo] HTTP GET returned %d (try %d)\n", httpCode, tries + 1);
-
-            // If GET returned 302 or 301 it means redirect — we tried to avoid those by fixing the URL,
-            // but if you still get them you could either follow manually or change the source URL.
             if (httpCode == HTTP_CODE_OK)
                 break;
-
             if (httpCode == HTTP_CODE_MOVED_PERMANENTLY || httpCode == HTTP_CODE_FOUND)
             {
-                // print the Location header if available for debugging:
                 String loc = https.header("Location");
                 Serial.printf("[lua_WIN_drawVideo] Redirect Location: %s\n", loc.c_str());
-                // We do not automatically follow here — prefer using a direct/raw URL.
                 break;
             }
-
             if (httpCode == -1)
             {
-                // TLS / socket-level error. Print heap + wifi for diagnostics.
-                Serial.printf("[lua_WIN_drawVideo] low-level HTTP error (code -1). freeHeap=%u, WiFi.status()=%d\n",
+                Serial.printf("[lua_WIN_drawVideo] low-level HTTP error. freeHeap=%u, WiFi.status()=%d\n",
                               (unsigned)ESP.getFreeHeap(), WiFi.status());
-                // small backoff before retrying
                 delay(250);
                 tries++;
                 continue;
             }
-
-            // other codes -> no point retrying
             break;
         }
 
         if (httpCode != HTTP_CODE_OK)
         {
-            Serial.printf("[lua_WIN_drawVideo] HTTP code not OK (%d); ending\n", httpCode);
+            Serial.printf("[lua_WIN_drawVideo] HTTP not OK (%d); ending\n", httpCode);
             https.end();
             Windows::canAccess = true;
             return 0;
@@ -971,11 +952,11 @@ namespace LuaApps::WinLib
 
         WiFiClient *stream = https.getStreamPtr();
 
-        // --- read header ---
+        // read 8-byte header (little-endian for width/height, framesCount)
         uint8_t header[8];
         if (stream->readBytes(header, 8) != 8)
         {
-            Serial.println("[lua_WIN_drawVideo] failed to read header (less than 8 bytes)");
+            Serial.println("[lua_WIN_drawVideo] failed to read header");
             https.end();
             Windows::canAccess = true;
             return 0;
@@ -990,8 +971,9 @@ namespace LuaApps::WinLib
 
         Screen::tft.fillScreen(BG);
 
-        // Consider using a static buffer to avoid heap fragmentation if you repeatedly allocate.
-        uint8_t *line = new uint8_t[w_px * 2];
+        // allocate one persistent line buffer (avoid per-frame malloc)
+        const size_t bytesPerLine = (size_t)w_px * 2;
+        uint8_t *line = (uint8_t *)heap_caps_malloc(bytesPerLine, MALLOC_CAP_8BIT);
         if (!line)
         {
             Serial.println("[lua_WIN_drawVideo] failed to allocate line buffer");
@@ -1000,7 +982,8 @@ namespace LuaApps::WinLib
             return 0;
         }
 
-        const int frameDelay = 50; // 20 fps
+        const unsigned long frameDelay = 50UL; // target ms per frame (20 fps)
+        unsigned long nextFrameTarget = millis();
 
         for (uint32_t f = 0; f < framesCount; f++)
         {
@@ -1011,28 +994,76 @@ namespace LuaApps::WinLib
             }
 
             if ((f % 10) == 0 || f == framesCount - 1)
-                Serial.printf("[lua_WIN_drawVideo] rendering frame %u / %u\n", (unsigned)f, (unsigned)framesCount);
+                Serial.printf("[lua_WIN_drawVideo] frame %u / %u\n", (unsigned)f, (unsigned)framesCount);
 
-            for (int y = 0; y < h_px; y++)
+            unsigned long frameStart = millis();
+
+            bool onTime = (frameStart <= nextFrameTarget + frameDelay);
+            int rowOffset = f % 3; // interleave rows across 3 frames
+
+            // If we are too far behind, skip rendering this frame (but still consume bytes)
+            if (!onTime)
             {
-                int bytesToRead = w_px * 2;
-                int bytesRead = stream->readBytes(line, bytesToRead);
-                if (bytesRead != bytesToRead)
+                // read and discard rows quickly
+                for (uint16_t y = 0; y < h_px; y++)
                 {
-                    Serial.printf("[lua_WIN_drawVideo] bytesRead mismatch at frame %u, row %d: got %d expected %d\n",
-                                  (unsigned)f, y, bytesRead, bytesToRead);
-                    delete[] line;
+                    int bytesRead = stream->readBytes(line, bytesPerLine);
+                    if (bytesRead != (int)bytesPerLine)
+                    {
+                        Serial.printf("[lua_WIN_drawVideo] bytesRead mismatch while skipping frame %u row %u\n", (unsigned)f, (unsigned)y);
+                        heap_caps_free(line);
+                        https.end();
+                        Windows::canAccess = true;
+                        return 0;
+                    }
+                    // yield occasionally so WiFi can run
+                    if ((y & 15) == 0)
+                        yield();
+                }
+                // resync target to now
+                nextFrameTarget = millis();
+                continue;
+            }
+
+            // Render: read each row, push only every 3rd row with shifting offset
+            for (uint16_t y = 0; y < h_px; y++)
+            {
+                int bytesRead = stream->readBytes(line, bytesPerLine);
+                if (bytesRead != (int)bytesPerLine)
+                {
+                    Serial.printf("[lua_WIN_drawVideo] bytesRead mismatch at frame %u, row %u\n", (unsigned)f, (unsigned)y);
+                    heap_caps_free(line);
                     https.end();
                     Windows::canAccess = true;
                     return 0;
                 }
 
-                Screen::tft.pushImage(0, y, w_px, 1, (uint16_t *)line);
+                // draw only rows matching current interleave offset
+                if ((y % 3) == rowOffset)
+                {
+                    // cast to uint16_t* because converter writes bytes in MSB-first (big-endian) order that this pushImage expects
+                    // if your pushImage expects different order, adjust the converter instead.
+                    Screen::tft.pushImage(0, y, w_px, 1, (uint16_t *)line);
+                }
+
+                if ((y & 15) == 0)
+                    yield();
             }
-            delay(frameDelay);
+
+            unsigned long frameTime = millis() - frameStart;
+            if (frameTime < frameDelay)
+            {
+                delay(frameDelay - frameTime);
+                nextFrameTarget += frameDelay;
+            }
+            else
+            {
+                // We consumed longer than a frame: resync to now
+                nextFrameTarget = millis();
+            }
         }
 
-        delete[] line;
+        heap_caps_free(line);
         https.end();
         Screen::tft.fillScreen(BG);
         Windows::canAccess = true;
