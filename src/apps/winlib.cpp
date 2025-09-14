@@ -856,7 +856,7 @@ namespace LuaApps::WinLib
 
     int lua_WIN_drawVideo(lua_State *L)
     {
-        Serial.println("[lua_WIN_drawVideo] called");
+        Serial.println("[lua_WIN_drawVideo] called (seekable + centered + controls)");
 
         Window *w = getWindow(L, 1);
         if (!w || w->closed)
@@ -886,7 +886,7 @@ namespace LuaApps::WinLib
             delay(rand() % 3);
             waitLoops++;
             if ((waitLoops & 127) == 0)
-                Serial.printf("[lua_WIN_drawVideo] still waiting for access (loops=%d)\n", waitLoops);
+                Serial.printf("[lua_WIN_drawVideo] still waiting (loops=%d)\n", waitLoops);
             yield();
         }
         Windows::canAccess = false;
@@ -895,7 +895,6 @@ namespace LuaApps::WinLib
         const char *url_c = luaL_checkstring(L, 2);
         String url = String(url_c);
         Serial.printf("[lua_WIN_drawVideo] original URL: %s\n", url_c);
-
         if (url.indexOf("https://github.com/") == 0 && url.indexOf("/raw/refs/heads/") != -1)
         {
             url.replace("https://github.com/", "https://raw.githubusercontent.com/");
@@ -908,39 +907,23 @@ namespace LuaApps::WinLib
         WiFiClientSecure client;
         client.setInsecure();
         HTTPClient https;
+
+        auto beginGetNoRange = [&](HTTPClient &hc, WiFiClientSecure &c, const String &u) -> int
+        {
+            if (!hc.begin(c, u))
+                return -999;
+            return hc.GET();
+        };
+
+        // First full GET to read the header and start streaming from frame 0
         if (!https.begin(client, url))
         {
             Serial.println("[lua_WIN_drawVideo] https.begin() failed");
             Windows::canAccess = true;
             return 0;
         }
-
-        const int maxRetries = 3;
-        int tries = 0;
-        int httpCode = -99;
-        while (tries < maxRetries)
-        {
-            httpCode = https.GET();
-            Serial.printf("[lua_WIN_drawVideo] HTTP GET returned %d (try %d)\n", httpCode, tries + 1);
-            if (httpCode == HTTP_CODE_OK)
-                break;
-            if (httpCode == HTTP_CODE_MOVED_PERMANENTLY || httpCode == HTTP_CODE_FOUND)
-            {
-                String loc = https.header("Location");
-                Serial.printf("[lua_WIN_drawVideo] Redirect Location: %s\n", loc.c_str());
-                break;
-            }
-            if (httpCode == -1)
-            {
-                Serial.printf("[lua_WIN_drawVideo] low-level HTTP error. freeHeap=%u, WiFi.status()=%d\n",
-                              (unsigned)ESP.getFreeHeap(), WiFi.status());
-                delay(250);
-                tries++;
-                continue;
-            }
-            break;
-        }
-
+        int httpCode = https.GET();
+        Serial.printf("[lua_WIN_drawVideo] HTTP GET returned %d (initial)\n", httpCode);
         if (httpCode != HTTP_CODE_OK)
         {
             Serial.printf("[lua_WIN_drawVideo] HTTP not OK (%d); ending\n", httpCode);
@@ -951,7 +934,7 @@ namespace LuaApps::WinLib
 
         WiFiClient *stream = https.getStreamPtr();
 
-        // read header
+        // read 8-byte header (width, height, framesCount) from start of file
         uint8_t header[8];
         if (stream->readBytes(header, 8) != 8)
         {
@@ -961,45 +944,62 @@ namespace LuaApps::WinLib
             return 0;
         }
 
-        uint16_t w_px = (uint16_t)((header[1] << 8) | header[0]);
-        uint16_t h_px = (uint16_t)((header[3] << 8) | header[2]);
+        uint16_t v_w = (uint16_t)((header[1] << 8) | header[0]);
+        uint16_t v_h = (uint16_t)((header[3] << 8) | header[2]);
         uint32_t framesCount = ((uint32_t)header[7] << 24) | ((uint32_t)header[6] << 16) | ((uint32_t)header[5] << 8) | header[4];
 
-        const uint16_t MAX_W = 320;
-        const uint16_t MAX_H = 240;
-        if (w_px == 0 || h_px == 0 || w_px > 2000 || h_px > 2000)
+        const uint16_t MAX_W = 320, MAX_H = 240;
+        if (v_w == 0 || v_h == 0 || v_w > 2000 || v_h > 2000)
         {
-            Serial.printf("[lua_WIN_drawVideo] suspicious dimensions: %u x %u; aborting\n", (unsigned)w_px, (unsigned)h_px);
+            Serial.printf("[lua_WIN_drawVideo] suspicious dims %u x %u; abort\n", (unsigned)v_w, (unsigned)v_h);
             https.end();
             Windows::canAccess = true;
             return 0;
         }
-        if (w_px > MAX_W)
+        if (v_w > MAX_W)
         {
-            Serial.printf("[lua_WIN_drawVideo] clamping width %u -> %u\n", (unsigned)w_px, (unsigned)MAX_W);
-            w_px = MAX_W;
+            Serial.printf("[lua_WIN_drawVideo] clamping width %u -> %u\n", (unsigned)v_w, (unsigned)MAX_W);
+            v_w = MAX_W;
         }
-        if (h_px > MAX_H)
+        if (v_h > MAX_H)
         {
-            Serial.printf("[lua_WIN_drawVideo] clamping height %u -> %u\n", (unsigned)h_px, (unsigned)MAX_H);
-            h_px = MAX_H;
+            Serial.printf("[lua_WIN_drawVideo] clamping height %u -> %u\n", (unsigned)v_h, (unsigned)MAX_H);
+            v_h = MAX_H;
         }
-
         if (framesCount == 0 || framesCount > 2000000UL)
         {
-            Serial.printf("[lua_WIN_drawVideo] suspicious framesCount=%u; aborting\n", (unsigned)framesCount);
+            Serial.printf("[lua_WIN_drawVideo] suspicious frames=%u; abort\n", (unsigned)framesCount);
             https.end();
             Windows::canAccess = true;
             return 0;
         }
 
-        Serial.printf("[lua_WIN_drawVideo] header parsed: width=%u, height=%u, frames=%u\n",
-                      (unsigned)w_px, (unsigned)h_px, (unsigned)framesCount);
+        Serial.printf("[lua_WIN_drawVideo] header parsed: width=%u, height=%u, frames=%u\n", (unsigned)v_w, (unsigned)v_h, (unsigned)framesCount);
+
+        // compute centered offsets inside the window
+        int winW = Screen::tft.width();
+        int winH = Screen::tft.height();
+        int winX = 0;
+        int winY = 0;
+        
+        int srcXOffset = 0, srcYStart = 0, drawW = (int)v_w, drawH = (int)v_h;
+        if (drawW > winW)
+        {
+            srcXOffset = (drawW - winW) / 2;
+            drawW = winW;
+        }
+        if (drawH > winH)
+        {
+            srcYStart = (drawH - winH) / 2;
+            drawH = winH;
+        }
+        int dstX = winX + (winW - drawW) / 2;
+        int dstY = winY + (winH - drawH) / 2;
 
         Screen::tft.fillScreen(BG);
 
-        // allocate a single line buffer (aligned to 2)
-        const size_t bytesPerLine = (size_t)w_px * 2;
+        // single aligned line buffer
+        const size_t bytesPerLine = (size_t)v_w * 2;
         uint8_t *rawBuf = (uint8_t *)heap_caps_malloc(bytesPerLine + 2, MALLOC_CAP_8BIT);
         if (!rawBuf)
         {
@@ -1010,158 +1010,418 @@ namespace LuaApps::WinLib
         }
         uint8_t *lineBuf = rawBuf;
         if (((uintptr_t)lineBuf & 1) != 0)
-            lineBuf++; // align for uint16_t cast
+            lineBuf++;
 
-        // timing & EMA params
+        // EMA timing for adaptive skipping
+        double ema_read_ms = 5.0, ema_draw_ms = 5.0;
+        const double EMA_ALPHA = 0.12;
         const unsigned long FULL_REDRAW_INTERVAL_MS = 5000UL;
-        const unsigned long LINE_INTERVAL_MS = 50UL; // 20 fps equivalent for targetLine
-        unsigned long startMs = millis();
-        unsigned long nextFullRedrawAt = startMs + FULL_REDRAW_INTERVAL_MS;
+        const unsigned long LINE_INTERVAL_MS = 50UL; // conceptual 20fps
+        unsigned long startMs = millis(), nextFullRedraw = startMs + FULL_REDRAW_INTERVAL_MS;
         bool didInitialFull = false;
 
-        // EMA initial values (ms)
-        double ema_read_ms = 5.0;      // initial guess: 5ms per read (will adapt)
-        double ema_draw_ms = 5.0;      // initial guess: 5ms per draw (will adapt)
-        const double EMA_ALPHA = 0.12; // smoothing: 0..1 (higher -> faster adapt)
+        // UI and seek state
+        bool paused = false, exitRequested = false;
+        bool showControls = true;
+        unsigned long controlsLastShownMs = millis(), CONTROLS_HIDE_MS = 3000UL;
+        const int BTN_SIZE = 28;
+        int btnExitX = dstX + drawW - BTN_SIZE - 6, btnExitY = dstY + 6;
+        int btnPlayX = btnExitX - (BTN_SIZE + 6), btnPlayY = btnExitY;
+        int timelineX = dstX + 6, timelineW = drawW - 12, timelineY = dstY + drawH - 12, timelineH = 6;
 
-        // safety counters for logging
+        // seeking helpers
+        const uint32_t bytesPerFrame = (uint32_t)v_h * (uint32_t)bytesPerLine;
+        const uint32_t dataStartOffset = 8; // header size
+        uint32_t currentFrame = 0;          // absolute frame index in file (we start at 0)
+        bool seekRequested = false;
+        uint32_t seekFrame = 0;
+
+        // function to start a ranged or un-ranged GET at a byte offset
+        auto startGetAtOffset = [&](uint32_t byteOffset, bool expectFullFileOn200, HTTPClient &hc, WiFiClientSecure &c, const String &u) -> int
+        {
+            // end any previous connection in hc
+            hc.end();
+            if (!hc.begin(c, u))
+                return -999;
+            if (byteOffset > 0)
+            {
+                String rangeHeader = "bytes=" + String(byteOffset) + "-";
+                hc.addHeader("Range", rangeHeader);
+            }
+            int code = hc.GET();
+            return code;
+        };
+
+        // At this point 'https' and 'stream' point to the start of the file *after* consuming header.
+        // currentFrame is 0 and stream already points after the header -> ready to read frame 0 lines.
+
         unsigned long lastLog = millis();
 
-        for (uint32_t f = 0; f < framesCount; ++f)
+        for (; currentFrame < framesCount; /* incremented in loop */)
         {
             if (w->closed)
             {
-                Serial.printf("[lua_WIN_drawVideo] window closed at frame %u\n", (unsigned)f);
+                Serial.printf("[lua_WIN_drawVideo] window closed at frame %u\n", (unsigned)currentFrame);
                 break;
             }
             if (!Windows::isRendering || !UserWiFi::hasInternet)
             {
-                Serial.printf("[lua_WIN_drawVideo] rendering/internet lost at frame %u\n", (unsigned)f);
+                Serial.printf("[lua_WIN_drawVideo] stopped/internet lost at frame %u\n", (unsigned)currentFrame);
                 break;
             }
-
-            if ((f % 50) == 0)
-                Serial.printf("[lua_WIN_drawVideo] frame %u / %u\n", (unsigned)f, (unsigned)framesCount);
+            if ((currentFrame & 63) == 0)
+                Serial.printf("[lua_WIN_drawVideo] playing frame %u / %u\n", (unsigned)currentFrame, (unsigned)framesCount);
 
             unsigned long frameStart = millis();
             unsigned long now = frameStart;
 
-            // decide full redraw schedule
-            bool needFullRedraw = false;
+            // UI hide timer
+            if (showControls && (now - controlsLastShownMs) > CONTROLS_HIDE_MS)
+                showControls = false;
+
+            // handle click events (seek / play / exit). This part needs coordinate fields in Window.
+            if (w->wasClicked)
+            {
+                w->wasClicked = false;
+                int cx = -1, cy = -1;
+                bool haveCoords = false;
+#ifdef HAVE_WINDOW_CLICK_COORDS
+                cx = w->clickX;
+                cy = w->clickY;
+                haveCoords = true;
+#endif
+                // If coordinates are available, interpret clicks precisely
+                if (haveCoords)
+                {
+                    // Click on Play/Pause?
+                    if (cx >= btnPlayX && cx < btnPlayX + BTN_SIZE && cy >= btnPlayY && cy < btnPlayY + BTN_SIZE)
+                    {
+                        paused = !paused;
+                        showControls = true;
+                        controlsLastShownMs = millis();
+                    }
+                    // Click on Exit?
+                    else if (cx >= btnExitX && cx < btnExitX + BTN_SIZE && cy >= btnExitY && cy < btnExitY + BTN_SIZE)
+                    {
+                        exitRequested = true;
+                    }
+                    // Click on timeline -> seek
+                    else if (cx >= timelineX && cx <= (timelineX + timelineW) && cy >= (timelineY - 8) && cy <= (timelineY + timelineH + 8))
+                    {
+                        float frac = (float)(cx - timelineX) / (float)timelineW;
+                        if (frac < 0.0f)
+                            frac = 0.0f;
+                        if (frac > 1.0f)
+                            frac = 1.0f;
+                        uint32_t target = (uint32_t)round(frac * (float)(framesCount - 1));
+                        seekRequested = true;
+                        seekFrame = target;
+                        showControls = true;
+                        controlsLastShownMs = millis();
+                        Serial.printf("[lua_WIN_drawVideo] timeline click -> seek to frame %u (frac=%.3f)\n", (unsigned)seekFrame, frac);
+                    }
+                    else
+                    {
+                        // Click elsewhere toggles controls/paused
+                        paused = !paused;
+                        showControls = true;
+                        controlsLastShownMs = millis();
+                    }
+                }
+                else
+                {
+                    // No coords available: toggle pause on click and show controls.
+                    paused = !paused;
+                    showControls = true;
+                    controlsLastShownMs = millis();
+                }
+            }
+
+            // handle seek if requested
+            if (seekRequested)
+            {
+                seekRequested = false;
+                if (seekFrame >= framesCount)
+                    seekFrame = framesCount - 1;
+                Serial.printf("[lua_WIN_drawVideo] performing seek to frame %u\n", (unsigned)seekFrame);
+
+                // compute byte offset to the start of seekFrame
+                uint32_t off = dataStartOffset + (uint32_t)seekFrame * bytesPerFrame;
+
+                // perform ranged GET at offset
+                // Close old connection and make a new request with Range header
+                https.end(); // close existing
+
+                // start new connection with Range header
+                if (!https.begin(client, url))
+                {
+                    Serial.println("[lua_WIN_drawVideo] https.begin() failed on seek");
+                    heap_caps_free(rawBuf);
+                    Windows::canAccess = true;
+                    return 0;
+                }
+                String rangeHeader = "bytes=" + String(off) + "-";
+                https.addHeader("Range", rangeHeader);
+                int code = https.GET();
+                Serial.printf("[lua_WIN_drawVideo] range GET returned %d for offset %u\n", code, (unsigned)off);
+
+                if (code == HTTP_CODE_PARTIAL_CONTENT) // 206 -> server responds with partial content starting at offset
+                {
+                    stream = https.getStreamPtr();
+                    // stream starts at byte offset -> do NOT read header again
+                    currentFrame = seekFrame;
+                    // continue playback from currentFrame
+                    Serial.printf("[lua_WIN_drawVideo] seek OK (206). Resuming at frame %u\n", (unsigned)currentFrame);
+                }
+                else if (code == HTTP_CODE_OK)
+                {
+                    // server ignored Range and returned full file. We have a full stream starting with header.
+                    stream = https.getStreamPtr();
+                    // read header from this stream
+                    uint8_t tmpHeader[8];
+                    if (stream->readBytes(tmpHeader, 8) != 8)
+                    {
+                        Serial.println("[lua_WIN_drawVideo] failed to read header after 200 OK on seek");
+                        https.end();
+                        heap_caps_free(rawBuf);
+                        Windows::canAccess = true;
+                        return 0;
+                    }
+                    // Now we need to skip frames from 0..seekFrame-1 to reach seekFrame
+                    Serial.printf("[lua_WIN_drawVideo] server returned full file after Range -> skipping to frame %u by consuming bytes\n", (unsigned)seekFrame);
+                    for (uint32_t sf = 0; sf < seekFrame; ++sf)
+                    {
+                        for (uint16_t yy = 0; yy < v_h; ++yy)
+                        {
+                            int got = stream->readBytes(lineBuf, bytesPerLine);
+                            if (got != (int)bytesPerLine)
+                            {
+                                Serial.printf("[lua_WIN_drawVideo] failed while skipping (frame %u row %u) got=%d\n", (unsigned)sf, (unsigned)yy, got);
+                                https.end();
+                                heap_caps_free(rawBuf);
+                                Windows::canAccess = true;
+                                return 0;
+                            }
+                        }
+                        // yield occasionally while skipping large chunks
+                        if ((sf & 7) == 0)
+                        {
+                            yield();
+                        }
+                    }
+                    currentFrame = seekFrame;
+                    Serial.printf("[lua_WIN_drawVideo] skip done; resuming at frame %u\n", (unsigned)currentFrame);
+                }
+                else
+                {
+                    // ranged GET failed: try fallback to starting from beginning and skipping
+                    Serial.printf("[lua_WIN_drawVideo] range GET failed (%d) - falling back to full GET and skip\n", code);
+                    https.end();
+                    if (!https.begin(client, url))
+                    {
+                        Serial.println("[lua_WIN_drawVideo] https.begin() failed (fallback)");
+                        heap_caps_free(rawBuf);
+                        Windows::canAccess = true;
+                        return 0;
+                    }
+                    int code2 = https.GET();
+                    if (code2 != HTTP_CODE_OK)
+                    {
+                        Serial.printf("[lua_WIN_drawVideo] fallback GET failed (%d)\n", code2);
+                        https.end();
+                        heap_caps_free(rawBuf);
+                        Windows::canAccess = true;
+                        return 0;
+                    }
+                    stream = https.getStreamPtr();
+                    // read header
+                    if (stream->readBytes(header, 8) != 8)
+                    {
+                        Serial.println("[lua_WIN_drawVideo] failed reading header on fallback");
+                        https.end();
+                        heap_caps_free(rawBuf);
+                        Windows::canAccess = true;
+                        return 0;
+                    }
+                    // skip until seekFrame as above
+                    for (uint32_t sf = 0; sf < seekFrame; ++sf)
+                    {
+                        for (uint16_t yy = 0; yy < v_h; ++yy)
+                        {
+                            int got = stream->readBytes(lineBuf, bytesPerLine);
+                            if (got != (int)bytesPerLine)
+                            {
+                                Serial.printf("[lua_WIN_drawVideo] fallback skip failed at frame %u row %u\n", (unsigned)sf, (unsigned)yy);
+                                https.end();
+                                heap_caps_free(rawBuf);
+                                Windows::canAccess = true;
+                                return 0;
+                            }
+                        }
+                        if ((sf & 7) == 0)
+                        {
+                            yield();
+                        }
+                    }
+                    currentFrame = seekFrame;
+                }
+            } // end handle seekRequested
+
+            // Now play the currentFrame: for each frame we must consume v_h rows
+            // Full redraw scheduling & time-target line computed from now
+            unsigned long now2 = millis();
+            bool needFull = false;
             if (!didInitialFull)
             {
-                needFullRedraw = true;
+                needFull = true;
                 didInitialFull = true;
-                nextFullRedrawAt = now + FULL_REDRAW_INTERVAL_MS;
+                nextFullRedraw = now2 + FULL_REDRAW_INTERVAL_MS;
             }
-            else if (now >= nextFullRedrawAt)
+            else if (now2 >= nextFullRedraw)
             {
-                needFullRedraw = true;
-                nextFullRedrawAt = now + FULL_REDRAW_INTERVAL_MS;
+                needFull = true;
+                nextFullRedraw = now2 + FULL_REDRAW_INTERVAL_MS;
             }
 
-            // compute time-derived single-line target (keeps a time-coherent "current time" line)
-            uint16_t targetLine = (uint16_t)(((now - startMs) / LINE_INTERVAL_MS) % h_px);
+            float progress = (framesCount > 0) ? ((float)currentFrame / (float)(framesCount - 1)) : 0.0f;
+            uint16_t timeTargetLine = (uint16_t)(((millis() - startMs) / LINE_INTERVAL_MS) % v_h);
 
-            // per-row loop: read each line and decide to draw immediately or skip it
-            for (uint16_t y = 0; y < h_px; ++y)
+            for (uint16_t y = 0; y < v_h; ++y)
             {
-                // read line and measure time
                 unsigned long t1 = millis();
                 int got = stream->readBytes(lineBuf, bytesPerLine);
                 unsigned long t2 = millis();
                 if (got != (int)bytesPerLine)
                 {
-                    Serial.printf("[lua_WIN_drawVideo] bytesRead mismatch at frame %u row %u (got=%d)\n", (unsigned)f, (unsigned)y, got);
+                    Serial.printf("[lua_WIN_drawVideo] bytesRead mismatch frame %u row %u (got=%d)\n", (unsigned)currentFrame, (unsigned)y, got);
                     heap_caps_free(rawBuf);
                     https.end();
                     Windows::canAccess = true;
                     return 0;
                 }
                 unsigned long readDur = (t2 >= t1) ? (t2 - t1) : 1;
-                // update EMA read time (ms)
                 ema_read_ms = (1.0 - EMA_ALPHA) * ema_read_ms + EMA_ALPHA * (double)readDur;
 
-                // decide whether to draw this row
-                bool drawNow = false;
-                if (needFullRedraw)
+                // only draw rows that fall into the visible cropped window
+                if ((int)y < srcYStart || (int)y >= srcYStart + drawH)
                 {
-                    drawNow = true; // during full redraw draw all rows
+                    if ((y & 15) == 0)
+                        yield();
+                    continue;
                 }
+                int visibleRowIndex = y - srcYStart;
+                int destY = dstY + visibleRowIndex;
+
+                bool mustDraw = (y == timeTargetLine);
+                bool drawNow = false;
+                if (needFull)
+                    drawNow = true;
+                else if (paused)
+                    drawNow = false;
+                else if (ema_draw_ms <= ema_read_ms * 1.02)
+                    drawNow = true;
                 else
                 {
-                    // if display faster or equal -> draw everything
-                    if (ema_draw_ms <= ema_read_ms * 1.02) // small hysteresis
-                    {
+                    double drawProb = ema_read_ms / ema_draw_ms;
+                    if (drawProb > 0.999)
+                        drawProb = 0.999;
+                    if (drawProb < 0.02)
+                        drawProb = 0.02;
+                    if (mustDraw)
                         drawNow = true;
-                    }
                     else
                     {
-                        // display slower: compute draw probability (drawProb = readMs / drawMs)
-                        double drawProb = ema_read_ms / ema_draw_ms;
-                        if (drawProb > 0.999)
-                            drawProb = 0.999;
-                        if (drawProb < 0.01)
-                            drawProb = 0.01; // ensure some chance to draw
-                        // always draw the targetLine to keep time coherence
-                        if (y == targetLine)
+                        int r = rand() & 0x7fff;
+                        double rnd = (double)r / 32767.0;
+                        if (rnd < drawProb)
                             drawNow = true;
-                        else
-                        {
-                            // random draw decision
-                            int r = rand() & 0x7fff;
-                            double rnd = (double)r / 32767.0;
-                            if (rnd < drawProb)
-                                drawNow = true;
-                        }
                     }
                 }
 
                 if (drawNow)
                 {
-                    unsigned long d1 = millis();
-                    Screen::tft.pushImage(0, y, w_px, 1, (uint16_t *)lineBuf);
+                    // crop horizontally using srcXOffset
+                    uint16_t *pixels = (uint16_t *)lineBuf;
+                    uint16_t *srcPtr = pixels + srcXOffset;
+                    Screen::tft.pushImage(dstX, destY, drawW, 1, (uint16_t *)srcPtr);
                     unsigned long d2 = millis();
-                    unsigned long drawDur = (d2 >= d1) ? (d2 - d1) : 1;
-                    // update EMA draw time (ms)
+                    unsigned long drawDur = (d2 >= t2) ? (d2 - t2) : 1;
                     ema_draw_ms = (1.0 - EMA_ALPHA) * ema_draw_ms + EMA_ALPHA * (double)drawDur;
                 }
 
-                // keep cooperative multitasking: yield occasionally
                 if ((y & 15) == 0)
-                {
-                    yield(); /* small non-blocking pause */
-                }
+                    yield();
 
-                // if window closed or stopped, break
                 if (w->closed || !Windows::isRendering || !UserWiFi::hasInternet)
                     break;
-            } // end rows
+            } // end rows for frame
 
-            // very small cooperative delay to avoid starving other tasks (only if fast)
+            // overlay controls & timeline
+            if (showControls)
+            {
+                // controls background
+                Screen::tft.fillRect(dstX + 4, dstY + 4, drawW - 8, 40, TFT_BLACK);
+                Screen::tft.drawRect(dstX + 4, dstY + 4, drawW - 8, 40, TFT_WHITE);
+
+                // Play/Pause
+                Screen::tft.fillRect(btnPlayX, btnPlayY, BTN_SIZE, BTN_SIZE, TFT_DARKGREY);
+                Screen::tft.drawRect(btnPlayX, btnPlayY, BTN_SIZE, BTN_SIZE, TFT_WHITE);
+                if (paused)
+                {
+                    int cx = btnPlayX + BTN_SIZE / 2, cy = btnPlayY + BTN_SIZE / 2, s = 7;
+                    Screen::tft.fillTriangle(cx - s / 2, cy - s, cx - s / 2, cy + s, cx + s, cy, TFT_WHITE);
+                }
+                else
+                {
+                    int gap = 4, bw = 4;
+                    Screen::tft.fillRect(btnPlayX + 7, btnPlayY + 7, bw, BTN_SIZE - 14, TFT_WHITE);
+                    Screen::tft.fillRect(btnPlayX + 7 + bw + gap, btnPlayY + 7, bw, BTN_SIZE - 14, TFT_WHITE);
+                }
+
+                // Exit
+                Screen::tft.fillRect(btnExitX, btnExitY, BTN_SIZE, BTN_SIZE, TFT_DARKGREY);
+                Screen::tft.drawRect(btnExitX, btnExitY, BTN_SIZE, BTN_SIZE, TFT_WHITE);
+                Screen::tft.drawLine(btnExitX + 6, btnExitY + 6, btnExitX + BTN_SIZE - 6, btnExitY + BTN_SIZE - 6, TFT_WHITE);
+                Screen::tft.drawLine(btnExitX + BTN_SIZE - 6, btnExitY + 6, btnExitX + 6, btnExitY + BTN_SIZE - 6, TFT_WHITE);
+
+                // Timeline
+                Screen::tft.drawRect(timelineX - 1, timelineY - 1, timelineW + 2, timelineH + 2, TFT_WHITE);
+                int progW = (int)(progress * (float)timelineW);
+                if (progW < 0)
+                    progW = 0;
+                if (progW > timelineW)
+                    progW = timelineW;
+                Screen::tft.fillRect(timelineX, timelineY, progW, timelineH, TFT_GREEN);
+                Screen::tft.fillCircle(timelineX + progW, timelineY + (timelineH / 2), 3, TFT_WHITE);
+            }
+
+            // small cooperative sleep
             unsigned long frameTime = millis() - frameStart;
             if (frameTime < 4)
                 delay(1);
 
-            // periodic logging (every ~2s)
+            // advance to next frame
+            currentFrame++;
+
+            if (exitRequested)
+            {
+                Serial.println("[lua_WIN_drawVideo] exitRequested -> breaking");
+                break;
+            }
+
             if (millis() - lastLog > 2000)
             {
                 lastLog = millis();
-                Serial.printf("[lua_WIN_drawVideo] EMA read=%.2fms draw=%.2fms freeHeap=%u\n",
-                              ema_read_ms, ema_draw_ms, (unsigned)ESP.getFreeHeap());
+                Serial.printf("[lua_WIN_drawVideo] EMA read=%.2fms draw=%.2fms freeHeap=%u\n", ema_read_ms, ema_draw_ms, (unsigned)ESP.getFreeHeap());
             }
-
-            // quick early-exit safety
-            if (w->closed || !Windows::isRendering || !UserWiFi::hasInternet)
-                break;
-        } // end frames loop
+        } // end play loop
 
         // cleanup
         heap_caps_free(rawBuf);
         https.end();
-        Screen::tft.fillScreen(BG);
+        // clear video area (optional)
+        Screen::tft.fillRect(dstX, dstY, drawW, drawH, BG);
         Windows::canAccess = true;
-
         Serial.printf("[lua_WIN_drawVideo] finished, released access; freeHeap=%u\n", (unsigned)ESP.getFreeHeap());
         return 0;
     }
