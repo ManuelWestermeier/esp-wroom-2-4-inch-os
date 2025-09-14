@@ -856,6 +856,7 @@ namespace LuaApps::WinLib
 
     int lua_WIN_drawVideo(lua_State *L)
     {
+        esp_task_wdt_delete(NULL); // deletes watchdog for current task
         Serial.println("[lua_WIN_drawVideo] called (seekable + centered + controls)");
 
         Window *w = getWindow(L, 1);
@@ -981,7 +982,7 @@ namespace LuaApps::WinLib
         int winH = Screen::tft.height();
         int winX = 0;
         int winY = 0;
-        
+
         int srcXOffset = 0, srcYStart = 0, drawW = (int)v_w, drawH = (int)v_h;
         if (drawW > winW)
         {
