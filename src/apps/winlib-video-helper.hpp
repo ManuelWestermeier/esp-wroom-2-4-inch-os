@@ -282,5 +282,7 @@ int lua_WIN_drawVideo(lua_State *L)
     Windows::canAccess = true;
 
     Serial.printf("[lua_WIN_drawVideo] finished; freeHeap=%u\n", (unsigned)ESP.getFreeHeap());
+    
+    Screen::tft.fillScreen(BG);
     return 0;
 }
