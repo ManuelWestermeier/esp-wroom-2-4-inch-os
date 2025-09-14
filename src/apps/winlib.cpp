@@ -916,6 +916,8 @@ namespace LuaApps::WinLib
             yield();
         }
         Windows::canAccess = false;
+        Screen::tft.fillScreen(BG);
+        Screen::tft.drawString("...Loading\nVideo...", 10, 10);
         Serial.println("[lua_WIN_drawVideo] acquired access");
 
         // Get URL
