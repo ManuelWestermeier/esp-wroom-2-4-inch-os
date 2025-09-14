@@ -981,9 +981,9 @@ namespace LuaApps::WinLib
             return 0;
         }
 
-        uint16_t w_px = (header[0] << 8) | header[1];
-        uint16_t h_px = (header[2] << 8) | header[3];
-        uint32_t framesCount = ((uint32_t)header[4] << 24) | ((uint32_t)header[5] << 16) | ((uint32_t)header[6] << 8) | header[7];
+        uint16_t w_px = (header[1] << 8) | header[0];
+        uint16_t h_px = (header[3] << 8) | header[2];
+        uint32_t framesCount = ((uint32_t)header[7] << 24) | ((uint32_t)header[6] << 16) | ((uint32_t)header[5] << 8) | header[4];
 
         Serial.printf("[lua_WIN_drawVideo] header parsed: width=%u, height=%u, frames=%u\n",
                       (unsigned)w_px, (unsigned)h_px, (unsigned)framesCount);
