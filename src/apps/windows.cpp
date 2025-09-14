@@ -238,11 +238,14 @@ namespace Windows
         lastState = state;
 
         // time button toglls rendering
-        if ((timeButton.isIn(pos) && state == MouseState::Down) || digitalRead(0) == LOW)
+        static bool lastBtnVal = HIGH;
+        bool btnClick = digitalRead(0);
+        if ((timeButton.isIn(pos) && state == MouseState::Down) || (btnClick == LOW && lastBtnVal != LOW))
         {
             Screen::tft.fillScreen(BG);
             isRendering = !isRendering;
         }
+        lastBtnVal = btnClick;
 
         if (isRendering)
             drawWindows(pos, move, state);

@@ -859,6 +859,13 @@ namespace LuaApps::WinLib
         esp_task_wdt_delete(NULL); // Disable watchdog
         Serial.println("[lua_WIN_drawVideo] called");
 
+        if (!Windows::isRendering || !UserWiFi::hasInternet)
+        {
+            Serial.printf("[lua_WIN_drawVideo] rendering=%d, hasInternet=%d; returning\n",
+                          Windows::isRendering ? 1 : 0, UserWiFi::hasInternet ? 1 : 0);
+            return 0;
+        }
+
         Window *w = getWindow(L, 1);
         if (!w || w->closed)
         {
@@ -866,12 +873,12 @@ namespace LuaApps::WinLib
             return 0;
         }
 
-        if (!Windows::isRendering || !UserWiFi::hasInternet)
+        if (!w->wasClicked)
         {
-            Serial.printf("[lua_WIN_drawVideo] rendering=%d, hasInternet=%d; returning\n",
-                          Windows::isRendering ? 1 : 0, UserWiFi::hasInternet ? 1 : 0);
+            Serial.println("[lua_WIN_drawVideo] window not clicked on top; returning");
             return 0;
         }
+        w->wasClicked = false;
 
         // Acquire access
         int waitLoops = 0;
@@ -982,12 +989,15 @@ namespace LuaApps::WinLib
 
         while (currentFrame < framesCount && !exitRequested && !w->closed && Windows::isRendering && UserWiFi::hasInternet)
         {
+            static bool wasTouched = false;
             // Handle touch input
             auto touch = Screen::getTouchPos();
-            if (touch.clicked)
+
+            if (touch.clicked && !wasTouched)
             {
                 paused = !paused;
             }
+            wasTouched = touch.clicked;
 
             // Only draw UI if paused
             if (paused)
