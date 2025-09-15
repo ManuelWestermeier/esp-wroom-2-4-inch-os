@@ -452,7 +452,8 @@ namespace AppManager
             {base + "entry.lua", "entry.lua"},
             {base + "icon-20x20.raw", "icon-20x20.raw"},
             {base + "name.txt", "name.txt"},
-            {base + "version.txt", "version.txt"}};
+            {base + "version.txt", "version.txt"},
+        };
 
         int progress = 0;
         int totalFiles = core.size();
