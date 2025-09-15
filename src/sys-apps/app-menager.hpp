@@ -21,6 +21,9 @@ namespace AppManager
         bool ok = false;
     };
 
+    // Default font to use everywhere
+    static const int DEFAULT_FONT = 2;
+
     // ---------- helpers ----------
 
     String trimLines(const String &s)
@@ -56,31 +59,31 @@ namespace AppManager
         return out;
     }
 
-    // Improved clipped string with ellipsis for 320x240 layout
-    static void drawClippedString(int x, int y, int maxW, int font, const String &s)
+    // Clipped string with ellipsis — uses DEFAULT_FONT only
+    static void drawClippedString(int x, int y, int maxW, const String &s)
     {
         if (s.length() == 0)
             return;
         const char *cs = s.c_str();
-        int w = Screen::tft.textWidth(cs, font);
+        int w = Screen::tft.textWidth(cs, DEFAULT_FONT);
         if (w <= maxW)
         {
-            Screen::tft.drawString(s, x, y, font);
+            Screen::tft.drawString(s, std::max(8, x), y, DEFAULT_FONT);
             return;
         }
 
         String ellipsis = "...";
-        int ellipsisWidth = Screen::tft.textWidth(ellipsis.c_str(), font);
+        int ellipsisWidth = Screen::tft.textWidth(ellipsis.c_str(), DEFAULT_FONT);
 
         String displayText = s;
         while (displayText.length() > 0 &&
-               Screen::tft.textWidth(displayText.c_str(), font) + ellipsisWidth > maxW)
+               Screen::tft.textWidth(displayText.c_str(), DEFAULT_FONT) + ellipsisWidth > maxW)
         {
             displayText.remove(displayText.length() - 1);
         }
 
         displayText += ellipsis;
-        Screen::tft.drawString(displayText, x, y, font);
+        Screen::tft.drawString(displayText, std::max(8, x), y, DEFAULT_FONT);
     }
 
     // ---------- UI helpers (320x240 friendly) ----------
@@ -102,17 +105,20 @@ namespace AppManager
     static void drawTitle(const String &title)
     {
         Screen::tft.setTextColor(TEXT, BG);
-        int font = 4; // large title font
+        int font = DEFAULT_FONT; // use default font
         int w = Screen::tft.textWidth(title.c_str(), font);
-        int x = max(8, (screenW() - w) / 2);
+        int x = (screenW() - w) / 2;
+        if (x < 8)
+            x = 8;
         Screen::tft.drawString(title, x, 8, font);
     }
 
-    static void drawMessage(const String &msg, int y, int font = 2, uint16_t fg = TEXT, uint16_t bg = BG)
+    // default y provided so old calls without y compile
+    static void drawMessage(const String &msg, int y = 28, uint16_t fg = TEXT, uint16_t bg = BG)
     {
         Screen::tft.setTextColor(fg, bg);
         int maxW = screenW() - 16;
-        drawClippedString(8, y, maxW, font, msg);
+        drawClippedString(8, y, maxW, msg);
     }
 
     struct BtnRect
@@ -127,19 +133,22 @@ namespace AppManager
         Screen::tft.fillRoundRect(r.x, r.y, r.w, r.h, radius, bg);
         Screen::tft.drawRoundRect(r.x, r.y, r.w, r.h, radius, ACCENT2);
         Screen::tft.setTextColor(fg, bg);
-        int font = 2;
-        int textW = Screen::tft.textWidth(label, font);
-        int tx = r.x + max(6, (r.w - textW) / 2);
-        int ty = r.y + max(4, (r.h - 16) / 2);
-        Screen::tft.drawString(label, tx, ty, font);
+        int textW = Screen::tft.textWidth(label, DEFAULT_FONT);
+        int tx = r.x + (r.w - textW) / 2;
+        if (tx < 8)
+            tx = 8;
+        int ty = r.y + (r.h - 16) / 2;
+        if (ty < r.y)
+            ty = r.y;
+        Screen::tft.drawString(label, tx, ty, DEFAULT_FONT);
     }
 
     static void drawError(const String &msg)
     {
         clearScreen(DANGER);
         Screen::tft.setTextColor(AT, DANGER);
-        Screen::tft.drawString("Error:", 8, 8, 2);
-        drawClippedString(8, 32, screenW() - 16, 2, msg);
+        Screen::tft.drawString("Error:", 8, 8, DEFAULT_FONT);
+        drawClippedString(8, 32, screenW() - 16, msg);
         Serial.println("[ERROR] " + msg);
         delay(2000);
     }
@@ -148,15 +157,17 @@ namespace AppManager
     {
         clearScreen(PRIMARY);
         Screen::tft.setTextColor(AT, PRIMARY);
-        drawClippedString(8, 8, screenW() - 16, 2, msg);
+        drawClippedString(8, 8, screenW() - 16, msg);
         Serial.println("[SUCCESS] " + msg);
         delay(1500);
     }
 
     static void drawProgressBar(int x, int y, int width, int height, int progress, uint16_t color = PRIMARY)
     {
-        // Make sure it fits within screen
-        width = min(width, screenW() - x - 8);
+        // Make sure it fits within screen and margin
+        if (x < 8)
+            x = 8;
+        width = std::min(width, screenW() - x - 8);
         Screen::tft.drawRoundRect(x, y, width, height, 5, ACCENT2);
 
         int innerW = width - 4;
@@ -169,8 +180,12 @@ namespace AppManager
 
         String percent = String(progress) + "%";
         Screen::tft.setTextColor(TEXT, BG);
-        int textW = Screen::tft.textWidth(percent.c_str(), 2);
-        Screen::tft.drawString(percent, x + max(6, (width - textW) / 2), y + max(0, (height - 16) / 2), 2);
+        int textW = Screen::tft.textWidth(percent.c_str(), DEFAULT_FONT);
+        int tx = x + (width - textW) / 2;
+        if (tx < x + 4)
+            tx = x + 4;
+        int ty = y + (height - 16) / 2;
+        Screen::tft.drawString(percent, tx, ty, DEFAULT_FONT);
     }
 
     // ---------- networking ----------
@@ -261,7 +276,7 @@ namespace AppManager
         drawTitle("Installing App");
         drawMessage("Downloading files...", 44);
         drawProgressBar(20, 100, screenW() - 40, 28, progress);
-        drawClippedString(20, 136, screenW() - 40, 2, "Downloading: " + path);
+        drawClippedString(20, 136, screenW() - 40, "Downloading: " + path);
 
         Buffer dataBuf;
         if (!performGetWithFallback(url, dataBuf))
@@ -375,8 +390,8 @@ namespace AppManager
 
         int textX = iconX + 28;
         int textW = screenW() - textX - 12;
-        drawClippedString(textX, 44, textW, 2, "Name: " + trimLines(appName));
-        drawClippedString(textX, 64, textW, 2, "Version: " + trimLines(version));
+        drawClippedString(textX, 44, textW, "Name: " + trimLines(appName));
+        drawClippedString(textX, 64, textW, "Version: " + trimLines(version));
 
         // Buttons centered and sized for touch
         BtnRect yes{40, 160, 110, 48};
@@ -480,7 +495,7 @@ namespace AppManager
                 drawTitle("Installing App");
                 drawMessage("Downloading additional files...", 44);
                 drawProgressBar(20, 100, screenW() - 40, 28, progress);
-                drawClippedString(20, 136, screenW() - 40, 2, "Downloading: " + f);
+                drawClippedString(20, 136, screenW() - 40, "Downloading: " + f);
             }
         }
 

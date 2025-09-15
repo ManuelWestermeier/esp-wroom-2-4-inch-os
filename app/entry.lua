@@ -85,10 +85,6 @@ while not WIN_closed(win) do
         needFullRender = true
     end
 
-    -- Render
-    WIN_drawVideo(win,
-                  "https://github.com/ManuelWestermeier/manuelwestermeier.github.io/releases/download/dev/vid-small.rgb565")
-
     if needFullRender then fullRender(pressedInside) end
 
     -- Button click handling
@@ -97,6 +93,10 @@ while not WIN_closed(win) do
         videoStarted = true
         needFullRender = true
     end
+
+    -- Render
+    WIN_drawVideo(win,
+                  "https://github.com/ManuelWestermeier/manuelwestermeier.github.io/releases/download/dev/vid-small.rgb565")
 
     delay(16) -- ~60 FPS
 end
