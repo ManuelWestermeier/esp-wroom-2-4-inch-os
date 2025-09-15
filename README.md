@@ -4,6 +4,8 @@
 
 This operating system runs on ESP32 WROOM with a 2.4-inch display, supporting Lua-based applications with a windowing system, networking capabilities, and file system access.
 
+11815 lines code currently
+
 ---
 
 ## Application Structure

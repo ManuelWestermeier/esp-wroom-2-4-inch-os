@@ -1,4 +1,4 @@
-// add fs, speedcode, pk menager, net, audio
+// add fs, speedcode, net, audio
 
 #include <Arduino.h>
 #include "freertos/FreeRTOS.h"
@@ -26,7 +26,7 @@ void setup()
     // disable Arduino loop watchdog
     disableCore0WDT();
     disableCore1WDT();
-    
+
     // esp_task_wdt_delete(NULL); // unregister this task
     Serial.begin(115200);
     Serial.println("Booting MW 2.4i OS...\n");
