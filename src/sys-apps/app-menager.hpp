@@ -21,8 +21,6 @@ namespace AppManager
         bool ok = false;
     };
 
-    // Root CA certificate for onrender.co
-
     // ---------- helpers ----------
 
     String trimLines(const String &s)
@@ -58,34 +56,43 @@ namespace AppManager
         return out;
     }
 
+    // Improved clipped string with ellipsis for 320x240 layout
     static void drawClippedString(int x, int y, int maxW, int font, const String &s)
     {
-        // if (s.length() == 0)
-        //     return;
-        // const char *cs = s.c_str();
-        // int w = Screen::tft.textWidth(cs, font);
-        // if (w <= maxW)
-        // {
-        //     Screen::tft.drawString(s, x, y, font);
-        //     return;
-        // }
+        if (s.length() == 0)
+            return;
+        const char *cs = s.c_str();
+        int w = Screen::tft.textWidth(cs, font);
+        if (w <= maxW)
+        {
+            Screen::tft.drawString(s, x, y, font);
+            return;
+        }
 
-        // // Add ellipsis for overflow text
-        // String ellipsis = "...";
-        // int ellipsisWidth = Screen::tft.textWidth(ellipsis.c_str(), font);
+        String ellipsis = "...";
+        int ellipsisWidth = Screen::tft.textWidth(ellipsis.c_str(), font);
 
-        // String displayText = s;
-        // while (displayText.length() > 0 &&
-        //        Screen::tft.textWidth(displayText.c_str(), font) + ellipsisWidth > maxW)
-        // {
-        //     displayText.remove(displayText.length() - 1);
-        // }
+        String displayText = s;
+        while (displayText.length() > 0 &&
+               Screen::tft.textWidth(displayText.c_str(), font) + ellipsisWidth > maxW)
+        {
+            displayText.remove(displayText.length() - 1);
+        }
 
-        // displayText += ellipsis;
-        Screen::tft.drawString(s, x, y, font);
+        displayText += ellipsis;
+        Screen::tft.drawString(displayText, x, y, font);
     }
 
-    // ---------- UI helpers ----------
+    // ---------- UI helpers (320x240 friendly) ----------
+
+    static int screenW()
+    {
+        return Screen::tft.width();
+    }
+    static int screenH()
+    {
+        return Screen::tft.height();
+    }
 
     static void clearScreen(uint16_t color = BG)
     {
@@ -95,13 +102,17 @@ namespace AppManager
     static void drawTitle(const String &title)
     {
         Screen::tft.setTextColor(TEXT, BG);
-        Screen::tft.drawString(title, 8, 8, 4);
+        int font = 4; // large title font
+        int w = Screen::tft.textWidth(title.c_str(), font);
+        int x = max(8, (screenW() - w) / 2);
+        Screen::tft.drawString(title, x, 8, font);
     }
 
     static void drawMessage(const String &msg, int y, int font = 2, uint16_t fg = TEXT, uint16_t bg = BG)
     {
         Screen::tft.setTextColor(fg, bg);
-        Screen::tft.drawString(msg, 8, y, font);
+        int maxW = screenW() - 16;
+        drawClippedString(8, y, maxW, font, msg);
     }
 
     struct BtnRect
@@ -112,10 +123,15 @@ namespace AppManager
 
     static void drawButton(const BtnRect &r, const char *label, uint16_t bg = PRIMARY, uint16_t fg = AT)
     {
-        Screen::tft.fillRoundRect(r.x, r.y, r.w, r.h, 10, bg);
-        Screen::tft.drawRoundRect(r.x, r.y, r.w, r.h, 10, ACCENT2);
+        int radius = 8;
+        Screen::tft.fillRoundRect(r.x, r.y, r.w, r.h, radius, bg);
+        Screen::tft.drawRoundRect(r.x, r.y, r.w, r.h, radius, ACCENT2);
         Screen::tft.setTextColor(fg, bg);
-        Screen::tft.drawString(label, r.x + (r.w - Screen::tft.textWidth(label, 2)) / 2, r.y + (r.h - 16) / 2, 2);
+        int font = 2;
+        int textW = Screen::tft.textWidth(label, font);
+        int tx = r.x + max(6, (r.w - textW) / 2);
+        int ty = r.y + max(4, (r.h - 16) / 2);
+        Screen::tft.drawString(label, tx, ty, font);
     }
 
     static void drawError(const String &msg)
@@ -123,7 +139,7 @@ namespace AppManager
         clearScreen(DANGER);
         Screen::tft.setTextColor(AT, DANGER);
         Screen::tft.drawString("Error:", 8, 8, 2);
-        drawClippedString(8, 32, 304, 2, msg);
+        drawClippedString(8, 32, screenW() - 16, 2, msg);
         Serial.println("[ERROR] " + msg);
         delay(2000);
     }
@@ -132,38 +148,37 @@ namespace AppManager
     {
         clearScreen(PRIMARY);
         Screen::tft.setTextColor(AT, PRIMARY);
-        drawClippedString(8, 8, 304, 2, msg);
+        drawClippedString(8, 8, screenW() - 16, 2, msg);
         Serial.println("[SUCCESS] " + msg);
         delay(1500);
     }
 
     static void drawProgressBar(int x, int y, int width, int height, int progress, uint16_t color = PRIMARY)
     {
-        // Draw border
+        // Make sure it fits within screen
+        width = min(width, screenW() - x - 8);
         Screen::tft.drawRoundRect(x, y, width, height, 5, ACCENT2);
 
-        // Calculate fill width
-        int fillWidth = (progress * (width - 4)) / 100;
+        int innerW = width - 4;
+        int fillWidth = (progress * innerW) / 100;
 
-        // Draw progress
         if (fillWidth > 0)
         {
             Screen::tft.fillRoundRect(x + 2, y + 2, fillWidth, height - 4, 3, color);
         }
 
-        // Draw percentage text
         String percent = String(progress) + "%";
         Screen::tft.setTextColor(TEXT, BG);
-        Screen::tft.drawString(percent, x + (width - Screen::tft.textWidth(percent.c_str(), 2)) / 2,
-                               y + (height - 16) / 2, 2);
+        int textW = Screen::tft.textWidth(percent.c_str(), 2);
+        Screen::tft.drawString(percent, x + max(6, (width - textW) / 2), y + max(0, (height - 16) / 2), 2);
     }
 
     // ---------- networking ----------
 
     static WiFiClientSecure secureClient; // global reusable
-    static WiFiClient normalClient;
 
-    static bool performGet(const String &url, Buffer &outBuf, bool useHttps)
+    // Read an HTTP(S) stream reliably in small chunks, with retries for tiny files.
+    static bool performGet(const String &url, Buffer &outBuf)
     {
         outBuf.data.clear();
         outBuf.ok = false;
@@ -176,27 +191,16 @@ namespace AppManager
         }
 
         HTTPClient http;
-
-        if (useHttps)
+        // Use insecure for now (you can replace with root CA pinning if you prefer)
+        secureClient.setInsecure();
+        if (!http.begin(secureClient, url))
         {
-            secureClient.setInsecure(); // <-- Hier wird das Zertifikat ignoriert
-            if (!http.begin(secureClient, url))
-            {
-                drawError("http.begin failed");
-                return false;
-            }
-        }
-        else
-        {
-            if (!http.begin(normalClient, url))
-            {
-                drawError("http.begin failed");
-                return false;
-            }
+            drawError("http.begin failed");
+            return false;
         }
 
         http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-        http.setTimeout(10000);
+        http.setTimeout(15000); // slightly larger timeout
 
         int code = http.GET();
         if (code != HTTP_CODE_OK)
@@ -207,38 +211,33 @@ namespace AppManager
         }
 
         WiFiClient &stream = http.getStream();
-        int len = http.getSize();
-        Serial.printf("[HTTP] Content-Length: %d\n", len);
+        outBuf.data.clear();
+        const size_t BUF_SZ = 256; // smaller chunk to be robust on low-memory
+        uint8_t tmp[BUF_SZ];
+        unsigned long start = millis();
 
-        if (len > 0)
+        // Read until server closes connection or no data for a timeout period
+        while (stream.connected() || stream.available())
         {
-            outBuf.data.resize(len);
-            size_t readLen = stream.readBytes(outBuf.data.data(), len);
-            Serial.printf("[HTTP] Bytes read: %u\n", readLen);
-            if (readLen != (size_t)len)
+            while (stream.available())
             {
-                Serial.println("[ERROR] Stream read failed");
-                http.end();
-                return false;
-            }
-        }
-        else
-        {
-            // Chunked/unknown size
-            uint8_t tmp[512];
-            while (stream.connected() || stream.available())
-            {
-                int r = stream.read(tmp, sizeof(tmp));
+                int r = stream.read(tmp, BUF_SZ);
                 if (r > 0)
+                {
                     outBuf.data.insert(outBuf.data.end(), tmp, tmp + r);
+                    start = millis(); // reset idle timer
+                }
                 else if (r < 0)
                 {
                     Serial.println("[ERROR] Stream read error");
                     http.end();
                     return false;
                 }
-                delay(1);
             }
+            // break out if idle for 5 seconds
+            if (millis() - start > 5000)
+                break;
+            delay(1);
         }
 
         outBuf.ok = true;
@@ -246,21 +245,10 @@ namespace AppManager
         return true;
     }
 
+    // Keep only HTTPS — server redirects HTTP -> HTTPS; fallback causes 301 loops.
     static bool performGetWithFallback(const String &url, Buffer &buf)
     {
-        Serial.println("[Fallback] Trying HTTPS first...");
-        if (performGet(url, buf, true))
-            return true;
-
-        // If HTTPS fails, try HTTP
-        int p = url.indexOf("//");
-        if (p >= 0)
-        {
-            String httpUrl = String("http://") + url.substring(p + 2);
-            Serial.println("[Fallback] HTTPS failed, trying HTTP: " + httpUrl);
-            return performGet(httpUrl, buf, false);
-        }
-        return false;
+        return performGet(url, buf);
     }
 
     static bool fetchAndWrite(const String &url, const String &path, const String &folderName, bool required, int &progress, int totalFiles, int currentFile)
@@ -271,9 +259,9 @@ namespace AppManager
         progress = (currentFile * 100) / totalFiles;
         clearScreen();
         drawTitle("Installing App");
-        drawMessage("Downloading files...", 40);
-        drawProgressBar(20, 80, 280, 30, progress);
-        drawClippedString(20, 120, 280, 2, "Downloading: " + path);
+        drawMessage("Downloading files...", 44);
+        drawProgressBar(20, 100, screenW() - 40, 28, progress);
+        drawClippedString(20, 136, screenW() - 40, 2, "Downloading: " + path);
 
         Buffer dataBuf;
         if (!performGetWithFallback(url, dataBuf))
@@ -380,13 +368,19 @@ namespace AppManager
         clearScreen();
         drawTitle("Install App?");
 
-        safePush20x20Icon(8, 40, iconBuf);
+        // Icon at left, text to the right
+        int iconX = 12;
+        int iconY = 44;
+        safePush20x20Icon(iconX, iconY, iconBuf);
 
-        drawClippedString(35, 40, 277, 2, "Name: " + trimLines(appName));
-        drawClippedString(35, 60, 277, 2, "Version: " + trimLines(version));
+        int textX = iconX + 28;
+        int textW = screenW() - textX - 12;
+        drawClippedString(textX, 44, textW, 2, "Name: " + trimLines(appName));
+        drawClippedString(textX, 64, textW, 2, "Version: " + trimLines(version));
 
-        BtnRect yes{30, 160, 110, 50};
-        BtnRect no{180, 160, 110, 50};
+        // Buttons centered and sized for touch
+        BtnRect yes{40, 160, 110, 48};
+        BtnRect no{screenW() - 40 - 110, 160, 110, 48};
 
         drawButton(yes, "Install", ACCENT, AT);
         drawButton(no, "Cancel", DANGER, AT);
@@ -484,17 +478,17 @@ namespace AppManager
                 progress = (currentFile * 100) / totalFiles;
                 clearScreen();
                 drawTitle("Installing App");
-                drawMessage("Downloading additional files...", 40);
-                drawProgressBar(20, 80, 280, 30, progress);
-                drawClippedString(20, 120, 280, 2, "Downloading: " + f);
+                drawMessage("Downloading additional files...", 44);
+                drawProgressBar(20, 100, screenW() - 40, 28, progress);
+                drawClippedString(20, 136, screenW() - 40, 2, "Downloading: " + f);
             }
         }
 
         // Final progress
         clearScreen();
         drawTitle("Installing App");
-        drawMessage("Finalizing installation...", 40);
-        drawProgressBar(20, 80, 280, 30, 100);
+        drawMessage("Finalizing installation...", 44);
+        drawProgressBar(20, 100, screenW() - 40, 28, 100);
         delay(500);
 
         return true;
@@ -505,8 +499,8 @@ namespace AppManager
         clearScreen();
         drawTitle("App Manager");
 
-        BtnRect installRect{30, 80, 120, 44};
-        BtnRect cancelRect{170, 80, 120, 44};
+        BtnRect installRect{28, 80, 120, 44};
+        BtnRect cancelRect{screenW() - 28 - 120, 80, 120, 44};
 
         drawButton(installRect, "Install new app", ACCENT3, AT);
         drawButton(cancelRect, "Cancel", DANGER, AT);
@@ -517,8 +511,8 @@ namespace AppManager
 
         clearScreen();
         drawTitle("Enter App ID");
-        drawMessage("Please enter the App ID", 60);
-        drawMessage("on the serial monitor", 80);
+        drawMessage("Please enter the App ID", 56);
+        drawMessage("on the serial monitor", 76);
 
         String appId = readString("App ID: ");
         appId.trim();
