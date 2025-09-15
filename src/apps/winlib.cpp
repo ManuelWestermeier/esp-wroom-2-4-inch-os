@@ -377,6 +377,41 @@ namespace LuaApps::WinLib
         return 0;
     }
 
+    // Read pixel within window
+    int lua_WIN_readPixel(lua_State *L)
+    {
+        Window *w = getWindow(L, 1);
+        if (!w || w->closed)
+        {
+            lua_pushinteger(L, 0);
+            return 1;
+        }
+
+        int screenId = luaL_checkinteger(L, 2);
+        int x = luaL_checkinteger(L, 3);
+        int y = luaL_checkinteger(L, 4);
+
+        Rect rect = getScreenRect(w, screenId);
+        if (x < 0 || y < 0 || x >= rect.dimensions.x || y >= rect.dimensions.y)
+        {
+            lua_pushinteger(L, 0); // outside window
+            return 1;
+        }
+
+        while (!Windows::canAccess)
+            delay(rand() % 2);
+        Windows::canAccess = false;
+
+        Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
+        uint16_t color = Screen::tft.readPixel(x, y); // use TFT readPixel
+        Screen::tft.resetViewport();
+
+        Windows::canAccess = true;
+
+        lua_pushinteger(L, color);
+        return 1;
+    }
+
     int lua_WIN_drawImage(lua_State *L)
     {
         if (!Windows::isRendering)
@@ -870,6 +905,7 @@ namespace LuaApps::WinLib
         lua_register(L, "WIN_setIcon", lua_WIN_setIcon);
         lua_register(L, "WIN_drawImage", lua_WIN_drawImage);
         lua_register(L, "WIN_drawPixel", lua_WIN_drawPixel);
+        lua_register(L, "WIN_readPixel", lua_WIN_readPixel);
         lua_register(L, "WIN_isRendering", lua_WIN_isRendered);
         lua_register(L, "WIN_canAccess", lua_WIN_canAccess);
         lua_register(L, "WIN_readText", lua_WIN_readText);
