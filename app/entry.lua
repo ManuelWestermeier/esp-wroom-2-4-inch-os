@@ -86,12 +86,10 @@ while not WIN_closed(win) do
     end
 
     -- Render
-    if videoStarted then
-        WIN_drawVideo(win,
-                      "https://github.com/ManuelWestermeier/manuelwestermeier.github.io/releases/download/dev/vid-small.rgb565")
-    elseif needFullRender then
-        fullRender(pressedInside)
-    end
+    WIN_drawVideo(win,
+                  "https://github.com/ManuelWestermeier/manuelwestermeier.github.io/releases/download/dev/vid-small.rgb565")
+
+    if needFullRender then fullRender(pressedInside) end
 
     -- Button click handling
     if wasClicked and px and py and px >= btnX and px <= btnX + btnW and py >=
