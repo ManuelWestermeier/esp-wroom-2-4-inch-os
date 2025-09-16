@@ -23,7 +23,9 @@ struct AppRenderData
     {
         auto namePath = path;
         namePath.push_back("name.txt");
-        name = ENC_FS::readFileString(namePath);
+        name = ENC_FS::readFileString(namePath).substring(0, 16);
+        name.replace("\n", "");
+        name.trim();
 
         auto iconPath = path;
         iconPath.push_back("icon-20x20.raw");
