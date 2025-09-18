@@ -848,6 +848,8 @@ namespace LuaApps::WinLib
         if (!win || win->closed)
             return 0;
 
+        PriorityGuard pg(8); // lower priority while processing
+
         int screenId = luaL_checkinteger(L, 2);
         String svgStr = luaL_checkstring(L, 3);
         int x = luaL_checkinteger(L, 4);

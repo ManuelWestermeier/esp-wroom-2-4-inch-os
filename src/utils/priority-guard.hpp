@@ -13,7 +13,7 @@ struct PriorityGuard
     }
     ~PriorityGuard()
     {
-        vTaskPrioritySet(NULL, 2);
+        vTaskPrioritySet(NULL, prev);
     }
-    int prev;
+    int prev = 2;
 };
