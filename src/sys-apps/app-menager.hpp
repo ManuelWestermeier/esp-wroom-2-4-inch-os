@@ -22,15 +22,18 @@ namespace AppManager
     };
 
     // ---------- font sizes ----------
-    // These are chosen for a 320x240 display; tweak if you have other font assets.
-    static const int TITLE_FONT = 4;   // large title
-    static const int HEADING_FONT = 3; // headings / button labels (made larger for name)
+    // Adjusted for better visibility on 320x240 display
+    static const int TITLE_FONT = 2;   // large title (reduced from 4)
+    static const int HEADING_FONT = 2; // headings / button labels
     static const int BODY_FONT = 1;    // body text
+    static const int BUTTON_FONT = 1;  // button text (smaller for better fit)
     static const int DEFAULT_FONT = BODY_FONT;
 
     // Layout margins (use free space safely)
-    static const int LEFT_MARGIN = 12;
-    static const int RIGHT_MARGIN = 12;
+    static const int LEFT_MARGIN = 8;
+    static const int RIGHT_MARGIN = 8;
+    static const int TOP_MARGIN = 8;
+    static const int BOTTOM_MARGIN = 8;
 
     // ---------- helpers ----------
 
@@ -118,19 +121,17 @@ namespace AppManager
         int font = TITLE_FONT;
         int w = Screen::tft.textWidth(title.c_str(), font);
         int x = (screenW() - w) / 2;
-        if (x < LEFT_MARGIN)
-            x = LEFT_MARGIN;
-        // keep a comfortable top margin so title is always visible
-        int y = 10;
+        x = std::max(x, LEFT_MARGIN);
+        x = std::min(x, screenW() - w - RIGHT_MARGIN); // Ensure title doesn't go off right edge
+        int y = TOP_MARGIN;
         Screen::tft.drawString(title, x, y, font);
     }
 
-    // default y provided so old calls without y compile
     static void drawMessage(const String &msg, int y = 36, uint16_t fg = TEXT, uint16_t bg = BG, int font = BODY_FONT)
     {
         Screen::tft.setTextColor(fg, bg);
-        int maxW = screenW() - 16;
-        drawClippedString(8, y, maxW, msg, font);
+        int maxW = screenW() - LEFT_MARGIN - RIGHT_MARGIN;
+        drawClippedString(LEFT_MARGIN, y, maxW, msg, font);
     }
 
     struct BtnRect
@@ -139,22 +140,32 @@ namespace AppManager
         bool contains(int px, int py) const { return px >= x && px < x + w && py >= y && py < y + h; }
     };
 
-    // drawButton accepts a font; uses free space by allowing wider buttons
-    static void drawButton(const BtnRect &r, const char *label, uint16_t bg = PRIMARY, uint16_t fg = AT, int font = HEADING_FONT)
+    // Improved button drawing with better text handling
+    static void drawButton(const BtnRect &r, const char *label, uint16_t bg = PRIMARY, uint16_t fg = AT, int font = BUTTON_FONT)
     {
-        int radius = std::min(12, r.h / 4);
+        int radius = std::min(8, r.h / 4); // Smaller radius for smaller buttons
         Screen::tft.fillRoundRect(r.x, r.y, r.w, r.h, radius, bg);
         Screen::tft.drawRoundRect(r.x, r.y, r.w, r.h, radius, ACCENT2);
         Screen::tft.setTextColor(fg, bg);
+
+        // Calculate text dimensions
         int textW = Screen::tft.textWidth(label, font);
+        int textH = Screen::tft.fontHeight(font);
+
+        // Center text in button
         int tx = r.x + (r.w - textW) / 2;
-        if (tx < r.x + 8)
-            tx = r.x + 8;
-        // center vertically using font height
-        int fh = Screen::tft.fontHeight(font);
-        int ty = r.y + (r.h - fh) / 2;
+        int ty = r.y + (r.h - textH) / 2;
+
+        // Ensure text stays within button boundaries
+        if (tx < r.x + 4)
+            tx = r.x + 4;
+        if (tx + textW > r.x + r.w)
+            tx = r.x + r.w - textW - 2;
         if (ty < r.y)
             ty = r.y;
+        if (ty + textH > r.y + r.h)
+            ty = r.y + r.h - textH;
+
         Screen::tft.drawString(label, tx, ty, font);
     }
 
@@ -162,8 +173,9 @@ namespace AppManager
     {
         clearScreen(DANGER);
         Screen::tft.setTextColor(AT, DANGER);
-        Screen::tft.drawString("Error:", 8, 8, HEADING_FONT);
-        drawClippedString(8, 32, screenW() - 16, msg, BODY_FONT);
+        Screen::tft.drawString("Error:", LEFT_MARGIN, TOP_MARGIN, HEADING_FONT);
+        drawClippedString(LEFT_MARGIN, TOP_MARGIN + Screen::tft.fontHeight(HEADING_FONT) + 4,
+                          screenW() - LEFT_MARGIN - RIGHT_MARGIN, msg, BODY_FONT);
         Serial.println("[ERROR] " + msg);
         delay(2000);
     }
@@ -172,32 +184,33 @@ namespace AppManager
     {
         clearScreen(PRIMARY);
         Screen::tft.setTextColor(AT, PRIMARY);
-        drawClippedString(8, 24, screenW() - 16, msg, HEADING_FONT);
+        int maxW = screenW() - LEFT_MARGIN - RIGHT_MARGIN;
+        int y = (screenH() - Screen::tft.fontHeight(HEADING_FONT)) / 2;
+        drawClippedString(LEFT_MARGIN, y, maxW, msg, HEADING_FONT);
         Serial.println("[SUCCESS] " + msg);
         delay(1500);
     }
 
     static void drawProgressBar(int x, int y, int width, int height, int progress, uint16_t color = PRIMARY)
     {
-        if (x < 8)
-            x = 8;
-        width = std::min(width, screenW() - x - 8);
-        Screen::tft.drawRoundRect(x, y, width, height, 5, ACCENT2);
+        x = std::max(x, LEFT_MARGIN);
+        width = std::min(width, screenW() - x - RIGHT_MARGIN);
+        Screen::tft.drawRoundRect(x, y, width, height, 4, ACCENT2);
 
         int innerW = width - 4;
         int fillWidth = (progress * innerW) / 100;
 
         if (fillWidth > 0)
         {
-            Screen::tft.fillRoundRect(x + 2, y + 2, fillWidth, height - 4, 3, color);
+            Screen::tft.fillRoundRect(x + 2, y + 2, fillWidth, height - 4, 2, color);
         }
 
         String percent = String(progress) + "%";
         Screen::tft.setTextColor(TEXT, BG);
         int textW = Screen::tft.textWidth(percent.c_str(), BODY_FONT);
         int tx = x + (width - textW) / 2;
-        if (tx < x + 4)
-            tx = x + 4;
+        tx = std::max(tx, x + 2);
+        tx = std::min(tx, x + width - textW - 2);
         int ty = y + (height - Screen::tft.fontHeight(BODY_FONT)) / 2;
         Screen::tft.drawString(percent, tx, ty, BODY_FONT);
     }
@@ -290,18 +303,19 @@ namespace AppManager
             int __font = TITLE_FONT;
             int __w = Screen::tft.textWidth(__t.c_str(), __font);
             int __x = (screenW() - __w) / 2;
-            if (__x < LEFT_MARGIN)
-                __x = LEFT_MARGIN;
-            int __y = 10;
+            __x = std::max(__x, LEFT_MARGIN);
+            __x = std::min(__x, screenW() - __w - RIGHT_MARGIN);
+            int __y = TOP_MARGIN;
             Screen::tft.drawString(__t, __x, __y, __font);
         }
-        drawMessage("Downloading files...", 44, TEXT, BG, HEADING_FONT);
+        drawMessage("Downloading files...", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 8, TEXT, BG, HEADING_FONT);
 
-        // Larger progress bar that uses free width
-        int pbX = 16;
-        int pbW = screenW() - 32;
-        drawProgressBar(pbX, 110, pbW, 28, progress);
-        drawClippedString(pbX, 146, pbW, "Downloading: " + path, BODY_FONT);
+        // Progress bar position adjusted for smaller screen
+        int pbX = LEFT_MARGIN;
+        int pbW = screenW() - LEFT_MARGIN - RIGHT_MARGIN;
+        int pbY = screenH() / 2 - 14;
+        drawProgressBar(pbX, pbY, pbW, 24, progress);
+        drawClippedString(pbX, pbY + 30, pbW, "Downloading: " + path, BODY_FONT);
 
         Buffer dataBuf;
         if (!performGetWithFallback(url, dataBuf))
@@ -442,9 +456,9 @@ namespace AppManager
             int __font = TITLE_FONT;
             int __w = Screen::tft.textWidth(__t.c_str(), __font);
             int __x = (screenW() - __w) / 2;
-            if (__x < LEFT_MARGIN)
-                __x = LEFT_MARGIN;
-            int __y = 10;
+            __x = std::max(__x, LEFT_MARGIN);
+            __x = std::min(__x, screenW() - __w - RIGHT_MARGIN);
+            int __y = TOP_MARGIN;
             Screen::tft.drawString(__t, __x, __y, __font);
         }
 
@@ -453,7 +467,7 @@ namespace AppManager
         int iconW = 20 * iconScale;
         int iconH = 20 * iconScale;
         int iconX = screenW() - RIGHT_MARGIN - iconW;
-        int iconY = 54;
+        int iconY = TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 12;
         safePush20x20Icon(iconX, iconY, iconBuf, iconScale);
 
         // Text area to the LEFT of the icon
@@ -462,16 +476,17 @@ namespace AppManager
         int nameY = iconY; // align name with top of icon
         // Make name larger for emphasis
         drawClippedString(textX, nameY, textW, "Name: " + trimLines(appName), HEADING_FONT);
-        drawClippedString(textX, nameY + Screen::tft.fontHeight(HEADING_FONT) + 6, textW, "Version: " + trimLines(version), BODY_FONT);
-        drawClippedString(textX, nameY + Screen::tft.fontHeight(HEADING_FONT) + Screen::tft.fontHeight(BODY_FONT) + 12, textW, "Install this app to /programs/" + sanitizeFolderName(appName) + "?", BODY_FONT);
+        drawClippedString(textX, nameY + Screen::tft.fontHeight(HEADING_FONT) + 4, textW, "Version: " + trimLines(version), BODY_FONT);
+        drawClippedString(textX, nameY + Screen::tft.fontHeight(HEADING_FONT) + Screen::tft.fontHeight(BODY_FONT) + 8, textW, "Install this app to /programs/" + sanitizeFolderName(appName) + "?", BODY_FONT);
 
         // Buttons centered and sized for touch; use wider buttons to use free space
-        int btnW = (screenW() - 48) / 2;
-        BtnRect yes{16, screenH() - 64, btnW, 48};
-        BtnRect no{screenW() - 16 - btnW, screenH() - 64, btnW, 48};
+        int btnW = (screenW() - 32) / 2;
+        int btnY = screenH() - BOTTOM_MARGIN - 48;
+        BtnRect yes{LEFT_MARGIN, btnY, btnW, 40};
+        BtnRect no{screenW() - RIGHT_MARGIN - btnW, btnY, btnW, 40};
 
-        drawButton(yes, "Install", ACCENT, AT, HEADING_FONT);
-        drawButton(no, "Cancel", DANGER, AT, HEADING_FONT);
+        drawButton(yes, "Install", ACCENT, AT, BUTTON_FONT);
+        drawButton(no, "Cancel", DANGER, AT, BUTTON_FONT);
 
         char c = waitForTwoButtonChoice(yes, no);
         return (c == 'i');
@@ -490,12 +505,12 @@ namespace AppManager
             int __font = TITLE_FONT;
             int __w = Screen::tft.textWidth(__t.c_str(), __font);
             int __x = (screenW() - __w) / 2;
-            if (__x < LEFT_MARGIN)
-                __x = LEFT_MARGIN;
-            int __y = 10;
+            __x = std::max(__x, LEFT_MARGIN);
+            __x = std::min(__x, screenW() - __w - RIGHT_MARGIN);
+            int __y = TOP_MARGIN;
             Screen::tft.drawString(__t, __x, __y, __font);
         }
-        drawMessage("Please wait...", 56, TEXT, BG, HEADING_FONT);
+        drawMessage("Please wait...", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 12, TEXT, BG, HEADING_FONT);
 
         unsigned long start = millis();
         while (millis() - start < timeoutMs)
@@ -583,14 +598,17 @@ namespace AppManager
                     int __font = TITLE_FONT;
                     int __w = Screen::tft.textWidth(__t.c_str(), __font);
                     int __x = (screenW() - __w) / 2;
-                    if (__x < LEFT_MARGIN)
-                        __x = LEFT_MARGIN;
-                    int __y = 10;
+                    __x = std::max(__x, LEFT_MARGIN);
+                    __x = std::min(__x, screenW() - __w - RIGHT_MARGIN);
+                    int __y = TOP_MARGIN;
                     Screen::tft.drawString(__t, __x, __y, __font);
                 }
-                drawMessage("Downloading additional files...", 44, TEXT, BG, HEADING_FONT);
-                drawProgressBar(16, 110, screenW() - 32, 28, progress);
-                drawClippedString(16, 146, screenW() - 32, "Downloading: " + f, BODY_FONT);
+                drawMessage("Downloading additional files...", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 8, TEXT, BG, HEADING_FONT);
+                int pbX = LEFT_MARGIN;
+                int pbW = screenW() - LEFT_MARGIN - RIGHT_MARGIN;
+                int pbY = screenH() / 2 - 14;
+                drawProgressBar(pbX, pbY, pbW, 24, progress);
+                drawClippedString(pbX, pbY + 30, pbW, "Downloading: " + f, BODY_FONT);
             }
         }
 
@@ -603,13 +621,16 @@ namespace AppManager
             int __font = TITLE_FONT;
             int __w = Screen::tft.textWidth(__t.c_str(), __font);
             int __x = (screenW() - __w) / 2;
-            if (__x < LEFT_MARGIN)
-                __x = LEFT_MARGIN;
-            int __y = 10;
+            __x = std::max(__x, LEFT_MARGIN);
+            __x = std::min(__x, screenW() - __w - RIGHT_MARGIN);
+            int __y = TOP_MARGIN;
             Screen::tft.drawString(__t, __x, __y, __font);
         }
-        drawMessage("Finalizing installation...", 44, TEXT, BG, HEADING_FONT);
-        drawProgressBar(16, 110, screenW() - 32, 28, 100);
+        drawMessage("Finalizing installation...", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 8, TEXT, BG, HEADING_FONT);
+        int pbX = LEFT_MARGIN;
+        int pbW = screenW() - LEFT_MARGIN - RIGHT_MARGIN;
+        int pbY = screenH() / 2 - 14;
+        drawProgressBar(pbX, pbY, pbW, 24, 100);
         delay(500);
 
         return true;
@@ -625,19 +646,23 @@ namespace AppManager
             int __font = TITLE_FONT;
             int __w = Screen::tft.textWidth(__t.c_str(), __font);
             int __x = (screenW() - __w) / 2;
-            if (__x < LEFT_MARGIN)
-                __x = LEFT_MARGIN;
-            int __y = 10;
+            __x = std::max(__x, LEFT_MARGIN);
+            __x = std::min(__x, screenW() - __w - RIGHT_MARGIN);
+            int __y = TOP_MARGIN;
             Screen::tft.drawString(__t, __x, __y, __font);
         }
 
-        // Use larger buttons and center them vertically to make use of free space
-        int btnW = screenW() - 64;
-        BtnRect installRect{32, 72, btnW, 56};
-        BtnRect cancelRect{32, 72 + 72, btnW, 56};
+        // Use appropriately sized buttons for 320x240 screen
+        int btnW = screenW() - LEFT_MARGIN - RIGHT_MARGIN;
+        int btnH = 36;
+        int btnSpacing = 12;
+        int firstBtnY = TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 20;
 
-        drawButton(installRect, "Install new app", ACCENT3, AT, HEADING_FONT);
-        drawButton(cancelRect, "Cancel", DANGER, AT, HEADING_FONT);
+        BtnRect installRect{LEFT_MARGIN, firstBtnY, btnW, btnH};
+        BtnRect cancelRect{LEFT_MARGIN, firstBtnY + btnH + btnSpacing, btnW, btnH};
+
+        drawButton(installRect, "Install new app", ACCENT3, AT, BUTTON_FONT);
+        drawButton(cancelRect, "Cancel", DANGER, AT, BUTTON_FONT);
 
         char choice = waitForTwoButtonChoice(installRect, cancelRect);
         if (choice != 'i')
@@ -651,13 +676,13 @@ namespace AppManager
             int __font = TITLE_FONT;
             int __w = Screen::tft.textWidth(__t.c_str(), __font);
             int __x = (screenW() - __w) / 2;
-            if (__x < LEFT_MARGIN)
-                __x = LEFT_MARGIN;
-            int __y = 10;
+            __x = std::max(__x, LEFT_MARGIN);
+            __x = std::min(__x, screenW() - __w - RIGHT_MARGIN);
+            int __y = TOP_MARGIN;
             Screen::tft.drawString(__t, __x, __y, __font);
         }
-        drawMessage("Please enter the App ID", 56, TEXT, BG, HEADING_FONT);
-        drawMessage("on the serial monitor", 78, TEXT, BG, BODY_FONT);
+        drawMessage("Please enter the App ID", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 8, TEXT, BG, HEADING_FONT);
+        drawMessage("on the serial monitor", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + Screen::tft.fontHeight(HEADING_FONT) + 12, TEXT, BG, BODY_FONT);
 
         String appId = readString("App ID: ");
         appId.trim();
@@ -675,12 +700,12 @@ namespace AppManager
             int __font = TITLE_FONT;
             int __w = Screen::tft.textWidth(__t.c_str(), __font);
             int __x = (screenW() - __w) / 2;
-            if (__x < LEFT_MARGIN)
-                __x = LEFT_MARGIN;
-            int __y = 10;
+            __x = std::max(__x, LEFT_MARGIN);
+            __x = std::min(__x, screenW() - __w - RIGHT_MARGIN);
+            int __y = TOP_MARGIN;
             Screen::tft.drawString(__t, __x, __y, __font);
         }
-        drawMessage("Please wait...", 56, TEXT, BG, HEADING_FONT);
+        drawMessage("Please wait...", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 8, TEXT, BG, HEADING_FONT);
 
         bool res = installApp(appId);
 
