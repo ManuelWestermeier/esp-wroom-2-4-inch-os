@@ -24,9 +24,13 @@ namespace AppManager
     // ---------- font sizes ----------
     // These are chosen for a 320x240 display; tweak if you have other font assets.
     static const int TITLE_FONT = 4;   // large title
-    static const int HEADING_FONT = 2; // headings / button labels
+    static const int HEADING_FONT = 3; // headings / button labels (made larger for name)
     static const int BODY_FONT = 1;    // body text
     static const int DEFAULT_FONT = BODY_FONT;
+
+    // Layout margins (use free space safely)
+    static const int LEFT_MARGIN = 12;
+    static const int RIGHT_MARGIN = 12;
 
     // ---------- helpers ----------
 
@@ -68,11 +72,13 @@ namespace AppManager
     {
         if (s.length() == 0)
             return;
+        // enforce left margin so text never starts outside viewport
+        x = std::max(x, LEFT_MARGIN);
         const char *cs = s.c_str();
         int w = Screen::tft.textWidth(cs, font);
         if (w <= maxW)
         {
-            Screen::tft.drawString(s, std::max(8, x), y, font);
+            Screen::tft.drawString(s, x, y, font);
             return;
         }
 
@@ -87,7 +93,7 @@ namespace AppManager
         }
 
         displayText += ellipsis;
-        Screen::tft.drawString(displayText, std::max(8, x), y, font);
+        Screen::tft.drawString(displayText, x, y, font);
     }
 
     // ---------- UI helpers (320x240 friendly) ----------
@@ -112,14 +118,11 @@ namespace AppManager
         int font = TITLE_FONT;
         int w = Screen::tft.textWidth(title.c_str(), font);
         int x = (screenW() - w) / 2;
-        if (x < 8)
-            x = 8;
-        // Slight vertical padding so Title sits comfortably
-        int y = 6;
+        if (x < LEFT_MARGIN)
+            x = LEFT_MARGIN;
+        // keep a comfortable top margin so title is always visible
+        int y = 10;
         Screen::tft.drawString(title, x, y, font);
-        // underline to separate title from UI area (uses free space)
-        int underlineY = y + Screen::tft.fontHeight(font) + 6;
-        Screen::tft.drawFastHLine(8, underlineY, screenW() - 16, ACCENT2);
     }
 
     // default y provided so old calls without y compile
@@ -280,7 +283,18 @@ namespace AppManager
         // Update progress UI using the freed vertical space
         progress = (currentFile * 100) / totalFiles;
         clearScreen();
-        drawTitle("Installing App");
+        // draw title directly (no wrapper)
+        Screen::tft.setTextColor(TEXT, BG);
+        {
+            const String __t = String("Installing App");
+            int __font = TITLE_FONT;
+            int __w = Screen::tft.textWidth(__t.c_str(), __font);
+            int __x = (screenW() - __w) / 2;
+            if (__x < LEFT_MARGIN)
+                __x = LEFT_MARGIN;
+            int __y = 10;
+            Screen::tft.drawString(__t, __x, __y, __font);
+        }
         drawMessage("Downloading files...", 44, TEXT, BG, HEADING_FONT);
 
         // Larger progress bar that uses free width
@@ -338,22 +352,51 @@ namespace AppManager
         return out;
     }
 
-    static void safePush20x20Icon(int x, int y, const Buffer &buf)
+    static void safePush20x20Icon(int x, int y, const Buffer &buf, int scale = 1)
     {
-        const size_t ICON_PIX = 20 * 20;
+        // Support scaling (scale==2 -> 40x40)
+        const int SRC_W = 20;
+        const int SRC_H = 20;
+        const size_t SRC_PIX = SRC_W * SRC_H;
         if (!buf.ok || buf.data.size() < 4)
             return;
         const uint8_t *p = buf.data.data() + 4;
-        uint16_t tmp[ICON_PIX];
-        for (size_t i = 0; i < ICON_PIX; ++i)
+        // extract source pixels
+        std::vector<uint16_t> src(SRC_PIX);
+        for (size_t i = 0; i < SRC_PIX; ++i)
         {
             size_t off = i * 2;
             if (off + 1 < buf.data.size() - 4)
-                tmp[i] = (uint16_t)p[off] | ((uint16_t)p[off + 1] << 8);
+                src[i] = (uint16_t)p[off] | ((uint16_t)p[off + 1] << 8);
             else
-                tmp[i] = 0;
+                src[i] = 0;
         }
-        Screen::tft.pushImage(x, y, 20, 20, tmp);
+        if (scale <= 1)
+        {
+            Screen::tft.pushImage(x, y, SRC_W, SRC_H, src.data());
+            return;
+        }
+        int dstW = SRC_W * scale;
+        int dstH = SRC_H * scale;
+        std::vector<uint16_t> dst((size_t)dstW * dstH);
+        for (int sy = 0; sy < SRC_H; ++sy)
+        {
+            for (int sx = 0; sx < SRC_W; ++sx)
+            {
+                uint16_t col = src[sy * SRC_W + sx];
+                // replicate into scale x scale block
+                for (int dy = 0; dy < scale; ++dy)
+                {
+                    for (int dx = 0; dx < scale; ++dx)
+                    {
+                        int dxPos = sx * scale + dx;
+                        int dyPos = sy * scale + dy;
+                        dst[dyPos * dstW + dxPos] = col;
+                    }
+                }
+            }
+        }
+        Screen::tft.pushImage(x, y, dstW, dstH, dst.data());
     }
 
     // ---------- user interaction ----------
@@ -392,18 +435,35 @@ namespace AppManager
     static bool confirmInstallPrompt(const String &appName, const Buffer &iconBuf, const String &version)
     {
         clearScreen();
-        drawTitle("Install App?");
+        // draw title directly (no wrapper)
+        Screen::tft.setTextColor(TEXT, BG);
+        {
+            const String __t = String("Install App?");
+            int __font = TITLE_FONT;
+            int __w = Screen::tft.textWidth(__t.c_str(), __font);
+            int __x = (screenW() - __w) / 2;
+            if (__x < LEFT_MARGIN)
+                __x = LEFT_MARGIN;
+            int __y = 10;
+            Screen::tft.drawString(__t, __x, __y, __font);
+        }
 
-        // Icon at left (20x20) with larger surrounding text area
-        int iconX = 16;
+        // Render scaled icon on the RIGHT with scale factor 2 (40x40)
+        int iconScale = 2;
+        int iconW = 20 * iconScale;
+        int iconH = 20 * iconScale;
+        int iconX = screenW() - RIGHT_MARGIN - iconW;
         int iconY = 54;
-        safePush20x20Icon(iconX, iconY, iconBuf);
+        safePush20x20Icon(iconX, iconY, iconBuf, iconScale);
 
-        int textX = iconX + 28;
-        int textW = screenW() - textX - 16;
-        drawClippedString(textX, 52, textW, "Name: " + trimLines(appName), HEADING_FONT);
-        drawClippedString(textX, 72, textW, "Version: " + trimLines(version), BODY_FONT);
-        drawClippedString(16, 96, screenW() - 32, "Install this app to /programs/" + sanitizeFolderName(appName) + "?", BODY_FONT);
+        // Text area to the LEFT of the icon
+        int textX = LEFT_MARGIN;
+        int textW = iconX - textX - 8;
+        int nameY = iconY; // align name with top of icon
+        // Make name larger for emphasis
+        drawClippedString(textX, nameY, textW, "Name: " + trimLines(appName), HEADING_FONT);
+        drawClippedString(textX, nameY + Screen::tft.fontHeight(HEADING_FONT) + 6, textW, "Version: " + trimLines(version), BODY_FONT);
+        drawClippedString(textX, nameY + Screen::tft.fontHeight(HEADING_FONT) + Screen::tft.fontHeight(BODY_FONT) + 12, textW, "Install this app to /programs/" + sanitizeFolderName(appName) + "?", BODY_FONT);
 
         // Buttons centered and sized for touch; use wider buttons to use free space
         int btnW = (screenW() - 48) / 2;
@@ -423,7 +483,18 @@ namespace AppManager
             return true;
 
         clearScreen();
-        drawTitle("Connecting to WiFi");
+        // draw title directly (no wrapper)
+        Screen::tft.setTextColor(TEXT, BG);
+        {
+            const String __t = String("Connecting to WiFi");
+            int __font = TITLE_FONT;
+            int __w = Screen::tft.textWidth(__t.c_str(), __font);
+            int __x = (screenW() - __w) / 2;
+            if (__x < LEFT_MARGIN)
+                __x = LEFT_MARGIN;
+            int __y = 10;
+            Screen::tft.drawString(__t, __x, __y, __font);
+        }
         drawMessage("Please wait...", 56, TEXT, BG, HEADING_FONT);
 
         unsigned long start = millis();
@@ -505,7 +576,18 @@ namespace AppManager
                 // Update progress for optional files too
                 progress = (currentFile * 100) / totalFiles;
                 clearScreen();
-                drawTitle("Installing App");
+                // draw title directly (no wrapper)
+                Screen::tft.setTextColor(TEXT, BG);
+                {
+                    const String __t = String("Installing App");
+                    int __font = TITLE_FONT;
+                    int __w = Screen::tft.textWidth(__t.c_str(), __font);
+                    int __x = (screenW() - __w) / 2;
+                    if (__x < LEFT_MARGIN)
+                        __x = LEFT_MARGIN;
+                    int __y = 10;
+                    Screen::tft.drawString(__t, __x, __y, __font);
+                }
                 drawMessage("Downloading additional files...", 44, TEXT, BG, HEADING_FONT);
                 drawProgressBar(16, 110, screenW() - 32, 28, progress);
                 drawClippedString(16, 146, screenW() - 32, "Downloading: " + f, BODY_FONT);
@@ -514,7 +596,18 @@ namespace AppManager
 
         // Final progress
         clearScreen();
-        drawTitle("Installing App");
+        // draw title directly (no wrapper)
+        Screen::tft.setTextColor(TEXT, BG);
+        {
+            const String __t = String("Installing App");
+            int __font = TITLE_FONT;
+            int __w = Screen::tft.textWidth(__t.c_str(), __font);
+            int __x = (screenW() - __w) / 2;
+            if (__x < LEFT_MARGIN)
+                __x = LEFT_MARGIN;
+            int __y = 10;
+            Screen::tft.drawString(__t, __x, __y, __font);
+        }
         drawMessage("Finalizing installation...", 44, TEXT, BG, HEADING_FONT);
         drawProgressBar(16, 110, screenW() - 32, 28, 100);
         delay(500);
@@ -525,7 +618,18 @@ namespace AppManager
     static void showInstaller()
     {
         clearScreen();
-        drawTitle("App Manager");
+        // draw title directly (no wrapper)
+        Screen::tft.setTextColor(TEXT, BG);
+        {
+            const String __t = String("App Manager");
+            int __font = TITLE_FONT;
+            int __w = Screen::tft.textWidth(__t.c_str(), __font);
+            int __x = (screenW() - __w) / 2;
+            if (__x < LEFT_MARGIN)
+                __x = LEFT_MARGIN;
+            int __y = 10;
+            Screen::tft.drawString(__t, __x, __y, __font);
+        }
 
         // Use larger buttons and center them vertically to make use of free space
         int btnW = screenW() - 64;
@@ -540,7 +644,18 @@ namespace AppManager
             return;
 
         clearScreen();
-        drawTitle("Enter App ID");
+        // draw title directly (no wrapper)
+        Screen::tft.setTextColor(TEXT, BG);
+        {
+            const String __t = String("Enter App ID");
+            int __font = TITLE_FONT;
+            int __w = Screen::tft.textWidth(__t.c_str(), __font);
+            int __x = (screenW() - __w) / 2;
+            if (__x < LEFT_MARGIN)
+                __x = LEFT_MARGIN;
+            int __y = 10;
+            Screen::tft.drawString(__t, __x, __y, __font);
+        }
         drawMessage("Please enter the App ID", 56, TEXT, BG, HEADING_FONT);
         drawMessage("on the serial monitor", 78, TEXT, BG, BODY_FONT);
 
@@ -553,7 +668,18 @@ namespace AppManager
         }
 
         clearScreen();
-        drawTitle("Preparing Installation");
+        // draw title directly (no wrapper)
+        Screen::tft.setTextColor(TEXT, BG);
+        {
+            const String __t = String("Preparing Installation");
+            int __font = TITLE_FONT;
+            int __w = Screen::tft.textWidth(__t.c_str(), __font);
+            int __x = (screenW() - __w) / 2;
+            if (__x < LEFT_MARGIN)
+                __x = LEFT_MARGIN;
+            int __y = 10;
+            Screen::tft.drawString(__t, __x, __y, __font);
+        }
         drawMessage("Please wait...", 56, TEXT, BG, HEADING_FONT);
 
         bool res = installApp(appId);
