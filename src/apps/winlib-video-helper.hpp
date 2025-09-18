@@ -100,10 +100,12 @@ int lua_WIN_drawVideo(lua_State *L)
             Serial.println("[lua_WIN_drawVideo] waiting for access...");
         yield();
     }
+
     Windows::canAccess = false;
     Screen::tft.fillScreen(BG);
     Screen::tft.drawString("...Loading Video...", 100, 100);
     Serial.println("[lua_WIN_drawVideo] acquired access");
+    PriorityGuard pg(12); // lower priority while processing
 
     const char *url_c = luaL_checkstring(L, 2);
     String url = String(url_c);
@@ -162,6 +164,7 @@ int lua_WIN_drawVideo(lua_State *L)
     if (!stream)
     {
         Windows::canAccess = true;
+
         return 0;
     }
 
@@ -177,6 +180,7 @@ int lua_WIN_drawVideo(lua_State *L)
             Serial.println("[lua_WIN_drawVideo] stream disconnected before header arrived");
             https.end();
             Windows::canAccess = true;
+
             return 0;
         }
 
@@ -185,6 +189,7 @@ int lua_WIN_drawVideo(lua_State *L)
             Serial.printf("[lua_WIN_drawVideo] timeout waiting for header: available=%u\n", stream->available());
             https.end();
             Windows::canAccess = true;
+
             return 0;
         }
         delay(1);
@@ -198,6 +203,7 @@ int lua_WIN_drawVideo(lua_State *L)
                       (unsigned)got, stream->available(), stream->connected() ? 1 : 0);
         https.end();
         Windows::canAccess = true;
+
         return 0;
     }
 
@@ -210,6 +216,7 @@ int lua_WIN_drawVideo(lua_State *L)
         Serial.println("[lua_WIN_drawVideo] invalid header");
         https.end();
         Windows::canAccess = true;
+
         return 0;
     }
 
@@ -221,6 +228,7 @@ int lua_WIN_drawVideo(lua_State *L)
     if (!stream)
     {
         Windows::canAccess = true;
+
         return 0;
     }
 
@@ -246,6 +254,7 @@ int lua_WIN_drawVideo(lua_State *L)
         Serial.println("[lua_WIN_drawVideo] failed to allocate lineBuf");
         https.end();
         Windows::canAccess = true;
+
         return 0;
     }
     uint8_t *scaledLineBuf = nullptr;
@@ -258,6 +267,7 @@ int lua_WIN_drawVideo(lua_State *L)
             heap_caps_free(lineBuf);
             https.end();
             Windows::canAccess = true;
+
             return 0;
         }
     }

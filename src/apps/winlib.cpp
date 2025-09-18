@@ -10,6 +10,8 @@
 #include <memory>
 #include <string>
 
+#include "../utils/priority-guard.hpp"
+
 namespace LuaApps::WinLib
 {
     // Global map: id -> shared_ptr<Window>
@@ -424,6 +426,7 @@ namespace LuaApps::WinLib
         int y = luaL_checkinteger(L, 4);
         int width = luaL_checkinteger(L, 5);
         int height = luaL_checkinteger(L, 6);
+        PriorityGuard pg(8); // lower priority while processing
 
         luaL_checktype(L, 7, LUA_TTABLE);
 
@@ -867,6 +870,7 @@ namespace LuaApps::WinLib
                 delay(rand() % 2);
             }
             Windows::canAccess = false;
+            PriorityGuard pg(8); // lower priority while processing
 
             Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
 

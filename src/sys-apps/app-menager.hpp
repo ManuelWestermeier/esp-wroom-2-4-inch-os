@@ -21,8 +21,12 @@ namespace AppManager
         bool ok = false;
     };
 
-    // Default font to use everywhere
-    static const int DEFAULT_FONT = 2;
+    // ---------- font sizes ----------
+    // These are chosen for a 320x240 display; tweak if you have other font assets.
+    static const int TITLE_FONT = 4;   // large title
+    static const int HEADING_FONT = 2; // headings / button labels
+    static const int BODY_FONT = 1;    // body text
+    static const int DEFAULT_FONT = BODY_FONT;
 
     // ---------- helpers ----------
 
@@ -59,31 +63,31 @@ namespace AppManager
         return out;
     }
 
-    // Clipped string with ellipsis — uses DEFAULT_FONT only
-    static void drawClippedString(int x, int y, int maxW, const String &s)
+    // Clipped string with ellipsis — font selectable
+    static void drawClippedString(int x, int y, int maxW, const String &s, int font = DEFAULT_FONT)
     {
         if (s.length() == 0)
             return;
         const char *cs = s.c_str();
-        int w = Screen::tft.textWidth(cs, DEFAULT_FONT);
+        int w = Screen::tft.textWidth(cs, font);
         if (w <= maxW)
         {
-            Screen::tft.drawString(s, std::max(8, x), y, DEFAULT_FONT);
+            Screen::tft.drawString(s, std::max(8, x), y, font);
             return;
         }
 
         String ellipsis = "...";
-        int ellipsisWidth = Screen::tft.textWidth(ellipsis.c_str(), DEFAULT_FONT);
+        int ellipsisWidth = Screen::tft.textWidth(ellipsis.c_str(), font);
 
         String displayText = s;
         while (displayText.length() > 0 &&
-               Screen::tft.textWidth(displayText.c_str(), DEFAULT_FONT) + ellipsisWidth > maxW)
+               Screen::tft.textWidth(displayText.c_str(), font) + ellipsisWidth > maxW)
         {
             displayText.remove(displayText.length() - 1);
         }
 
         displayText += ellipsis;
-        Screen::tft.drawString(displayText, std::max(8, x), y, DEFAULT_FONT);
+        Screen::tft.drawString(displayText, std::max(8, x), y, font);
     }
 
     // ---------- UI helpers (320x240 friendly) ----------
@@ -105,20 +109,25 @@ namespace AppManager
     static void drawTitle(const String &title)
     {
         Screen::tft.setTextColor(TEXT, BG);
-        int font = DEFAULT_FONT; // use default font
+        int font = TITLE_FONT;
         int w = Screen::tft.textWidth(title.c_str(), font);
         int x = (screenW() - w) / 2;
         if (x < 8)
             x = 8;
-        Screen::tft.drawString(title, x, 8, font);
+        // Slight vertical padding so Title sits comfortably
+        int y = 6;
+        Screen::tft.drawString(title, x, y, font);
+        // underline to separate title from UI area (uses free space)
+        int underlineY = y + Screen::tft.fontHeight(font) + 6;
+        Screen::tft.drawFastHLine(8, underlineY, screenW() - 16, ACCENT2);
     }
 
     // default y provided so old calls without y compile
-    static void drawMessage(const String &msg, int y = 28, uint16_t fg = TEXT, uint16_t bg = BG)
+    static void drawMessage(const String &msg, int y = 36, uint16_t fg = TEXT, uint16_t bg = BG, int font = BODY_FONT)
     {
         Screen::tft.setTextColor(fg, bg);
         int maxW = screenW() - 16;
-        drawClippedString(8, y, maxW, msg);
+        drawClippedString(8, y, maxW, msg, font);
     }
 
     struct BtnRect
@@ -127,28 +136,31 @@ namespace AppManager
         bool contains(int px, int py) const { return px >= x && px < x + w && py >= y && py < y + h; }
     };
 
-    static void drawButton(const BtnRect &r, const char *label, uint16_t bg = PRIMARY, uint16_t fg = AT)
+    // drawButton accepts a font; uses free space by allowing wider buttons
+    static void drawButton(const BtnRect &r, const char *label, uint16_t bg = PRIMARY, uint16_t fg = AT, int font = HEADING_FONT)
     {
-        int radius = 8;
+        int radius = std::min(12, r.h / 4);
         Screen::tft.fillRoundRect(r.x, r.y, r.w, r.h, radius, bg);
         Screen::tft.drawRoundRect(r.x, r.y, r.w, r.h, radius, ACCENT2);
         Screen::tft.setTextColor(fg, bg);
-        int textW = Screen::tft.textWidth(label, DEFAULT_FONT);
+        int textW = Screen::tft.textWidth(label, font);
         int tx = r.x + (r.w - textW) / 2;
-        if (tx < 8)
-            tx = 8;
-        int ty = r.y + (r.h - 16) / 2;
+        if (tx < r.x + 8)
+            tx = r.x + 8;
+        // center vertically using font height
+        int fh = Screen::tft.fontHeight(font);
+        int ty = r.y + (r.h - fh) / 2;
         if (ty < r.y)
             ty = r.y;
-        Screen::tft.drawString(label, tx, ty, DEFAULT_FONT);
+        Screen::tft.drawString(label, tx, ty, font);
     }
 
     static void drawError(const String &msg)
     {
         clearScreen(DANGER);
         Screen::tft.setTextColor(AT, DANGER);
-        Screen::tft.drawString("Error:", 8, 8, DEFAULT_FONT);
-        drawClippedString(8, 32, screenW() - 16, msg);
+        Screen::tft.drawString("Error:", 8, 8, HEADING_FONT);
+        drawClippedString(8, 32, screenW() - 16, msg, BODY_FONT);
         Serial.println("[ERROR] " + msg);
         delay(2000);
     }
@@ -157,14 +169,13 @@ namespace AppManager
     {
         clearScreen(PRIMARY);
         Screen::tft.setTextColor(AT, PRIMARY);
-        drawClippedString(8, 8, screenW() - 16, msg);
+        drawClippedString(8, 24, screenW() - 16, msg, HEADING_FONT);
         Serial.println("[SUCCESS] " + msg);
         delay(1500);
     }
 
     static void drawProgressBar(int x, int y, int width, int height, int progress, uint16_t color = PRIMARY)
     {
-        // Make sure it fits within screen and margin
         if (x < 8)
             x = 8;
         width = std::min(width, screenW() - x - 8);
@@ -180,12 +191,12 @@ namespace AppManager
 
         String percent = String(progress) + "%";
         Screen::tft.setTextColor(TEXT, BG);
-        int textW = Screen::tft.textWidth(percent.c_str(), DEFAULT_FONT);
+        int textW = Screen::tft.textWidth(percent.c_str(), BODY_FONT);
         int tx = x + (width - textW) / 2;
         if (tx < x + 4)
             tx = x + 4;
-        int ty = y + (height - 16) / 2;
-        Screen::tft.drawString(percent, tx, ty, DEFAULT_FONT);
+        int ty = y + (height - Screen::tft.fontHeight(BODY_FONT)) / 2;
+        Screen::tft.drawString(percent, tx, ty, BODY_FONT);
     }
 
     // ---------- networking ----------
@@ -206,7 +217,6 @@ namespace AppManager
         }
 
         HTTPClient http;
-        // Use insecure for now (you can replace with root CA pinning if you prefer)
         secureClient.setInsecure();
         if (!http.begin(secureClient, url))
         {
@@ -215,7 +225,7 @@ namespace AppManager
         }
 
         http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-        http.setTimeout(15000); // slightly larger timeout
+        http.setTimeout(15000);
 
         int code = http.GET();
         if (code != HTTP_CODE_OK)
@@ -227,11 +237,10 @@ namespace AppManager
 
         WiFiClient &stream = http.getStream();
         outBuf.data.clear();
-        const size_t BUF_SZ = 256; // smaller chunk to be robust on low-memory
+        const size_t BUF_SZ = 256;
         uint8_t tmp[BUF_SZ];
         unsigned long start = millis();
 
-        // Read until server closes connection or no data for a timeout period
         while (stream.connected() || stream.available())
         {
             while (stream.available())
@@ -240,7 +249,7 @@ namespace AppManager
                 if (r > 0)
                 {
                     outBuf.data.insert(outBuf.data.end(), tmp, tmp + r);
-                    start = millis(); // reset idle timer
+                    start = millis();
                 }
                 else if (r < 0)
                 {
@@ -249,7 +258,6 @@ namespace AppManager
                     return false;
                 }
             }
-            // break out if idle for 5 seconds
             if (millis() - start > 5000)
                 break;
             delay(1);
@@ -260,7 +268,6 @@ namespace AppManager
         return true;
     }
 
-    // Keep only HTTPS — server redirects HTTP -> HTTPS; fallback causes 301 loops.
     static bool performGetWithFallback(const String &url, Buffer &buf)
     {
         return performGet(url, buf);
@@ -270,13 +277,17 @@ namespace AppManager
     {
         Serial.println("[Download] " + url + " -> " + path);
 
-        // Update progress
+        // Update progress UI using the freed vertical space
         progress = (currentFile * 100) / totalFiles;
         clearScreen();
         drawTitle("Installing App");
-        drawMessage("Downloading files...", 44);
-        drawProgressBar(20, 100, screenW() - 40, 28, progress);
-        drawClippedString(20, 136, screenW() - 40, "Downloading: " + path);
+        drawMessage("Downloading files...", 44, TEXT, BG, HEADING_FONT);
+
+        // Larger progress bar that uses free width
+        int pbX = 16;
+        int pbW = screenW() - 32;
+        drawProgressBar(pbX, 110, pbW, 28, progress);
+        drawClippedString(pbX, 146, pbW, "Downloading: " + path, BODY_FONT);
 
         Buffer dataBuf;
         if (!performGetWithFallback(url, dataBuf))
@@ -383,22 +394,24 @@ namespace AppManager
         clearScreen();
         drawTitle("Install App?");
 
-        // Icon at left, text to the right
-        int iconX = 12;
-        int iconY = 44;
+        // Icon at left (20x20) with larger surrounding text area
+        int iconX = 16;
+        int iconY = 54;
         safePush20x20Icon(iconX, iconY, iconBuf);
 
         int textX = iconX + 28;
-        int textW = screenW() - textX - 12;
-        drawClippedString(textX, 44, textW, "Name: " + trimLines(appName));
-        drawClippedString(textX, 64, textW, "Version: " + trimLines(version));
+        int textW = screenW() - textX - 16;
+        drawClippedString(textX, 52, textW, "Name: " + trimLines(appName), HEADING_FONT);
+        drawClippedString(textX, 72, textW, "Version: " + trimLines(version), BODY_FONT);
+        drawClippedString(16, 96, screenW() - 32, "Install this app to /programs/" + sanitizeFolderName(appName) + "?", BODY_FONT);
 
-        // Buttons centered and sized for touch
-        BtnRect yes{40, 160, 110, 48};
-        BtnRect no{screenW() - 40 - 110, 160, 110, 48};
+        // Buttons centered and sized for touch; use wider buttons to use free space
+        int btnW = (screenW() - 48) / 2;
+        BtnRect yes{16, screenH() - 64, btnW, 48};
+        BtnRect no{screenW() - 16 - btnW, screenH() - 64, btnW, 48};
 
-        drawButton(yes, "Install", ACCENT, AT);
-        drawButton(no, "Cancel", DANGER, AT);
+        drawButton(yes, "Install", ACCENT, AT, HEADING_FONT);
+        drawButton(no, "Cancel", DANGER, AT, HEADING_FONT);
 
         char c = waitForTwoButtonChoice(yes, no);
         return (c == 'i');
@@ -411,7 +424,7 @@ namespace AppManager
 
         clearScreen();
         drawTitle("Connecting to WiFi");
-        drawMessage("Please wait...", 100);
+        drawMessage("Please wait...", 56, TEXT, BG, HEADING_FONT);
 
         unsigned long start = millis();
         while (millis() - start < timeoutMs)
@@ -493,17 +506,17 @@ namespace AppManager
                 progress = (currentFile * 100) / totalFiles;
                 clearScreen();
                 drawTitle("Installing App");
-                drawMessage("Downloading additional files...", 44);
-                drawProgressBar(20, 100, screenW() - 40, 28, progress);
-                drawClippedString(20, 136, screenW() - 40, "Downloading: " + f);
+                drawMessage("Downloading additional files...", 44, TEXT, BG, HEADING_FONT);
+                drawProgressBar(16, 110, screenW() - 32, 28, progress);
+                drawClippedString(16, 146, screenW() - 32, "Downloading: " + f, BODY_FONT);
             }
         }
 
         // Final progress
         clearScreen();
         drawTitle("Installing App");
-        drawMessage("Finalizing installation...", 44);
-        drawProgressBar(20, 100, screenW() - 40, 28, 100);
+        drawMessage("Finalizing installation...", 44, TEXT, BG, HEADING_FONT);
+        drawProgressBar(16, 110, screenW() - 32, 28, 100);
         delay(500);
 
         return true;
@@ -514,11 +527,13 @@ namespace AppManager
         clearScreen();
         drawTitle("App Manager");
 
-        BtnRect installRect{28, 80, 120, 44};
-        BtnRect cancelRect{screenW() - 28 - 120, 80, 120, 44};
+        // Use larger buttons and center them vertically to make use of free space
+        int btnW = screenW() - 64;
+        BtnRect installRect{32, 72, btnW, 56};
+        BtnRect cancelRect{32, 72 + 72, btnW, 56};
 
-        drawButton(installRect, "Install new app", ACCENT3, AT);
-        drawButton(cancelRect, "Cancel", DANGER, AT);
+        drawButton(installRect, "Install new app", ACCENT3, AT, HEADING_FONT);
+        drawButton(cancelRect, "Cancel", DANGER, AT, HEADING_FONT);
 
         char choice = waitForTwoButtonChoice(installRect, cancelRect);
         if (choice != 'i')
@@ -526,8 +541,8 @@ namespace AppManager
 
         clearScreen();
         drawTitle("Enter App ID");
-        drawMessage("Please enter the App ID", 56);
-        drawMessage("on the serial monitor", 76);
+        drawMessage("Please enter the App ID", 56, TEXT, BG, HEADING_FONT);
+        drawMessage("on the serial monitor", 78, TEXT, BG, BODY_FONT);
 
         String appId = readString("App ID: ");
         appId.trim();
@@ -539,7 +554,7 @@ namespace AppManager
 
         clearScreen();
         drawTitle("Preparing Installation");
-        drawMessage("Please wait...", 100);
+        drawMessage("Please wait...", 56, TEXT, BG, HEADING_FONT);
 
         bool res = installApp(appId);
 
