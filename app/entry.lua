@@ -7,7 +7,7 @@ while not WIN_closed(win) do
 
     -- Render
     WIN_drawVideo(win,
-                  "https://github.com/ManuelWestermeier/manuelwestermeier.github.io/releases/download/v2/vid.vam")
+                  "https://github.com/ManuelWestermeier/manuelwestermeier.github.io/releases/download/v2/hevc-aac-caminandes-3.avf")
 
     delay(16) -- ~60 FPS
 end
