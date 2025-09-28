@@ -290,10 +290,13 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     else if (shortCut.name == "Settings")
                     {
                         Serial.println("Settings clicked");
+                        readString("coming soon...", "ok (:");
                     }
                     else if (shortCut.name == "Account")
                     {
                         Serial.println("Account clicked");
+                        if (readString("do you want to logout/restart? yes/no", "no").equalsIgnoreCase("yes"))
+                            ESP.restart();
                     }
                     break;
                 }
