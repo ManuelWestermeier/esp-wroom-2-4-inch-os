@@ -39,7 +39,7 @@ namespace LuaApps::WinLib
     int lua_WIN_drawFastHLine(lua_State *L);
     int lua_WIN_drawSVG(lua_State *L);
 
-    // void drawVideoTime(uint32_t currentSec, uint32_t totalSec, int x, int y, int w, int h);
+    void drawVideoTime(uint32_t currentSec, uint32_t totalSec, int x, int y, int w, int h);
     void drawMenuBar(bool paused, uint32_t currentFrame, uint32_t framesCount);
     int lua_WIN_drawVideo(lua_State *L);
     // --- Ende neue Funktionen ---

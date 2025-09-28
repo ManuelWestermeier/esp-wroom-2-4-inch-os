@@ -895,6 +895,78 @@ namespace LuaApps::WinLib
         return 1;
     }
 
+    // draw time string like "MM:SS / MM:SS"
+    void drawVideoTime(uint32_t currentSec, uint32_t totalSec, int x, int y, int w, int h)
+    {
+        auto formatTime = [](uint32_t s) -> String
+        {
+            uint32_t m = s / 60;
+            uint32_t sec = s % 60;
+            String mm = String(m);
+            String ss = String(sec);
+            if (mm.length() < 2)
+                mm = "0" + mm;
+            if (ss.length() < 2)
+                ss = "0" + ss;
+            return mm + ":" + ss;
+        };
+
+        String timeStr = formatTime(currentSec) + " / " + formatTime(totalSec);
+
+        Screen::tft.setTextSize(1);
+        Screen::tft.setTextColor(AT);
+        Screen::tft.setCursor(x, y);
+        Screen::tft.print(timeStr);
+        Screen::tft.setTextColor(TEXT);
+    }
+
+    // Draw top menu bar with play/pause, timeline and exit button.
+    // matches signature used by lua_WIN_drawVideo.
+    void drawMenuBar(bool paused, uint32_t currentFrame, uint32_t framesCount)
+    {
+        int menuHeight = 20;
+        Screen::tft.fillRect(0, 0, Screen::tft.width(), menuHeight, TFT_DARKGREY);
+
+        // Pause/Play Button (left)
+        if (paused)
+        {
+            // Play triangle
+            Screen::tft.fillTriangle(6, 5, 6, 15, 14, 10, TFT_WHITE);
+        }
+        else
+        {
+            // Pause bars
+            Screen::tft.fillRect(6, 5, 4, 10, TFT_WHITE);
+            Screen::tft.fillRect(12, 5, 4, 10, TFT_WHITE);
+        }
+
+        // Timeline (center)
+        int tlX = 30;
+        int tlY = 6;
+        int tlW = 200;
+        int tlH = 8;
+        Screen::tft.fillRect(tlX, tlY, tlW, tlH, TFT_BLACK);
+
+        int px = tlX + (int)((uint64_t)currentFrame * (uint64_t)tlW / (framesCount ? framesCount : 1));
+        if (px < tlX)
+            px = tlX;
+        if (px > tlX + tlW)
+            px = tlX + tlW;
+        Screen::tft.fillRect(tlX, tlY, px - tlX, tlH, TFT_RED);
+
+        // Time text above timeline
+        // Note: original code used currentFrame/20 and framesCount/20 — keep that behavior to show seconds if fps==20.
+        drawVideoTime(currentFrame / 20, framesCount / 20, tlX, tlY - 6, tlW, 10);
+
+        // Exit button (right)
+        int exitW = 20;
+        int exitX = Screen::tft.width() - exitW;
+        int exitY = 0;
+        Screen::tft.fillRect(exitX, exitY, exitW, menuHeight, TFT_RED);
+        Screen::tft.drawLine(exitX + 4, exitY + 4, exitX + exitW - 4, exitY + menuHeight - 4, TFT_WHITE);
+        Screen::tft.drawLine(exitX + exitW - 4, exitY + 4, exitX + 4, exitY + menuHeight - 4, TFT_WHITE);
+    }
+
 #include "winlib-video-helper.hpp"
 
     // register functions

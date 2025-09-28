@@ -322,7 +322,7 @@ static bool streamWavToDAC(WiFiClient *stream, HTTPClient &https, uint32_t maxPr
 }
 
 // ---------- The Lua API: lua_WIN_drawVideo (replaces previous implementation) ----------
-inline int lua_WIN_drawVideo(lua_State *L)
+int lua_WIN_drawVideo(lua_State *L)
 {
     esp_task_wdt_delete(NULL);
     Serial.println("[lua_WIN_drawVideo] called");
