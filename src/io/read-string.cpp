@@ -54,6 +54,14 @@ static void drawKeyboard(TFT_eSPI &tft, const std::vector<KeyRect> &keys, int pr
         drawKey(tft, keys[i], (int)i == pressedIndex);
 }
 
+static inline String toText(const std::vector<String> &lines)
+{
+    String result;
+    for (const auto &l : lines)
+        result += l + "\n";
+    return result;
+}
+
 // drawTextArea now also draws the two scroll buttons on the right
 // pressedScroll: -1 = none, 0 = up pressed, 1 = down pressed
 static void drawTextArea(TFT_eSPI &tft,
@@ -65,9 +73,15 @@ static void drawTextArea(TFT_eSPI &tft,
                          int pressedScroll = -1)
 {
     const int pad = 6;
+    static String lastText = "";
     // Hintergrund und Rahmen der Textarea (only the text area part)
-    tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, BG);
-    /*drawRoundRect*/ tft.fillRoundRect(AREA_X - 2, AREA_Y - 2, AREA_W + 4, AREA_H + 4, 4, PRIMARY);
+    String newtext = toText(lines);
+    if (lastText != newtext)
+    {
+        tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, BG);
+        /*drawRoundRect*/ tft.fillRoundRect(AREA_X - 2, AREA_Y - 2, AREA_W + 4, AREA_H + 4, 4, PRIMARY);
+        lastText = newtext;
+    }
 
     tft.setTextSize(TEXT_SIZE_AREA);
     tft.setTextColor(TEXT);
@@ -534,6 +548,7 @@ String readString(const String &question, const String &defaultValue)
                     scrollLine = cursorLine - visibleLines + 1;
 
                 // redraw
+
                 tft.fillRect(AREA_X, AREA_Y, AREA_W, AREA_H, BG); // clear text area only
                 drawTextArea(tft, lines, scrollLine, cursorLine, cursorCol, true, -1);
             }
