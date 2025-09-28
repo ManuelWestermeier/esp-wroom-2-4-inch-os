@@ -324,6 +324,12 @@ static bool streamWavToDAC(WiFiClient *stream, HTTPClient &https, uint32_t maxPr
 // ---------- The Lua API: lua_WIN_drawVideo (replaces previous implementation) ----------
 int lua_WIN_drawVideo(lua_State *L)
 {
+    if (ESP.getFreeHeap() < 20000)
+    {
+        Serial.println("Low heap, skipping frame or audio chunk");
+        delay(5);
+    }
+
     esp_task_wdt_delete(NULL);
     Serial.println("[lua_WIN_drawVideo] called");
 
