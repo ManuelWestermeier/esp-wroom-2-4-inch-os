@@ -304,12 +304,15 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
                             startAnimationMWOS();
 
-                            auto start = millis();
-                            while (start + ANIM_TIME > millis())
+                            unsigned long start = millis();
+                            while (millis() - start < ANIM_TIME)
                             {
-                                Screen::setBrightness(255 - (millis() - start * 255 / ANIM_TIME));
+                                uint32_t elapsed = millis() - start;
+                                uint8_t brightness = 255 - (elapsed * 255 / ANIM_TIME);
+                                Screen::setBrightness(brightness);
                                 delay(10);
                             }
+
                             Serial.println("ESP32 geht jetzt in Deep Sleep...");
                             Serial.println("Drücke GPIO0 (BOOT-Taste), um aufzuwachen.");
 
