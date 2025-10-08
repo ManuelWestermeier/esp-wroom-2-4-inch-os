@@ -88,7 +88,7 @@ void loadKnownWiFis()
         {
             WiFiItem item;
             item.ssid = fromHex(String(f.name()).substring(0, String(f.name()).length() - 5)); // strip ".wifi"
-            item.secured = true;                                               // assume secured if saved
+            item.secured = true;                                                               // assume secured if saved
             item.known = true;
             item.source = "public";
             wifiList.push_back(item);

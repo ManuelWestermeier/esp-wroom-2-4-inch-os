@@ -134,7 +134,7 @@ unsigned long menuUpdateTime = 0;
 #define SCROLL_OFF_Y_MENU_START 20
 
 static std::vector<ShortCut> shortCuts = {
-    {"Settings", SVG::settings},
+    // {"Settings", SVG::settings},
     {"Shutdown", SVG::shutdown},
     {"Design", SVG::design},
     {"WiFi", SVG::wifi},
@@ -312,6 +312,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                                 Screen::setBrightness(brightness);
                                 delay(10);
                             }
+                            Screen::setBrightness(0);
 
                             Serial.println("ESP32 geht jetzt in Deep Sleep...");
                             Serial.println("Drücke GPIO0 (BOOT-Taste), um aufzuwachen.");
