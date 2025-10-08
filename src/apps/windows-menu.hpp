@@ -1,4 +1,7 @@
 #include "windows.hpp" // for Vec, MouseState, etc.
+#include "../anim/entry.hpp"
+
+#include "esp_sleep.h"
 
 #include <Arduino.h>
 #include <vector>
@@ -132,7 +135,7 @@ unsigned long menuUpdateTime = 0;
 
 static std::vector<ShortCut> shortCuts = {
     {"Settings", SVG::settings},
-    {"Account", SVG::account},
+    {"Shutdown", SVG::shutdown},
     {"Design", SVG::design},
     {"WiFi", SVG::wifi},
     {"Apps", SVG::apps},
@@ -290,13 +293,35 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     else if (shortCut.name == "Settings")
                     {
                         Serial.println("Settings clicked");
-                        readString("coming soon...", "ok (:");
+                        return openDesigner();
                     }
-                    else if (shortCut.name == "Account")
+                    else if (shortCut.name == "Shutdown")
                     {
-                        Serial.println("Account clicked");
-                        if (readString("do you want to logout/restart? yes/no", "no").equalsIgnoreCase("yes"))
-                            ESP.restart();
+                        Serial.println("Shutdown clicked");
+                        if (readString("do you want to Shutdown/restart? y/n", "n").equalsIgnoreCase("y"))
+                        {
+                            const auto ANIM_TIME = 1500;
+
+                            startAnimationMWOS();
+
+                            auto start = millis();
+                            while (start + ANIM_TIME > millis())
+                            {
+                                Screen::setBrightness(255 - (millis() - start * 255 / ANIM_TIME));
+                                delay(10);
+                            }
+                            Serial.println("ESP32 geht jetzt in Deep Sleep...");
+                            Serial.println("Drücke GPIO0 (BOOT-Taste), um aufzuwachen.");
+
+                            // Wake-up durch GPIO0 (LOW) aktivieren
+                            esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0); // 0 = LOW-Pegel weckt auf
+
+                            // Optional: interner Pull-up, falls Taste nach GND schaltet
+                            pinMode(GPIO_NUM_0, INPUT_PULLUP);
+
+                            delay(100);
+                            esp_deep_sleep_start();
+                        }
                     }
                     break;
                 }

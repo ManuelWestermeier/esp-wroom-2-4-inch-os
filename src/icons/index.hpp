@@ -12,7 +12,7 @@ namespace SVG
     extern NSVGimage *wifi;
     extern NSVGimage *design;
     extern NSVGimage *folder;
-    extern NSVGimage *account;
+    extern NSVGimage *shutdown;
     extern NSVGimage *login;
     extern NSVGimage *signin;
     extern NSVGimage *apps;
