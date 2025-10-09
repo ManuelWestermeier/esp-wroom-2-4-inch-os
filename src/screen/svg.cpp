@@ -19,7 +19,9 @@ bool drawSVGString(NSVGimage *image,
                    uint16_t color, int steps)
 {
     if (!image || image->width <= 0 || image->height <= 0)
+    {
         return false;
+    }
 
     // Compute scale once
     const float scale = std::min(

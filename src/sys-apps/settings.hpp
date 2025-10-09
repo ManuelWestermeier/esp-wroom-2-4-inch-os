@@ -9,17 +9,6 @@
 #include "../screen/svg.hpp"
 #include "./designer.hpp"
 
-#define BG Style::Colors::bg
-#define TEXT Style::Colors::text
-#define PRIMARY Style::Colors::primary
-#define ACCENT Style::Colors::accent
-#define ACCENT2 Style::Colors::accent2
-#define ACCENT3 Style::Colors::accent3
-#define DANGER Style::Colors::danger
-#define PRESSED Style::Colors::pressed
-#define PH Style::Colors::placeholder
-#define AT Style::Colors::accentText
-
 namespace SettingsMenu
 {
     struct Slider
@@ -63,11 +52,8 @@ namespace SettingsMenu
         // Back icon (30x30)
         drawSVGString(SVG::back, 10, 6, 26, 26, TEXT);
 
-        tft.setCursor(50, 10);
+        tft.setCursor(50, 25);
         tft.print("Settings");
-
-        // underline
-        tft.fillRect(10, 32, 300, 2, ACCENT);
     }
 
     void drawSlider(const Slider &s, bool pressed = false)
@@ -78,8 +64,7 @@ namespace SettingsMenu
         int iconX = s.x - 35;
         int iconY = s.y - 6;
 
-        if (s.svg)
-            drawSVGString(s.svg, iconX, iconY, 20, 20, TEXT);
+        drawSVGString(s.svg, iconX, iconY, 20, 20, TEXT);
 
         // label
         tft.setTextColor(TEXT, BG);
