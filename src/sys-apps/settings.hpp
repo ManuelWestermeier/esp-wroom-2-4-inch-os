@@ -9,6 +9,17 @@
 #include "../screen/svg.hpp"
 #include "./designer.hpp"
 
+#define BG Style::Colors::bg
+#define TEXT Style::Colors::text
+#define PRIMARY Style::Colors::primary
+#define ACCENT Style::Colors::accent
+#define ACCENT2 Style::Colors::accent2
+#define ACCENT3 Style::Colors::accent3
+#define DANGER Style::Colors::danger
+#define PRESSED Style::Colors::pressed
+#define PH Style::Colors::placeholder
+#define AT Style::Colors::accentText
+
 namespace SettingsMenu
 {
     struct Slider
@@ -21,23 +32,41 @@ namespace SettingsMenu
     };
 
     inline Slider sliders[] = {
-        {40, 80, 240, 20, ACCENT2, 0, "Brightness", SVG::brightness},
-        {40, 140, 240, 20, ACCENT3, 0, "Volume", SVG::volume}};
+        {70, 80, 180, 12, ACCENT2, 0, "Brightness", SVG::brightness},
+        {70, 130, 180, 12, ACCENT3, 0, "Volume", SVG::volume}};
 
     inline bool touching = false;
     inline int activeSlider = -1;
-    inline bool confirmed = false;
-    inline bool canceled = false;
+    inline bool goBack = false;
 
-    void drawTitle()
+    struct Option
+    {
+        const char *label;
+        NSVGimage *svg;
+        uint16_t color;
+    };
+
+    inline Option options[] = {
+        {"Design", SVG::design, ACCENT2},
+        {"Shutdown", SVG::shutdown, DANGER}};
+
+    // --- UI drawing ---
+    void drawHeader()
     {
         using namespace Screen;
         auto &tft = Screen::tft;
+
         tft.fillScreen(BG);
-        tft.setTextColor(PRIMARY, BG);
+        tft.setTextColor(TEXT, BG);
         tft.setTextSize(2);
-        tft.setCursor(10, 10);
+
+        // Back icon (30x30)
+        drawSVGString(SVG::back, 10, 6, 26, 26, TEXT);
+
+        tft.setCursor(50, 10);
         tft.print("Settings");
+
+        // underline
         tft.fillRect(10, 32, 300, 2, ACCENT);
     }
 
@@ -46,74 +75,83 @@ namespace SettingsMenu
         using namespace Screen;
         auto &tft = Screen::tft;
 
-        int sliderX = s.x;
-        int sliderY = s.y;
-        int sliderW = s.w;
-        int sliderH = s.h;
+        int iconX = s.x - 35;
+        int iconY = s.y - 6;
 
-        // Draw icon + label
         if (s.svg)
-            drawSVGString(s.svg, sliderX - 30, sliderY - 8, 24, 24, TEXT);
+            drawSVGString(s.svg, iconX, iconY, 20, 20, TEXT);
 
+        // label
         tft.setTextColor(TEXT, BG);
         tft.setTextSize(1);
-        tft.setCursor(sliderX + sliderW + 8, sliderY - 4);
+        tft.setCursor(s.x - 5, s.y - 10);
         tft.print(s.label);
 
-        // Track
-        tft.fillRoundRect(sliderX, sliderY, sliderW, sliderH, 5, PH);
-        int fillWidth = map(s.value, 0, 255, 0, sliderW);
-        tft.fillRoundRect(sliderX, sliderY, fillWidth, sliderH, 5, pressed ? PRESSED : s.color);
+        // slider track
+        tft.fillRoundRect(s.x, s.y, s.w, s.h, 4, PH);
 
-        // Knob
-        tft.fillCircle(sliderX + fillWidth, sliderY + sliderH / 2, 6, pressed ? PRIMARY : AT);
+        // fill
+        int fillWidth = map(s.value, 0, 255, 0, s.w);
+        tft.fillRoundRect(s.x, s.y, fillWidth, s.h, 4, pressed ? PRESSED : s.color);
+
+        // knob
+        tft.fillCircle(s.x + fillWidth, s.y + s.h / 2, 4, pressed ? PRIMARY : AT);
     }
 
-    void drawButtons()
+    void drawOptions()
     {
         using namespace Screen;
         auto &tft = Screen::tft;
 
-        // OK button
-        int okX = 60, okY = 200, okW = 80, okH = 30;
-        tft.fillRoundRect(okX, okY, okW, okH, 6, PRIMARY);
-        tft.setTextColor(AT, PRIMARY);
-        tft.setTextSize(1);
-        tft.setCursor(okX + 25, okY + 10);
-        tft.print("OK");
+        int y = 200;
+        int spacing = 140;
+        int xStart = 40;
 
-        // Cancel button
-        int cx = 180, cy = 200, cw = 80, ch = 30;
-        tft.fillRoundRect(cx, cy, cw, ch, 6, DANGER);
-        tft.setTextColor(AT, DANGER);
-        tft.setCursor(cx + 15, cy + 10);
-        tft.print("Cancel");
+        for (int i = 0; i < 2; i++)
+        {
+            auto &opt = options[i];
+            int bx = xStart + i * spacing;
+
+            // icon
+            if (opt.svg)
+                drawSVGString(opt.svg, bx, y - 20, 28, 28, opt.color);
+
+            // label
+            tft.setTextColor(TEXT, BG);
+            tft.setTextSize(1);
+            tft.setCursor(bx + 35, y - 6);
+            tft.print(opt.label);
+        }
     }
 
     void drawUI()
     {
-        drawTitle();
+        drawHeader();
         for (auto &s : sliders)
             drawSlider(s);
-        drawButtons();
+        drawOptions();
     }
 
+    // --- Logic ---
     void updateSlider(int index, int x)
     {
         auto &s = sliders[index];
         int newVal = map(x - s.x, 0, s.w, 0, 255);
         newVal = constrain(newVal, 0, 255);
-        s.value = newVal;
+        if (s.value == newVal)
+            return;
 
+        s.value = newVal;
         if (index == 0)
         {
-            Settings::change();
+            Settings::screenBrightNess = s.value;
             Screen::setBrightness(s.value);
         }
         else if (index == 1)
         {
-            Settings::change();
+            Settings::volume = s.value;
         }
+        Settings::change();
 
         drawSlider(s, true);
     }
@@ -121,6 +159,8 @@ namespace SettingsMenu
     void handleTouch()
     {
         auto tp = Screen::getTouchPos();
+
+        // touch release
         if (!tp.clicked && touching)
         {
             touching = false;
@@ -129,8 +169,16 @@ namespace SettingsMenu
                 drawSlider(s);
             return;
         }
+
         if (!tp.clicked)
             return;
+
+        // Back button
+        if (tp.x >= 5 && tp.x <= 40 && tp.y >= 5 && tp.y <= 35)
+        {
+            goBack = true;
+            return;
+        }
 
         // Sliders
         if (!touching)
@@ -147,22 +195,29 @@ namespace SettingsMenu
                 }
             }
         }
+
         if (touching && activeSlider != -1)
         {
             updateSlider(activeSlider, tp.x);
             return;
         }
 
-        // Buttons
-        if (tp.y >= 200 && tp.y <= 230)
+        // Options
+        if (tp.y >= 180 && tp.y <= 230)
         {
-            if (tp.x >= 60 && tp.x <= 140)
+            // Design
+            if (tp.x >= 40 && tp.x <= 140)
             {
-                confirmed = true;
+                openDesigner();
+                drawUI();
+                delay(200);
             }
-            else if (tp.x >= 180 && tp.x <= 260)
+            // Shutdown
+            else if (tp.x >= 180 && tp.x <= 280)
             {
-                canceled = true;
+                shutdown();
+                drawUI();
+                delay(200);
             }
         }
     }
@@ -174,14 +229,8 @@ namespace SettingsMenu
                           ? Settings::screenBrightNess
                           : Settings::volume;
 
+        goBack = false;
         drawUI();
-        confirmed = false;
-        canceled = false;
-    }
-
-    inline void loop()
-    {
-        handleTouch();
     }
 } // namespace SettingsMenu
 
@@ -195,8 +244,8 @@ inline void openSettings()
     Serial.println("Opening settings...");
     open();
 
-    // Main blocking loop — until OK or Cancel is pressed
-    while (!confirmed && !canceled)
+    // Block until user taps "Back"
+    while (!goBack)
     {
         handleTouch();
         delay(16); // smooth ~60 FPS polling

@@ -18,4 +18,5 @@ namespace SVG
     extern NSVGimage *apps;
     extern NSVGimage *volume;
     extern NSVGimage *brightness;
+    extern NSVGimage *back;
 }
