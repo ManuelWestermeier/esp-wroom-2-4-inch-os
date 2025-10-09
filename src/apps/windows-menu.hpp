@@ -1,15 +1,12 @@
 #include "windows.hpp" // for Vec, MouseState, etc.
-#include "../anim/entry.hpp"
-
-#include "esp_sleep.h"
 
 #include <Arduino.h>
 #include <vector>
 
-#include "../sys-apps/designer.hpp"
 #include "../sys-apps/wifi-menager.hpp"
 #include "../sys-apps/file-picker.hpp"
 #include "../sys-apps/app-menager.hpp"
+#include "../sys-apps/settings.hpp"
 
 #include "../icons/index.hpp"
 
@@ -134,9 +131,7 @@ unsigned long menuUpdateTime = 0;
 #define SCROLL_OFF_Y_MENU_START 20
 
 static std::vector<ShortCut> shortCuts = {
-    // {"Settings", SVG::settings},
-    {"Shutdown", SVG::shutdown},
-    {"Design", SVG::design},
+    {"Settings", SVG::settings},
     {"WiFi", SVG::wifi},
     {"Apps", SVG::apps},
     {"Folders", SVG::folder},
@@ -270,9 +265,10 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
                 if (scPos.isIn(pos))
                 {
-                    if (shortCut.name == "Design")
+                    if (shortCut.name == "Settings")
                     {
-                        return openDesigner();
+                        Serial.println("Settings clicked");
+                        return openSettings();
                     }
                     else if (shortCut.name == "Folders")
                     {
@@ -289,43 +285,6 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                         appManager();
                         updateAppList(apps, lastPaths, appsChanged);
                         return;
-                    }
-                    else if (shortCut.name == "Settings")
-                    {
-                        Serial.println("Settings clicked");
-                        return openDesigner();
-                    }
-                    else if (shortCut.name == "Shutdown")
-                    {
-                        Serial.println("Shutdown clicked");
-                        if (readString("do you want to Shutdown/restart? y/n", "n").equalsIgnoreCase("y"))
-                        {
-                            const auto ANIM_TIME = 1500;
-
-                            startAnimationMWOS();
-
-                            unsigned long start = millis();
-                            while (millis() - start < ANIM_TIME)
-                            {
-                                uint32_t elapsed = millis() - start;
-                                uint8_t brightness = 255 - (elapsed * 255 / ANIM_TIME);
-                                Screen::setBrightness(brightness);
-                                delay(10);
-                            }
-                            Screen::setBrightness(0);
-
-                            Serial.println("ESP32 geht jetzt in Deep Sleep...");
-                            Serial.println("Drücke GPIO0 (BOOT-Taste), um aufzuwachen.");
-
-                            // Wake-up durch GPIO0 (LOW) aktivieren
-                            esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0); // 0 = LOW-Pegel weckt auf
-
-                            // Optional: interner Pull-up, falls Taste nach GND schaltet
-                            pinMode(GPIO_NUM_0, INPUT_PULLUP);
-
-                            delay(100);
-                            esp_deep_sleep_start();
-                        }
                     }
                     break;
                 }

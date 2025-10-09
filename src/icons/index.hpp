@@ -16,4 +16,6 @@ namespace SVG
     extern NSVGimage *login;
     extern NSVGimage *signin;
     extern NSVGimage *apps;
+    extern NSVGimage *volume;
+    extern NSVGimage *brightness;
 }
