@@ -50,9 +50,9 @@ namespace SettingsMenu
         tft.setTextSize(2);
 
         // Back icon (30x30)
-        drawSVGString(SVG::back, 10, 6, 26, 26, TEXT);
+        drawSVGString(SVG::back, 20, 6, 26, 26, TEXT);
 
-        tft.setCursor(50, 25);
+        tft.setCursor(60, 25);
         tft.print("Settings");
     }
 
