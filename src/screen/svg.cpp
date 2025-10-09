@@ -9,7 +9,28 @@ extern "C"
 
 NSVGimage *createSVG(String svgString)
 {
+    // // Ensure Serial is initialized
+    // if (!Serial)
+    // {
+    //     Serial.begin(115200);
+    //     delay(50); // give time to start
+    // }
+
+    // size_t heapBefore = ESP.getFreeHeap();
+    // Serial.printf("Free heap before parse: %u bytes\n", heapBefore);
+
     NSVGimage *image = nsvgParse((char *)svgString.c_str(), "px", 96.0f);
+
+    // size_t heapAfter = ESP.getFreeHeap();
+    // Serial.printf("Free heap after parse: %u bytes\n", heapAfter);
+
+    // if (!image)
+    // {
+    //     Serial.println("nsvgParse failed (out of memory)!");
+    //     Serial.printf("Used heap: %u bytes\n", heapBefore - heapAfter);
+    //     Serial.printf("Largest free block: %u bytes\n", ESP.getFreeHeap());
+    // }
+
     return image;
 }
 
