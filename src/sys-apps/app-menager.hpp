@@ -39,15 +39,18 @@ namespace AppManager
 
     String trimLines(const String &s)
     {
-        int start = 0;
-        while (start < (int)s.length() && isspace((unsigned char)s[start]))
-            start++;
-        int end = s.length() - 1;
-        while (end >= 0 && isspace((unsigned char)s[end]))
-            end--;
-        if (end < start)
-            return "";
-        return s.substring(start, end + 1);
+        // int len = s.length();
+        // int start = 0;
+
+        // while (start < len && isspace((unsigned char)s[start]))
+        //     start++;
+
+        // int end = len - 1;
+        // while (end >= start && isspace((unsigned char)s[end]))
+        //     end--;
+
+        // return (start > end) ? "" : s.substring(start, end + 1);
+        return s;
     }
 
     static String sanitizeFolderName(const String &s)

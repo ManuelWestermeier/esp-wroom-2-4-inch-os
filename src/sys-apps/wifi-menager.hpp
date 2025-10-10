@@ -326,7 +326,7 @@ static void drawWiFiList()
         WiFiItem &item = wifiList[idx];
 
         bool isSelected = (idx == selectedIndex);
-        uint16_t rowBg = isSelected ? ACCENT : BG;
+        uint16_t rowBg = isSelected ? PRIMARY : BG;
         if (rectIntersectsViewport(LIST_MARGIN, y, w, LIST_ITEM_HEIGHT - 6))
             Screen::tft.fillRoundRect(LIST_MARGIN, y, w, LIST_ITEM_HEIGHT - 6, 6, rowBg);
 
@@ -365,7 +365,7 @@ static void drawWiFiList()
             bLabel = "Pass";
             bCol = ACCENT2;
         }
-        drawButtonRect(btnX, btnY, buttonW, ITEM_BUTTON_H, bLabel, bCol, TEXT, 1);
+        drawButtonRect(btnX, btnY - 2, buttonW, ITEM_BUTTON_H, bLabel, bCol, TEXT, 1);
     }
 
     setViewport(0, 0, 0, 0);
