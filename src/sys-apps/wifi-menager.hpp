@@ -10,6 +10,8 @@
 #include "../wifi/index.hpp"
 #include "../io/read-string.hpp"
 
+#include <vector>
+
 // visual constants
 #define BTN_RADIUS 8
 #define LIST_ITEM_HEIGHT 44
@@ -43,14 +45,86 @@ enum WiFiUIState
 
 static WiFiUIState uiState = WIFI_IDLE;
 
-// --- helpers: drawing primitives (reuse style macros) ---
-static void drawButtonRect(int x, int y, int w, int h, const String &label, uint16_t bgColor, uint16_t textColor)
+// --- Simple viewport implementation (used to 'clip' text & drawing) ---
+struct Viewport
 {
+    int x;
+    int y;
+    int w;
+    int h;
+};
+
+static Viewport viewport = {0, 0, 0, 0};
+
+static void setViewport(int x, int y, int w, int h)
+{
+    viewport.x = x;
+    viewport.y = y;
+    viewport.w = w;
+    viewport.h = h;
+}
+
+// check if a rect intersects viewport; used to skip draws outside viewport
+static bool rectIntersectsViewport(int x, int y, int w, int h)
+{
+    if (viewport.w == 0 || viewport.h == 0)
+        return true; // no viewport set => draw everything
+    int x2 = x + w;
+    int y2 = y + h;
+    int vx2 = viewport.x + viewport.w;
+    int vy2 = viewport.y + viewport.h;
+    return !(x2 < viewport.x || x > vx2 || y2 < viewport.y || y > vy2);
+}
+
+// approximate text width in pixels for given text and size (safe portable fallback)
+static int approxTextWidth(const String &s, int textSize)
+{
+    // Basic monospaced-ish fallback: approx 6 pixels per char at size 1
+    // Many small fonts are ~6x8. Multiply accordingly.
+    return (int)s.length() * (6 * textSize);
+}
+
+// truncate a string to fit in pixel width, append ellipsis if truncated
+static String truncateToWidth(const String &s, int textSize, int maxPixels)
+{
+    if ((int)approxTextWidth(s, textSize) <= maxPixels)
+        return s;
+    // leave room for ellipsis (3 chars)
+    int ellipsisPixels = 3 * (6 * textSize);
+    int allowed = maxPixels - ellipsisPixels;
+    if (allowed <= 0)
+        return String("...");
+    int chars = allowed / (6 * textSize);
+    if (chars <= 0)
+        return String("...");
+    String out = s.substring(0, chars);
+    out += "...";
+    return out;
+}
+
+// --- helpers: drawing primitives (reuse style macros) ---
+// draw a rounded button with centered label; improved centering + truncation
+static void drawButtonRect(int x, int y, int w, int h, const String &label, uint16_t bgColor, uint16_t textColor, int textSize = 1)
+{
+    if (!rectIntersectsViewport(x, y, w, h))
+        return;
     Screen::tft.fillRoundRect(x, y, w, h, BTN_RADIUS, bgColor);
+
+    // center text inside button (use simple width approximation)
+    Screen::tft.setTextSize(textSize);
     Screen::tft.setTextColor(textColor);
-    Screen::tft.setTextSize(1);
-    // center text inside button
-    Screen::tft.drawString(label, x + (w / 2), y + (h / 2));
+
+    // compute truncated label
+    int padding = 6; // px padding inside button
+    int maxLabelPixels = w - padding * 2;
+    String txt = truncateToWidth(label, textSize, maxLabelPixels);
+
+    int txtW = approxTextWidth(txt, textSize);
+    int txtH = 8 * textSize; // approx text height
+    int tx = x + (w / 2) - (txtW / 2);
+    int ty = y + (h / 2) - (txtH / 2) + 2; // +2 small vertical nudge for visual center
+
+    Screen::tft.drawString(txt, tx, ty);
 }
 
 // small status overlay in middle
@@ -59,11 +133,18 @@ static void showStatusOverlay(const String &title, const String &msg, uint16_t b
     Screen::tft.fillScreen(bgColor);
     Screen::tft.setTextSize(2);
     Screen::tft.setTextColor(textColor);
-    Screen::tft.drawString(title, Screen::tft.width() / 2, Screen::tft.height() / 2 - 14);
+    // center title
+    String t = title;
+    int tW = approxTextWidth(t, 2);
+    int tH = 16;
+    Screen::tft.drawString(t, (Screen::tft.width() / 2) - (tW / 2), (Screen::tft.height() / 2) - 14);
+
     if (msg.length())
     {
         Screen::tft.setTextSize(1);
-        Screen::tft.drawString(msg, Screen::tft.width() / 2, Screen::tft.height() / 2 + 12);
+        String m = msg;
+        int mW = approxTextWidth(m, 1);
+        Screen::tft.drawString(m, (Screen::tft.width() / 2) - (mW / 2), (Screen::tft.height() / 2) + 12);
     }
     if (msDelay)
         delay(msDelay);
@@ -76,9 +157,16 @@ static void drawConnectingTop(const String &ssid, int spinner)
     Screen::tft.setTextSize(1);
     Screen::tft.setTextColor(TEXT);
     String msg = "Connecting: " + ssid;
-    Screen::tft.drawString(msg, 12, 8);
+    // ensure it doesn't overflow - truncate if needed
+    int avail = Screen::tft.width() - 40;
+    String label = truncateToWidth(msg, 1, avail);
+    int lw = approxTextWidth(label, 1);
+    Screen::tft.drawString(label, 12, 8);
+
     const char *spin = "|/-\\";
-    Screen::tft.drawString(String(spin[spinner % 4]), Screen::tft.width() - 12, 8);
+    String s(1, spin[spinner % 4]);
+    int sw = approxTextWidth(s, 1);
+    Screen::tft.drawString(s, Screen::tft.width() - 12 - sw / 2, 8);
 }
 
 // draw arrows for scrolling (top-right area)
@@ -90,10 +178,15 @@ static void drawScrollArrows(bool canUp, bool canDown)
     Screen::tft.fillRoundRect(ax, ay, ARROW_AREA_W - 4, 18, 4, canUp ? ACCENT : ACCENT2);
     Screen::tft.setTextColor(TEXT);
     Screen::tft.setTextSize(1);
-    Screen::tft.drawString("^", ax + (ARROW_AREA_W - 4) / 2, ay + 9);
+    // center the ^ character
+    String up = "^";
+    int upW = approxTextWidth(up, 1);
+    Screen::tft.drawString(up, ax + ((ARROW_AREA_W - 4) / 2) - (upW / 2), ay + 6);
     // down arrow
     Screen::tft.fillRoundRect(ax, ay + 22, ARROW_AREA_W - 4, 18, 4, canDown ? ACCENT : ACCENT2);
-    Screen::tft.drawString("v", ax + (ARROW_AREA_W - 4) / 2, ay + 22 + 9);
+    String down = "v";
+    int downW = approxTextWidth(down, 1);
+    Screen::tft.drawString(down, ax + ((ARROW_AREA_W - 4) / 2) - (downW / 2), ay + 22 + 6);
 }
 
 // compute visible capacity
@@ -115,9 +208,19 @@ static void clampViewOffset()
         viewOffset = 0;
     if (viewOffset > maxOffset)
         viewOffset = maxOffset;
+
+    // ensure selectedIndex in range and visible
+    if (selectedIndex < viewOffset)
+        selectedIndex = viewOffset;
+    if (selectedIndex >= viewOffset + maxVisible)
+        selectedIndex = viewOffset + maxVisible - 1;
+    if (selectedIndex < 0 && !wifiList.empty())
+        selectedIndex = 0;
 }
 
 // --- storage loader ---
+// NOTE: changed behavior: we now only load stored (public/private) networks if no scan results are found.
+// That keeps the scan results uncluttered. If you want stored networks always at top, revert.
 static void loadKnownWiFis()
 {
     // Append known (public first) so they appear at top of the list
@@ -154,18 +257,19 @@ static void loadKnownWiFis()
 }
 
 // --- scanning ---
+// improved scanning: scan first; only if zero results, show stored networks instead.
 static void drawScanningScreen(int spinner)
 {
     Screen::tft.fillScreen(BG);
     Screen::tft.setTextColor(TEXT);
     Screen::tft.setTextSize(2);
-    Screen::tft.drawString("Scanning...", Screen::tft.width() / 2, 24);
+    Screen::tft.drawString("Scanning...", Screen::tft.width() / 2 - approxTextWidth("Scanning...", 2) / 2, 24);
     const char *spin = "|/-\\";
     Screen::tft.setTextSize(1);
-    Screen::tft.drawString(String(spin[spinner % 4]), Screen::tft.width() / 2, 56);
+    Screen::tft.drawString(String(spin[spinner % 4]), Screen::tft.width() / 2 - 2, 56);
 }
 
-// perform scan and populate wifiList (keeps known at top)
+// perform scan and populate wifiList
 static void scanWiFisAndShow()
 {
     uiState = WIFI_SCANNING;
@@ -178,8 +282,6 @@ static void scanWiFisAndShow()
     drawScanningScreen(spinner);
     delay(150);
 
-    loadKnownWiFis(); // known networks pre-populated
-
     WiFi.scanDelete();
     int n = WiFi.scanNetworks();
     // n can be -1 on error
@@ -191,7 +293,7 @@ static void scanWiFisAndShow()
         String ssid = WiFi.SSID(i);
         bool secured = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
 
-        // skip duplicates
+        // skip duplicates (keep already-known flags intact)
         bool already = false;
         for (auto &it : wifiList)
         {
@@ -213,6 +315,12 @@ static void scanWiFisAndShow()
         wifiList.push_back(item);
     }
 
+    // if no networks found, show stored networks instead
+    if ((int)wifiList.size() == 0)
+    {
+        loadKnownWiFis();
+    }
+
     uiState = WIFI_IDLE;
     clampViewOffset();
 }
@@ -220,8 +328,8 @@ static void scanWiFisAndShow()
 // --- draw list UI ---
 static void drawWiFiList()
 {
+    // full-screen background
     Screen::tft.fillRect(0, 0, Screen::tft.width(), Screen::tft.height() - BTN_AREA_HEIGHT, BG);
-    Screen::tft.setTextSize(1);
 
     int yStart = 10;
     int maxVisible = calcMaxVisible();
@@ -229,6 +337,10 @@ static void drawWiFiList()
     int buttonW = ITEM_BUTTON_W;
     int labelW = w - buttonW - 12;
 
+    // set a viewport for the list area (prevents accidental overflow)
+    setViewport(LIST_MARGIN, 0, w, Screen::tft.height() - BTN_AREA_HEIGHT);
+
+    Screen::tft.setTextSize(1);
     for (int i = 0; i < maxVisible && i + viewOffset < (int)wifiList.size(); i++)
     {
         int idx = i + viewOffset;
@@ -237,19 +349,25 @@ static void drawWiFiList()
 
         bool isSelected = (idx == selectedIndex);
         uint16_t rowBg = isSelected ? ACCENT : BG;
-        Screen::tft.fillRoundRect(LIST_MARGIN, y, w, LIST_ITEM_HEIGHT - 6, 6, rowBg);
+        if (rectIntersectsViewport(LIST_MARGIN, y, w, LIST_ITEM_HEIGHT - 6))
+            Screen::tft.fillRoundRect(LIST_MARGIN, y, w, LIST_ITEM_HEIGHT - 6, 6, rowBg);
 
         // label and icons
         String label = item.ssid;
         if (item.known)
             label += " (saved)";
         if (item.secured)
-            label += " 🔒";
+            label += " \xE2\x9C\x94"; // use a safer checkmark if lock emoji problematic
+        // Truncate so it doesn't overflow left/right
+        int textSize = 1;
+        int availablePixels = labelW - 12; // some padding
+        String labelToDraw = truncateToWidth(label, textSize, availablePixels);
 
         Screen::tft.setTextColor(TEXT);
-        Screen::tft.setTextSize(1);
-        // left area padding 8
-        Screen::tft.drawString(label, LIST_MARGIN + 8, y + (LIST_ITEM_HEIGHT / 2) - 2);
+        Screen::tft.setTextSize(textSize);
+        int tx = LIST_MARGIN + 8;
+        int ty = y + (LIST_ITEM_HEIGHT / 2) - 6;
+        Screen::tft.drawString(labelToDraw, tx, ty);
 
         // item-specific button at right of row
         int btnX = LIST_MARGIN + w - buttonW - 8;
@@ -271,8 +389,11 @@ static void drawWiFiList()
             bLabel = "Pass";
             bCol = ACCENT2;
         }
-        drawButtonRect(btnX, btnY, buttonW, ITEM_BUTTON_H, bLabel, bCol, TEXT);
+        drawButtonRect(btnX, btnY, buttonW, ITEM_BUTTON_H, bLabel, bCol, TEXT, 1);
     }
+
+    // restore viewport to full screen for arrows & bottom buttons
+    setViewport(0, 0, 0, 0);
 
     // draw up/down arrows if needed
     bool canUp = viewOffset > 0;
@@ -314,20 +435,22 @@ static bool tryConnectWithPassOverlay(const String &ssid, const String &pass, un
     return (WiFi.status() == WL_CONNECTED);
 }
 
-// prompt the user to save credentials (same options as original)
+// prompt the user to save credentials (only when non-empty pass)
 static void promptStoreOptions(const String &ssid, const String &pass)
 {
     if (pass.length() == 0)
     {
-        showStatusOverlay("Connected", "Open network - nothing to store", BG, TEXT, 1000);
+        showStatusOverlay("Connected", "Open network - nothing to store", BG, TEXT, 900);
         return;
     }
 
     Screen::tft.fillScreen(BG);
     Screen::tft.setTextColor(TEXT);
     Screen::tft.setTextSize(1);
-    Screen::tft.drawString("Connected to " + ssid, Screen::tft.width() / 2, 30);
-    Screen::tft.drawString("Save credentials?", Screen::tft.width() / 2, 50);
+    String header = "Connected to " + ssid;
+    Screen::tft.drawString(header, Screen::tft.width() / 2 - approxTextWidth(header, 1) / 2, 30);
+    String q = "Save credentials?";
+    Screen::tft.drawString(q, Screen::tft.width() / 2 - approxTextWidth(q, 1) / 2, 50);
 
     int w = Screen::tft.width() - 40;
     int btnH = 36;
@@ -401,7 +524,9 @@ static void connectToIndex(int idx)
         if (tryConnectWithPassOverlay(ssid, p, 8000))
         {
             showStatusOverlay("Connected", ssid, BG, TEXT, 700);
-            promptStoreOptions(ssid, p);
+            // only offer storage dialog if password is non-empty (should be)
+            if (p.length() > 0)
+                promptStoreOptions(ssid, p);
             return;
         }
     }
@@ -415,30 +540,30 @@ static void connectToIndex(int idx)
         if (tryConnectWithPassOverlay(ssid, p, 8000))
         {
             showStatusOverlay("Connected", ssid, BG, TEXT, 700);
-            promptStoreOptions(ssid, p);
+            if (p.length() > 0)
+                promptStoreOptions(ssid, p);
             return;
         }
     }
 
-    // 3) if open network
+    // 3) if open network (no pass required)
     if (!item.secured)
     {
         showStatusOverlay("Connecting", "Open network...", BG, TEXT, 200);
         if (tryConnectWithPassOverlay(ssid, "", 5000))
         {
             showStatusOverlay("Connected", ssid, BG, TEXT, 700);
+            // open networks are NOT stored (no password)
             return;
         }
         else
         {
-            // failed open network
             uiState = WIFI_FAILED;
-            // draw failure screen (Back + Retry)
-            // We'll present retry (enter new pass) because maybe AP requires password despite being flagged open
+            // will fall through to password prompt fallback (some APs misreport)
         }
     }
 
-    // 4) ask user for password
+    // 4) ask user for password (for secured networks)
     if (item.secured)
     {
         String entered = readString("Password for " + ssid + ":", "");
@@ -451,6 +576,7 @@ static void connectToIndex(int idx)
         if (tryConnectWithPassOverlay(ssid, entered, 8000))
         {
             showStatusOverlay("Connected", ssid, BG, TEXT, 700);
+            // since user entered a password explicitly, allow them to choose to save it
             promptStoreOptions(ssid, entered);
             return;
         }
@@ -460,8 +586,9 @@ static void connectToIndex(int idx)
             Screen::tft.fillScreen(DANGER);
             Screen::tft.setTextColor(TEXT);
             Screen::tft.setTextSize(1);
-            Screen::tft.drawString("Failed to connect to " + ssid, Screen::tft.width() / 2, 40);
-            Screen::tft.drawString("Retry with new password or Back", Screen::tft.width() / 2, 60);
+            String failMsg = "Failed to connect to " + ssid;
+            Screen::tft.drawString(failMsg, Screen::tft.width() / 2 - approxTextWidth(failMsg, 1) / 2, 40);
+            Screen::tft.drawString("Retry with new password or Back", Screen::tft.width() / 2 - approxTextWidth("Retry with new password or Back", 1) / 2, 60);
 
             int w = Screen::tft.width() - 40;
             int btnH = 40;
@@ -639,6 +766,7 @@ static bool updateWiFiManager()
                 if (tryConnectWithPassOverlay(item.ssid, entered, 8000))
                 {
                     showStatusOverlay("Connected", item.ssid, BG, TEXT, 700);
+                    // only prompt to store if user actually entered a password
                     promptStoreOptions(item.ssid, entered);
                 }
                 else
