@@ -1,58 +1,217 @@
 #define NANOSVG_IMPLEMENTATION
-
 extern "C"
 {
 #include "nanosvg.h"
 }
 
 #include "svg.hpp"
+#include <Arduino.h>
+#include <cstdint>
+#include <algorithm>
+#include <cstring>
+
+// Cache size
+static constexpr int SVG_CACHE_SIZE = 7;
 
 struct SVGImageChacheItem
 {
-    NSVGimage *image;
-    unsigned long lastUsed;
-    unsigned long complexity;
-    uint16_t id;
+    NSVGimage *image = nullptr;
+    unsigned long lastUsed = 0;   // millis() when last used
+    unsigned long complexity = 0; // ms it took to parse
+    uint16_t id = 0;              // small id derived from fingerprint
+    uint32_t fp = 0;              // 32-bit fingerprint (FNV-1a)
+    bool occupied = false;
 };
 
-SVGImageChacheItem svgChache[7] = {};
+// single cache instance
+static SVGImageChacheItem svgChache[SVG_CACHE_SIZE] = {};
 
-uint16_t getSVGChacheID(const String &svgString)
+// FNV-1a 32-bit
+static uint32_t fnv1a32(const char *data, size_t len)
 {
-    return svgString.length() ^ (svgString[svgString.length() << 1] << 8 | svgString[(svgString.length() << 1) + 1]);
+    const uint32_t FNV_PRIME = 0x01000193u;
+    uint32_t hash = 0x811C9DC5u;
+    for (size_t i = 0; i < len; ++i)
+    {
+        hash ^= (uint8_t)data[i];
+        hash *= FNV_PRIME;
+    }
+    return hash;
 }
 
-NSVGimage *createSVG(String svgString)
+static uint16_t getSVGChacheID(const String &svgString)
 {
-    bool working = false;
-    while (!working)
-    {
-        auto id = getSVGChacheID(svgString);
-        auto start = millis();
-        NSVGimage *image = nsvgParse((char *)svgString.c_str(), "px", 96.0f);
-        auto end = millis();
-        auto complexity = end - start;
-    }
-
-    return image;
+    // 16-bit id as xor of fingerprint halves and length
+    const char *s = svgString.c_str();
+    size_t len = svgString.length();
+    uint32_t fp = fnv1a32(s, len);
+    return (uint16_t)((fp & 0xFFFFu) ^ ((fp >> 16) & 0xFFFFu) ^ (uint16_t)len);
 }
 
-void clearList()
+static uint32_t getSVGFingerprint(const String &svgString)
 {
-    updateSVGList();
-    for (int i = 0; i < sizeof(svgChache); i++)
-    {
-        if (svgChache[i])
-        {
-            svgDelete(svgChache[i].image);
-        }
-    }
-    svgChache = {};
+    return fnv1a32(svgString.c_str(), svgString.length());
+}
+
+static size_t cacheSize()
+{
+    return SVG_CACHE_SIZE;
 }
 
 void updateSVGList()
 {
-    // if one item is there longer not used than 1 s delete it
+    unsigned long now = millis();
+    for (size_t i = 0; i < cacheSize(); ++i)
+    {
+        if (svgChache[i].occupied && svgChache[i].image)
+        {
+            // subtract safely to handle millis overflow
+            unsigned long age = now - svgChache[i].lastUsed;
+            if (age > 1000UL) // older than 1 second
+            {
+                nsvgDelete(svgChache[i].image);
+                svgChache[i].image = nullptr;
+                svgChache[i].occupied = false;
+                svgChache[i].fp = 0;
+                svgChache[i].id = 0;
+                svgChache[i].complexity = 0;
+                svgChache[i].lastUsed = 0;
+            }
+        }
+    }
+}
+
+void clearList()
+{
+    for (size_t i = 0; i < cacheSize(); ++i)
+    {
+        if (svgChache[i].occupied)
+        {
+            if (svgChache[i].image)
+            {
+                nsvgDelete(svgChache[i].image);
+            }
+            svgChache[i].image = nullptr;
+            svgChache[i].occupied = false;
+            svgChache[i].fp = 0;
+            svgChache[i].id = 0;
+            svgChache[i].complexity = 0;
+            svgChache[i].lastUsed = 0;
+        }
+    }
+}
+
+// Return true if cache is empty
+static bool cacheIsEmpty()
+{
+    for (size_t i = 0; i < cacheSize(); ++i)
+        if (svgChache[i].occupied)
+            return false;
+    return true;
+}
+
+static NSVGimage *tryParseSVG(const String &svgString)
+{
+    // Duplicate string to writable buffer because some builds expect char*
+    size_t len = svgString.length();
+    char *buf = (char *)malloc(len + 1);
+    if (!buf)
+        return nullptr;
+    memcpy(buf, svgString.c_str(), len + 1);
+
+    NSVGimage *image = nsvgParse(buf, "px", 96.0f);
+    free(buf);
+    return image;
+}
+
+NSVGimage *createSVG(const String &svgString)
+{
+    if (svgString.length() == 0)
+        return nullptr;
+
+    const uint32_t fp = getSVGFingerprint(svgString);
+    const uint16_t id = getSVGChacheID(svgString);
+    unsigned long now = millis();
+
+    // 1) try to find in cache by fingerprint + id
+    for (size_t i = 0; i < cacheSize(); ++i)
+    {
+        if (svgChache[i].occupied && svgChache[i].fp == fp && svgChache[i].id == id && svgChache[i].image)
+        {
+            // cache hit
+            svgChache[i].lastUsed = now;
+            return svgChache[i].image;
+        }
+    }
+
+    // Not found: attempt to parse
+    unsigned long t0 = millis();
+    NSVGimage *image = tryParseSVG(svgString);
+    unsigned long t1 = millis();
+    unsigned long complexity = (image) ? (t1 - t0) : 0;
+
+    if (!image)
+    {
+        // Parsing failed: free existing cache and attempt parse again (user requested)
+        clearList();
+
+        // Try parsing again after clearing cache (memory might now be available)
+        t0 = millis();
+        image = tryParseSVG(svgString);
+        t1 = millis();
+        complexity = (image) ? (t1 - t0) : 0;
+
+        if (!image)
+        {
+            // Still failed: return nullptr
+            return nullptr;
+        }
+        // else we have an image after clearing cache — continue to insert into cache
+    }
+
+    // find a slot: first empty, else the one with largest age (not used longest)
+    int chosen = -1;
+    for (size_t i = 0; i < cacheSize(); ++i)
+    {
+        if (!svgChache[i].occupied)
+        {
+            chosen = (int)i;
+            break;
+        }
+    }
+
+    unsigned long now2 = millis();
+    if (chosen == -1)
+    {
+        // all occupied: pick the one with oldest lastUsed (largest now - lastUsed)
+        unsigned long bestAge = 0;
+        int bestIndex = 0;
+        for (size_t i = 0; i < cacheSize(); ++i)
+        {
+            unsigned long age = now2 - svgChache[i].lastUsed;
+            if (age >= bestAge)
+            {
+                bestAge = age;
+                bestIndex = (int)i;
+            }
+        }
+        chosen = bestIndex;
+    }
+
+    // Replace chosen slot (free previous image if any)
+    if (svgChache[chosen].occupied && svgChache[chosen].image)
+    {
+        nsvgDelete(svgChache[chosen].image);
+    }
+
+    svgChache[chosen].image = image;
+    svgChache[chosen].lastUsed = now2;
+    svgChache[chosen].complexity = complexity;
+    svgChache[chosen].id = id;
+    svgChache[chosen].fp = fp;
+    svgChache[chosen].occupied = true;
+
+    return image;
 }
 
 bool drawSVGString(const String &imageStr,
@@ -60,7 +219,7 @@ bool drawSVGString(const String &imageStr,
                    int targetW, int targetH,
                    uint16_t color, int steps)
 {
-    auto image = createSVG(imageStr);
+    NSVGimage *image = createSVG(imageStr);
     if (!image || image->width <= 0 || image->height <= 0)
     {
         return false;

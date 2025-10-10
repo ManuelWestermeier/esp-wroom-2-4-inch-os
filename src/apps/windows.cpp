@@ -218,6 +218,7 @@ namespace Windows
 
     void loop()
     {
+        updateSVGList();
         while (!canAccess)
         {
             delay(5);
