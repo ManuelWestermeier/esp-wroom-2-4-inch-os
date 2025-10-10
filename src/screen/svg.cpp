@@ -7,29 +7,25 @@ extern "C"
 #include "svg.hpp"
 #include <vector>
 #include <algorithm>
+#include <cmath>
 
 constexpr size_t SVG_CACHE_MAX_SIZE = 20 * 1024; // 20 KB
 constexpr unsigned long CACHE_EXPIRE_MS = 1000;  // 1 second
-constexpr size_t BLACKLIST_MAX_SIZE = 10;
 
 struct SvgCacheEntry
 {
-    String id;              // Unique ID: length + middle 4 chars
-    size_t memCost;         // Memory used by parsed SVG
-    uint32_t uses;          // Access count
-    NSVGimage *image;       // Parsed image
-    unsigned long lastUsed; // millis() timestamp
+    String id; // length + 4 middle chars
+    size_t memCost;
+    uint32_t uses;
+    NSVGimage *image;
+    unsigned long lastUsed;
 };
 
-// Cache storage
 static std::vector<SvgCacheEntry> svgCache;
 static size_t svgCacheUsed = 0;
 
-// Blacklist: simple hash of unrenderable SVGs
-static std::vector<String> svgBlacklist;
-
 // ------------------------------------------------------
-// Generate identifier: length + middle 4 chars
+// Generate ID: length + middle 4 chars
 // ------------------------------------------------------
 static String makeSVGId(const String &s)
 {
@@ -37,27 +33,13 @@ static String makeSVGId(const String &s)
     String mid = "";
     if (len >= 4)
     {
-        int start = len / 2 - 2;
-        mid = s.substring(start, start + 4);
+        mid = s.substring(len / 2 - 2, len / 2 + 2);
     }
     return String(len) + "_" + mid;
 }
 
 // ------------------------------------------------------
-// Check blacklist
-// ------------------------------------------------------
-static bool isBlacklisted(const String &id)
-{
-    for (auto &b : svgBlacklist)
-    {
-        if (b == id)
-            return true;
-    }
-    return false;
-}
-
-// ------------------------------------------------------
-// Estimate memory usage
+// Estimate memory used by SVG
 // ------------------------------------------------------
 static size_t estimateSVGSize(NSVGimage *img)
 {
@@ -74,7 +56,7 @@ static size_t estimateSVGSize(NSVGimage *img)
 }
 
 // ------------------------------------------------------
-// Prune cache until enough memory
+// Prune cache only if memory needed
 // ------------------------------------------------------
 static void pruneCacheForce(size_t requiredFree)
 {
@@ -82,6 +64,7 @@ static void pruneCacheForce(size_t requiredFree)
 
     while (svgCacheUsed + requiredFree > SVG_CACHE_MAX_SIZE && !svgCache.empty())
     {
+        // Find entry not used recently (>1s) with lowest usage score
         auto it = std::max_element(svgCache.begin(), svgCache.end(),
                                    [=](const SvgCacheEntry &a, const SvgCacheEntry &b)
                                    {
@@ -92,7 +75,7 @@ static void pruneCacheForce(size_t requiredFree)
                                        return scoreA < scoreB;
                                    });
 
-        if (it != svgCache.end())
+        if (it != svgCache.end() && now - it->lastUsed > CACHE_EXPIRE_MS)
         {
             if (it->image)
                 nsvgDelete(it->image);
@@ -105,17 +88,13 @@ static void pruneCacheForce(size_t requiredFree)
 }
 
 // ------------------------------------------------------
-// Create or fetch SVG from cache (with blacklist & retry)
+// Create/fetch SVG (full accuracy)
 // ------------------------------------------------------
 NSVGimage *createSVG(const String &svgString)
 {
     String id = makeSVGId(svgString);
     unsigned long now = millis();
 
-    if (isBlacklisted(id))
-        return nullptr;
-
-    // Check cache
     for (auto &entry : svgCache)
     {
         if (entry.id == id)
@@ -126,52 +105,26 @@ NSVGimage *createSVG(const String &svgString)
         }
     }
 
-    // First attempt
     NSVGimage *img = nsvgParse((char *)svgString.c_str(), "px", 96.0f);
     if (!img)
-    {
-        // Free all cache and retry
-        for (auto &entry : svgCache)
-            if (entry.image)
-                nsvgDelete(entry.image);
-        svgCache.clear();
-        svgCacheUsed = 0;
-
-        img = nsvgParse((char *)svgString.c_str(), "px", 96.0f);
-        if (!img)
-        {
-            // Add to blacklist
-            if (svgBlacklist.size() >= BLACKLIST_MAX_SIZE)
-                svgBlacklist.erase(svgBlacklist.begin());
-            svgBlacklist.push_back(id);
-            return nullptr;
-        }
-    }
+        return nullptr;
 
     size_t cost = estimateSVGSize(img);
-
     pruneCacheForce(cost);
 
-    // Skip caching if too big
-    if (cost > SVG_CACHE_MAX_SIZE)
-        return img;
-
-    SvgCacheEntry entry;
-    entry.id = id;
-    entry.memCost = cost;
-    entry.uses = 1;
-    entry.image = img;
-    entry.lastUsed = now;
-
-    svgCache.push_back(entry);
-    svgCacheUsed += cost;
+    if (cost <= SVG_CACHE_MAX_SIZE)
+    {
+        SvgCacheEntry entry = {id, cost, 1, img, now};
+        svgCache.push_back(entry);
+        svgCacheUsed += cost;
+    }
 
     return img;
 }
 
-#include "svg.hpp"
-
-// Draw an SVG string directly on screen, with blacklist & smart cache
+// ------------------------------------------------------
+// Draw SVG exactly as original
+// ------------------------------------------------------
 bool drawSVGString(const String &imageStr,
                    int xOff,
                    int yOff,
@@ -180,17 +133,9 @@ bool drawSVGString(const String &imageStr,
                    uint16_t color,
                    int steps)
 {
-    // Check blacklist early
-    String id = makeSVGId(imageStr);
-    if (isBlacklisted(id))
-        return false;
-
-    // Try to get/create the SVG
     NSVGimage *image = createSVG(imageStr);
     if (!image || image->width <= 0 || image->height <= 0)
-    {
         return false;
-    }
 
     float scale = std::min((float)targetW / image->width, (float)targetH / image->height);
 
@@ -223,15 +168,14 @@ bool drawSVGString(const String &imageStr,
                     float bx = it * it * it * x1 + 3 * it * it * t * x2 + 3 * it * t * t * x3 + t * t * t * x4;
                     float by = it * it * it * y1 + 3 * it * it * t * y2 + 3 * it * t * t * y3 + t * t * t * y4;
 
-                    if (!isnan(bx) && !isnan(by))
-                        Screen::tft.drawLine((int)px, (int)py, (int)bx, (int)by, color);
+                    // Full precision drawing
+                    Screen::tft.drawLine((int)px, (int)py, (int)bx, (int)by, color);
 
                     px = bx;
                     py = by;
                 }
             }
 
-            // Close path if needed
             if (path->closed)
             {
                 float xStart = pts[0] * scale + xOff;
@@ -243,16 +187,15 @@ bool drawSVGString(const String &imageStr,
         }
     }
 
-    // Free image if not cached (big objects may not fit)
+    // Free memory only if not cached
+    String id = makeSVGId(imageStr);
     bool cached = false;
     for (auto &e : svgCache)
-    {
         if (e.id == id)
         {
             cached = true;
             break;
         }
-    }
     if (!cached)
         nsvgDelete(image);
 
