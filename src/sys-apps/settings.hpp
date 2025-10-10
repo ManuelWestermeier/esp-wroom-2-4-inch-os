@@ -17,7 +17,7 @@ namespace SettingsMenu
         uint16_t color;
         int value; // 0–255
         const char *label;
-        NSVGimage *svg;
+        String svg;
     };
 
     inline Slider sliders[] = {
@@ -31,7 +31,7 @@ namespace SettingsMenu
     struct Option
     {
         const char *label;
-        NSVGimage *svg;
+        String svg;
         uint16_t color;
     };
 
@@ -50,7 +50,7 @@ namespace SettingsMenu
         tft.setTextSize(2);
 
         // Back icon (30x30)
-        drawSVGString(SVG::back, 20, 6, 26, 26, TEXT);
+        drawSVGString(SVG::back, 20, 21, 26, 26, TEXT);
 
         tft.setCursor(60, 25);
         tft.print("Settings");

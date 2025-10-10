@@ -45,11 +45,12 @@ NSVGimage *createSVG(String svgString)
     return image;
 }
 
-bool drawSVGString(NSVGimage *image,
+bool drawSVGString(const String &imageStr,
                    int xOff, int yOff,
                    int targetW, int targetH,
                    uint16_t color, int steps)
 {
+    auto image = createSVG(imageStr);
     if (!image || image->width <= 0 || image->height <= 0)
     {
         return false;
@@ -108,6 +109,8 @@ bool drawSVGString(NSVGimage *image,
             }
         }
     }
+
+    nsvgDelete(image);
 
     return true;
 }

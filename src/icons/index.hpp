@@ -2,21 +2,17 @@
 
 #include <Arduino.h>
 
-#include "../screen/svg.hpp"
-
-extern NSVGimage *createSVG(String);
-
 namespace SVG
 {
-    extern NSVGimage *settings;
-    extern NSVGimage *wifi;
-    extern NSVGimage *design;
-    extern NSVGimage *folder;
-    extern NSVGimage *shutdown;
-    extern NSVGimage *login;
-    extern NSVGimage *signin;
-    extern NSVGimage *apps;
-    extern NSVGimage *volume;
-    extern NSVGimage *brightness;
-    extern NSVGimage *back;
+    extern String settings;
+    extern String wifi;
+    extern String design;
+    extern String folder;
+    extern String shutdown;
+    extern String login;
+    extern String signin;
+    extern String apps;
+    extern String volume;
+    extern String brightness;
+    extern String back;
 }

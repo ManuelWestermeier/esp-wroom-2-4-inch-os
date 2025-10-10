@@ -9,7 +9,7 @@ extern "C"
 
 NSVGimage *createSVG(String svgString);
 
-bool drawSVGString(NSVGimage *image,
+bool drawSVGString(const String &imageStr,
                    int xOff, int yOff,
                    int targetW, int targetH,
                    uint16_t color, int steps = 4);

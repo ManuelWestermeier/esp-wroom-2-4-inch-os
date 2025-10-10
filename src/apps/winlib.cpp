@@ -861,9 +861,9 @@ namespace LuaApps::WinLib
 
         Rect rect = getScreenRect(win, screenId);
 
-        NSVGimage *svgImage = createSVG(svgStr);
+        // NSVGimage *svgImage = createSVG(svgStr);
 
-        bool ok = svgImage != nullptr;
+        bool ok = true; // svgImage != nullptr;
 
         if (ok)
         {
@@ -876,7 +876,7 @@ namespace LuaApps::WinLib
 
             Screen::tft.setViewport(rect.pos.x, rect.pos.y, rect.dimensions.x, rect.dimensions.y, true);
 
-            ok = drawSVGString(svgImage,
+            ok = drawSVGString(svgStr,
                                x, y,
                                w, h,
                                color, steps > 10 ? 10 : (steps < 1 ? 1 : steps));
@@ -885,8 +885,8 @@ namespace LuaApps::WinLib
 
             Windows::canAccess = true;
 
-            nsvgDelete(svgImage);
-            svgImage = nullptr;
+            // nsvgDelete(svgImage);
+            // svgImage = nullptr;
         }
         delay(5);
 

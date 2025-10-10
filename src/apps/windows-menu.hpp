@@ -123,7 +123,7 @@ struct AppRenderData
 struct ShortCut
 {
     String name;
-    NSVGimage *svg;
+    String svg;
 };
 
 unsigned long menuUpdateTime = 0;
