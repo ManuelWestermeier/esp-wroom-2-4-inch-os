@@ -64,7 +64,6 @@ static void setViewport(int x, int y, int w, int h)
     viewport.h = h;
 }
 
-// check if a rect intersects viewport; used to skip draws outside viewport
 static bool rectIntersectsViewport(int x, int y, int w, int h)
 {
     if (viewport.w == 0 || viewport.h == 0)
@@ -79,17 +78,14 @@ static bool rectIntersectsViewport(int x, int y, int w, int h)
 // approximate text width in pixels for given text and size (safe portable fallback)
 static int approxTextWidth(const String &s, int textSize)
 {
-    // Basic monospaced-ish fallback: approx 6 pixels per char at size 1
-    // Many small fonts are ~6x8. Multiply accordingly.
     return (int)s.length() * (6 * textSize);
 }
 
-// truncate a string to fit in pixel width, append ellipsis if truncated
+// truncate string to fit pixel width, append ellipsis
 static String truncateToWidth(const String &s, int textSize, int maxPixels)
 {
     if ((int)approxTextWidth(s, textSize) <= maxPixels)
         return s;
-    // leave room for ellipsis (3 chars)
     int ellipsisPixels = 3 * (6 * textSize);
     int allowed = maxPixels - ellipsisPixels;
     if (allowed <= 0)
@@ -103,26 +99,23 @@ static String truncateToWidth(const String &s, int textSize, int maxPixels)
 }
 
 // --- helpers: drawing primitives (reuse style macros) ---
-// draw a rounded button with centered label; improved centering + truncation
 static void drawButtonRect(int x, int y, int w, int h, const String &label, uint16_t bgColor, uint16_t textColor, int textSize = 1)
 {
     if (!rectIntersectsViewport(x, y, w, h))
         return;
     Screen::tft.fillRoundRect(x, y, w, h, BTN_RADIUS, bgColor);
 
-    // center text inside button (use simple width approximation)
     Screen::tft.setTextSize(textSize);
     Screen::tft.setTextColor(textColor);
 
-    // compute truncated label
-    int padding = 6; // px padding inside button
+    int padding = 6;
     int maxLabelPixels = w - padding * 2;
     String txt = truncateToWidth(label, textSize, maxLabelPixels);
 
     int txtW = approxTextWidth(txt, textSize);
-    int txtH = 8 * textSize; // approx text height
+    int txtH = 8 * textSize;
     int tx = x + (w / 2) - (txtW / 2);
-    int ty = y + (h / 2) - (txtH / 2) + 2; // +2 small vertical nudge for visual center
+    int ty = y + (h / 2) - (txtH / 2) + 2;
 
     Screen::tft.drawString(txt, tx, ty);
 }
@@ -133,18 +126,15 @@ static void showStatusOverlay(const String &title, const String &msg, uint16_t b
     Screen::tft.fillScreen(bgColor);
     Screen::tft.setTextSize(2);
     Screen::tft.setTextColor(textColor);
-    // center title
-    String t = title;
-    int tW = approxTextWidth(t, 2);
-    int tH = 16;
-    Screen::tft.drawString(t, (Screen::tft.width() / 2) - (tW / 2), (Screen::tft.height() / 2) - 14);
+
+    int tW = approxTextWidth(title, 2);
+    Screen::tft.drawString(title, (Screen::tft.width() / 2) - (tW / 2), (Screen::tft.height() / 2) - 14);
 
     if (msg.length())
     {
         Screen::tft.setTextSize(1);
-        String m = msg;
-        int mW = approxTextWidth(m, 1);
-        Screen::tft.drawString(m, (Screen::tft.width() / 2) - (mW / 2), (Screen::tft.height() / 2) + 12);
+        int mW = approxTextWidth(msg, 1);
+        Screen::tft.drawString(msg, (Screen::tft.width() / 2) - (mW / 2), (Screen::tft.height() / 2) + 12);
     }
     if (msDelay)
         delay(msDelay);
@@ -157,14 +147,12 @@ static void drawConnectingTop(const String &ssid, int spinner)
     Screen::tft.setTextSize(1);
     Screen::tft.setTextColor(TEXT);
     String msg = "Connecting: " + ssid;
-    // ensure it doesn't overflow - truncate if needed
     int avail = Screen::tft.width() - 40;
     String label = truncateToWidth(msg, 1, avail);
-    int lw = approxTextWidth(label, 1);
     Screen::tft.drawString(label, 12, 8);
 
     const char *spin = "|/-\\";
-    String s(1, spin[spinner % 4]);
+    String s = String(spin[spinner % 4]);
     int sw = approxTextWidth(s, 1);
     Screen::tft.drawString(s, Screen::tft.width() - 12 - sw / 2, 8);
 }
@@ -174,15 +162,13 @@ static void drawScrollArrows(bool canUp, bool canDown)
 {
     int ax = Screen::tft.width() - ARROW_AREA_W;
     int ay = 10;
-    // up arrow
     Screen::tft.fillRoundRect(ax, ay, ARROW_AREA_W - 4, 18, 4, canUp ? ACCENT : ACCENT2);
     Screen::tft.setTextColor(TEXT);
     Screen::tft.setTextSize(1);
-    // center the ^ character
     String up = "^";
     int upW = approxTextWidth(up, 1);
     Screen::tft.drawString(up, ax + ((ARROW_AREA_W - 4) / 2) - (upW / 2), ay + 6);
-    // down arrow
+
     Screen::tft.fillRoundRect(ax, ay + 22, ARROW_AREA_W - 4, 18, 4, canDown ? ACCENT : ACCENT2);
     String down = "v";
     int downW = approxTextWidth(down, 1);
@@ -209,7 +195,6 @@ static void clampViewOffset()
     if (viewOffset > maxOffset)
         viewOffset = maxOffset;
 
-    // ensure selectedIndex in range and visible
     if (selectedIndex < viewOffset)
         selectedIndex = viewOffset;
     if (selectedIndex >= viewOffset + maxVisible)
@@ -219,11 +204,9 @@ static void clampViewOffset()
 }
 
 // --- storage loader ---
-// NOTE: changed behavior: we now only load stored (public/private) networks if no scan results are found.
-// That keeps the scan results uncluttered. If you want stored networks always at top, revert.
+// we only load stored networks if no scan results are found
 static void loadKnownWiFis()
 {
-    // Append known (public first) so they appear at top of the list
     auto pubFiles = SD_FS::readDir("/public/wifi");
     for (auto &f : pubFiles)
     {
@@ -257,13 +240,13 @@ static void loadKnownWiFis()
 }
 
 // --- scanning ---
-// improved scanning: scan first; only if zero results, show stored networks instead.
 static void drawScanningScreen(int spinner)
 {
     Screen::tft.fillScreen(BG);
     Screen::tft.setTextColor(TEXT);
     Screen::tft.setTextSize(2);
-    Screen::tft.drawString("Scanning...", Screen::tft.width() / 2 - approxTextWidth("Scanning...", 2) / 2, 24);
+    String s = "Scanning...";
+    Screen::tft.drawString(s, Screen::tft.width() / 2 - approxTextWidth(s, 2) / 2, 24);
     const char *spin = "|/-\\";
     Screen::tft.setTextSize(1);
     Screen::tft.drawString(String(spin[spinner % 4]), Screen::tft.width() / 2 - 2, 56);
@@ -277,14 +260,12 @@ static void scanWiFisAndShow()
     selectedIndex = 0;
     viewOffset = 0;
 
-    // show quick scanning UI
     int spinner = 0;
     drawScanningScreen(spinner);
     delay(150);
 
     WiFi.scanDelete();
     int n = WiFi.scanNetworks();
-    // n can be -1 on error
     if (n < 0)
         n = 0;
 
@@ -293,7 +274,6 @@ static void scanWiFisAndShow()
         String ssid = WiFi.SSID(i);
         bool secured = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
 
-        // skip duplicates (keep already-known flags intact)
         bool already = false;
         for (auto &it : wifiList)
         {
@@ -315,7 +295,7 @@ static void scanWiFisAndShow()
         wifiList.push_back(item);
     }
 
-    // if no networks found, show stored networks instead
+    // fallback: if no scan results, show stored networks
     if ((int)wifiList.size() == 0)
     {
         loadKnownWiFis();
@@ -328,7 +308,6 @@ static void scanWiFisAndShow()
 // --- draw list UI ---
 static void drawWiFiList()
 {
-    // full-screen background
     Screen::tft.fillRect(0, 0, Screen::tft.width(), Screen::tft.height() - BTN_AREA_HEIGHT, BG);
 
     int yStart = 10;
@@ -337,7 +316,6 @@ static void drawWiFiList()
     int buttonW = ITEM_BUTTON_W;
     int labelW = w - buttonW - 12;
 
-    // set a viewport for the list area (prevents accidental overflow)
     setViewport(LIST_MARGIN, 0, w, Screen::tft.height() - BTN_AREA_HEIGHT);
 
     Screen::tft.setTextSize(1);
@@ -352,15 +330,14 @@ static void drawWiFiList()
         if (rectIntersectsViewport(LIST_MARGIN, y, w, LIST_ITEM_HEIGHT - 6))
             Screen::tft.fillRoundRect(LIST_MARGIN, y, w, LIST_ITEM_HEIGHT - 6, 6, rowBg);
 
-        // label and icons
         String label = item.ssid;
         if (item.known)
             label += " (saved)";
         if (item.secured)
-            label += " \xE2\x9C\x94"; // use a safer checkmark if lock emoji problematic
-        // Truncate so it doesn't overflow left/right
+            label += " \xE2\x9C\x94"; // checkmark
+
         int textSize = 1;
-        int availablePixels = labelW - 12; // some padding
+        int availablePixels = labelW - 12;
         String labelToDraw = truncateToWidth(label, textSize, availablePixels);
 
         Screen::tft.setTextColor(TEXT);
@@ -369,7 +346,6 @@ static void drawWiFiList()
         int ty = y + (LIST_ITEM_HEIGHT / 2) - 6;
         Screen::tft.drawString(labelToDraw, tx, ty);
 
-        // item-specific button at right of row
         int btnX = LIST_MARGIN + w - buttonW - 8;
         int btnY = y + (LIST_ITEM_HEIGHT - ITEM_BUTTON_H) / 2;
         String bLabel;
@@ -392,26 +368,22 @@ static void drawWiFiList()
         drawButtonRect(btnX, btnY, buttonW, ITEM_BUTTON_H, bLabel, bCol, TEXT, 1);
     }
 
-    // restore viewport to full screen for arrows & bottom buttons
     setViewport(0, 0, 0, 0);
 
-    // draw up/down arrows if needed
     bool canUp = viewOffset > 0;
     bool canDown = (viewOffset + maxVisible) < (int)wifiList.size();
     drawScrollArrows(canUp, canDown);
 
-    // bottom buttons: Connect (connect selected), Rescan, Cancel
     int btnY = Screen::tft.height() - BTN_AREA_HEIGHT + 12;
     int thirdW = (Screen::tft.width() - (LIST_MARGIN * 2)) / 3;
     drawButtonRect(LIST_MARGIN, btnY, thirdW - 8, 40, "Connect", PRIMARY, TEXT);
     drawButtonRect(LIST_MARGIN + thirdW, btnY, thirdW - 8, 40, "Rescan", ACCENT2, TEXT);
-    drawButtonRect(LIST_MARGIN + 2 * thirdW, btnY, thirdW - 8, 40, "Cancel", DANGER, TEXT);
+    drawButtonRect(LIST_MARGIN + 2 * thirdW, btnY, thirdW - 8, 50, "Cancel/OK", DANGER, TEXT);
 }
 
 // --- connection routine with visual feedback ---
 static bool tryConnectWithPassOverlay(const String &ssid, const String &pass, unsigned long timeoutMs = 8000)
 {
-    // disconnect first
     WiFi.disconnect(true);
     delay(120);
 
@@ -428,7 +400,6 @@ static bool tryConnectWithPassOverlay(const String &ssid, const String &pass, un
         {
             return true;
         }
-        // draw small top progress
         drawConnectingTop(ssid, spinner++);
         delay(200);
     }
@@ -463,7 +434,6 @@ static void promptStoreOptions(const String &ssid, const String &pass)
     drawButtonRect(x, y + btnH + gap, (w / 2) - gap, btnH, "Both", PRIMARY, TEXT);
     drawButtonRect(x + (w / 2) + gap, y + btnH + gap, (w / 2) - gap, btnH, "Skip", DANGER, TEXT);
 
-    // Wait for touch
     while (true)
     {
         auto t = Screen::getTouchPos();
@@ -506,6 +476,50 @@ static void promptStoreOptions(const String &ssid, const String &pass)
     }
 }
 
+// Show a 3-button dialog when connect fails: returns 0=Don't connect, 1=Enter new password, 2=Retry
+static int showConnectFailOptions(const String &ssid)
+{
+    Screen::tft.fillScreen(DANGER);
+    Screen::tft.setTextColor(TEXT);
+    Screen::tft.setTextSize(1);
+    String failMsg = "Failed to connect to " + ssid;
+    Screen::tft.drawString(failMsg, Screen::tft.width() / 2 - approxTextWidth(failMsg, 1) / 2, 40);
+    String prompt = "Choose:";
+    Screen::tft.drawString(prompt, Screen::tft.width() / 2 - approxTextWidth(prompt, 1) / 2, 60);
+
+    int w = Screen::tft.width() - 40;
+    int btnH = 44;
+    int gap = 12;
+    int x = 20;
+    int y = 100;
+
+    // layout three equal buttons
+    int third = (w - (2 * gap)) / 3;
+    drawButtonRect(x, y, third, btnH, "Don't connect", PRIMARY, TEXT);
+    drawButtonRect(x + third + gap, y, third, btnH, "Enter password", ACCENT, TEXT);
+    drawButtonRect(x + 2 * (third + gap), y, third, btnH, "Retry", ACCENT2, TEXT);
+
+    while (true)
+    {
+        auto t = Screen::getTouchPos();
+        if (t.clicked)
+        {
+            int tx = t.x;
+            int ty = t.y;
+            if (ty >= y && ty <= y + btnH)
+            {
+                if (tx >= x && tx < x + third)
+                    return 0;
+                else if (tx >= x + third + gap && tx < x + 2 * third + gap)
+                    return 1;
+                else if (tx >= x + 2 * (third + gap) && tx <= x + 3 * third + 2 * gap)
+                    return 2;
+            }
+        }
+        delay(20);
+    }
+}
+
 // connect to an index (handles private/public stored, open, or prompt for password)
 static void connectToIndex(int idx)
 {
@@ -515,19 +529,48 @@ static void connectToIndex(int idx)
     WiFiItem &item = wifiList[idx];
     String ssid = item.ssid;
 
+    // Helper lambda to attempt connection with a pass and handle post-success saving
+    auto attemptWithPass = [&](const String &pass) -> bool
+    {
+        showStatusOverlay("Connecting", "Please wait...", BG, TEXT, 200);
+        if (tryConnectWithPassOverlay(ssid, pass, 8000))
+        {
+            showStatusOverlay("Connected", ssid, BG, TEXT, 700);
+            if (pass.length() > 0)
+                promptStoreOptions(ssid, pass); // allow user to save only if pass non-empty
+            return true;
+        }
+        return false;
+    };
+
     // 1) try private stored
     ENC_FS::Path privPath = {"wifi", toHex(ssid) + ".wifi"};
     if (ENC_FS::exists(privPath))
     {
         String p = ENC_FS::readFileString(privPath);
-        showStatusOverlay("Connecting", "Using private storage...", BG, TEXT, 200);
-        if (tryConnectWithPassOverlay(ssid, p, 8000))
-        {
-            showStatusOverlay("Connected", ssid, BG, TEXT, 700);
-            // only offer storage dialog if password is non-empty (should be)
-            if (p.length() > 0)
-                promptStoreOptions(ssid, p);
+        if (attemptWithPass(p))
             return;
+
+        // failed: ask user what to do
+        int choice = showConnectFailOptions(ssid);
+        if (choice == 0) // don't connect
+            return;
+        if (choice == 2) // retry with same password
+        {
+            if (attemptWithPass(p))
+                return;
+            else
+                return; // still failed — give up
+        }
+        if (choice == 1) // enter new password
+        {
+            String newPass = readString("New password for " + ssid + ":", "");
+            if (newPass.length() == 0)
+                return; // cancelled
+            if (attemptWithPass(newPass))
+                return;
+            else
+                return;
         }
     }
 
@@ -536,107 +579,92 @@ static void connectToIndex(int idx)
     if (SD_FS::exists(pubPath))
     {
         String p = SD_FS::readFile(pubPath);
-        showStatusOverlay("Connecting", "Using public storage...", BG, TEXT, 200);
-        if (tryConnectWithPassOverlay(ssid, p, 8000))
-        {
-            showStatusOverlay("Connected", ssid, BG, TEXT, 700);
-            if (p.length() > 0)
-                promptStoreOptions(ssid, p);
+        if (attemptWithPass(p))
             return;
+
+        int choice = showConnectFailOptions(ssid);
+        if (choice == 0)
+            return;
+        if (choice == 2)
+        {
+            if (attemptWithPass(p))
+                return;
+            else
+                return;
+        }
+        if (choice == 1)
+        {
+            String newPass = readString("New password for " + ssid + ":", "");
+            if (newPass.length() == 0)
+                return;
+            if (attemptWithPass(newPass))
+                return;
+            else
+                return;
         }
     }
 
-    // 3) if open network (no pass required)
+    // 3) open network
     if (!item.secured)
     {
-        showStatusOverlay("Connecting", "Open network...", BG, TEXT, 200);
-        if (tryConnectWithPassOverlay(ssid, "", 5000))
-        {
-            showStatusOverlay("Connected", ssid, BG, TEXT, 700);
-            // open networks are NOT stored (no password)
+        if (attemptWithPass(""))
             return;
-        }
-        else
+
+        // failed open (rare): let user choose to enter password or cancel or retry
+        int choice = showConnectFailOptions(ssid);
+        if (choice == 0)
+            return;
+        if (choice == 2)
         {
-            uiState = WIFI_FAILED;
-            // will fall through to password prompt fallback (some APs misreport)
+            if (attemptWithPass(""))
+                return;
+            else
+                return;
+        }
+        if (choice == 1)
+        {
+            String newPass = readString("Password for " + ssid + ":", "");
+            if (newPass.length() == 0)
+                return;
+            if (attemptWithPass(newPass))
+                return;
+            else
+                return;
         }
     }
 
-    // 4) ask user for password (for secured networks)
+    // 4) secured & no stored credentials -> ask user for password
     if (item.secured)
     {
         String entered = readString("Password for " + ssid + ":", "");
         if (entered == "")
-        {
-            // cancelled
-            return;
-        }
-        showStatusOverlay("Connecting", "Using entered password...", BG, TEXT, 150);
-        if (tryConnectWithPassOverlay(ssid, entered, 8000))
-        {
-            showStatusOverlay("Connected", ssid, BG, TEXT, 700);
-            // since user entered a password explicitly, allow them to choose to save it
-            promptStoreOptions(ssid, entered);
-            return;
-        }
-        else
-        {
-            // failed: show Retry/Back screen (allow new password or go back)
-            Screen::tft.fillScreen(DANGER);
-            Screen::tft.setTextColor(TEXT);
-            Screen::tft.setTextSize(1);
-            String failMsg = "Failed to connect to " + ssid;
-            Screen::tft.drawString(failMsg, Screen::tft.width() / 2 - approxTextWidth(failMsg, 1) / 2, 40);
-            Screen::tft.drawString("Retry with new password or Back", Screen::tft.width() / 2 - approxTextWidth("Retry with new password or Back", 1) / 2, 60);
+            return; // cancelled
 
-            int w = Screen::tft.width() - 40;
-            int btnH = 40;
-            int gap = 12;
-            int x = 20;
-            int y = 100;
-            drawButtonRect(x, y, (w / 2) - gap, btnH, "Retry", PRIMARY, TEXT);
-            drawButtonRect(x + (w / 2) + gap, y, (w / 2) - gap, btnH, "Back", DANGER, TEXT);
+        if (attemptWithPass(entered))
+            return;
 
-            while (true)
+        // failed: show 3-way options (Don't connect / Enter new / Retry)
+        while (true)
+        {
+            int choice = showConnectFailOptions(ssid);
+            if (choice == 0) // don't connect
+                return;
+            else if (choice == 2) // retry with same entered password
             {
-                auto t = Screen::getTouchPos();
-                if (t.clicked)
-                {
-                    int tx = t.x;
-                    int ty = t.y;
-                    if (ty >= y && ty <= y + btnH)
-                    {
-                        if (tx >= x && tx <= x + (w / 2) - gap)
-                        {
-                            // Retry: get new password
-                            String newPass = readString("New password for " + ssid + ":", "");
-                            if (newPass.length() == 0)
-                            {
-                                // cancelled
-                                return;
-                            }
-                            showStatusOverlay("Connecting", "Retrying...", BG, TEXT, 150);
-                            if (tryConnectWithPassOverlay(ssid, newPass, 8000))
-                            {
-                                showStatusOverlay("Connected", ssid, BG, TEXT, 700);
-                                promptStoreOptions(ssid, newPass);
-                                return;
-                            }
-                            else
-                            {
-                                showStatusOverlay("Failed", "Retry failed", DANGER, TEXT, 900);
-                                return;
-                            }
-                        }
-                        else if (tx >= x + (w / 2) + gap && tx <= x + w)
-                        {
-                            // Back pressed
-                            return;
-                        }
-                    }
-                }
-                delay(20);
+                if (attemptWithPass(entered))
+                    return;
+                else
+                    continue; // show options again
+            }
+            else if (choice == 1) // enter a different password
+            {
+                String newPass = readString("New password for " + ssid + ":", "");
+                if (newPass.length() == 0)
+                    return;
+                if (attemptWithPass(newPass))
+                    return;
+                else
+                    continue; // show options again
             }
         }
     }
@@ -647,17 +675,17 @@ static bool updateWiFiManager()
 {
     auto touch = Screen::getTouchPos();
 
-    // scroll with move
-    if (abs(touch.move.y) > 4)
+    // only scroll when the user RELEASES (clicked == true) and movement was significant
+    if (touch.clicked && abs(touch.move.y) > 4)
     {
-        // convert pixel delta to rows (positive move.y = down finger movement -> scroll up)
         int deltaRows = (touch.move.y) / LIST_ITEM_HEIGHT;
         viewOffset -= deltaRows;
         clampViewOffset();
         drawWiFiList();
+        return true; // treat this release as handled (do not also treat as a row click)
     }
 
-    // no click -> nothing to do
+    // if no click (release) and no pressed gesture to handle, nothing else to do
     if (!touch.clicked)
         return true;
 
@@ -686,7 +714,7 @@ static bool updateWiFiManager()
         }
         else
         {
-            // cancel/exit - return false to caller
+            // cancel/exit
             return false;
         }
     }
@@ -698,7 +726,6 @@ static bool updateWiFiManager()
         int ay = 10;
         if (touch.y >= ay && touch.y <= ay + 18)
         {
-            // up arrow
             viewOffset -= 1;
             clampViewOffset();
             drawWiFiList();
@@ -706,7 +733,6 @@ static bool updateWiFiManager()
         }
         else if (touch.y >= ay + 22 && touch.y <= ay + 40)
         {
-            // down arrow
             viewOffset += 1;
             clampViewOffset();
             drawWiFiList();
@@ -724,12 +750,10 @@ static bool updateWiFiManager()
     if (clickedIndex >= 0 && clickedIndex < (int)wifiList.size())
     {
         int rowY = yStart + (clickedIndex - viewOffset) * LIST_ITEM_HEIGHT;
-        // determine if click on the row button
         int btnX = LIST_MARGIN + wArea - buttonW - 8;
         int btnY = rowY + (LIST_ITEM_HEIGHT - ITEM_BUTTON_H) / 2;
         if (touch.x >= btnX && touch.x <= btnX + buttonW && touch.y >= btnY && touch.y <= btnY + ITEM_BUTTON_H)
         {
-            // button activated: Connect / Open / Pass
             WiFiItem &item = wifiList[clickedIndex];
             if (item.known)
             {
@@ -739,7 +763,6 @@ static bool updateWiFiManager()
             }
             else if (!item.secured)
             {
-                // open network - try directly
                 showStatusOverlay("Connecting", "Open network...", BG, TEXT, 200);
                 if (tryConnectWithPassOverlay(item.ssid, "", 5000))
                 {
@@ -754,11 +777,9 @@ static bool updateWiFiManager()
             }
             else
             {
-                // secured, ask for password
                 String entered = readString("Password for " + item.ssid + ":", "");
                 if (entered.length() == 0)
                 {
-                    // cancelled
                     drawWiFiList();
                     return true;
                 }
@@ -766,12 +787,38 @@ static bool updateWiFiManager()
                 if (tryConnectWithPassOverlay(item.ssid, entered, 8000))
                 {
                     showStatusOverlay("Connected", item.ssid, BG, TEXT, 700);
-                    // only prompt to store if user actually entered a password
                     promptStoreOptions(item.ssid, entered);
                 }
                 else
                 {
-                    showStatusOverlay("Failed", "Could not connect", DANGER, TEXT, 900);
+                    // on failure, present the 3-way dialog and act accordingly
+                    while (true)
+                    {
+                        int choice = showConnectFailOptions(item.ssid);
+                        if (choice == 0)
+                            break;            // don't connect
+                        else if (choice == 2) // retry with same entered password
+                        {
+                            if (tryConnectWithPassOverlay(item.ssid, entered, 8000))
+                            {
+                                showStatusOverlay("Connected", item.ssid, BG, TEXT, 700);
+                                promptStoreOptions(item.ssid, entered);
+                                break;
+                            }
+                        }
+                        else if (choice == 1) // enter new password
+                        {
+                            String newPass = readString("New password for " + item.ssid + ":", "");
+                            if (newPass.length() == 0)
+                                break;
+                            if (tryConnectWithPassOverlay(item.ssid, newPass, 8000))
+                            {
+                                showStatusOverlay("Connected", item.ssid, BG, TEXT, 700);
+                                promptStoreOptions(item.ssid, newPass);
+                                break;
+                            }
+                        }
+                    }
                 }
                 drawWiFiList();
                 return true;
@@ -779,9 +826,7 @@ static bool updateWiFiManager()
         }
         else
         {
-            // clicked the row -> select it
             selectedIndex = clickedIndex;
-            // ensure selected visible
             clampViewOffset();
             drawWiFiList();
             return true;
@@ -794,11 +839,9 @@ static bool updateWiFiManager()
 // --- main entrypoint to open the manager ---
 void openWifiManager()
 {
-    // initial scan + draw
     scanWiFisAndShow();
     drawWiFiList();
 
-    // loop until user cancels (updateWiFiManager returns false)
     while (true)
     {
         if (!updateWiFiManager())
@@ -806,6 +849,5 @@ void openWifiManager()
         delay(20);
     }
 
-    // restore basic screen state if needed
     Screen::tft.fillScreen(BG);
 }
