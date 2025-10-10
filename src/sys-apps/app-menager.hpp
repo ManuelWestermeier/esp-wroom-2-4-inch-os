@@ -77,6 +77,7 @@ namespace AppManager
             return;
         // enforce left margin so text never starts outside viewport
         x = std::max(x, LEFT_MARGIN);
+        tft.setTextDatum(TL_DATUM);
         const char *cs = s.c_str();
         int w = Screen::tft.textWidth(cs, font);
         if (w <= maxW)
@@ -450,7 +451,7 @@ namespace AppManager
     {
         clearScreen();
         // draw title directly (no wrapper)
-        Screen::tft.setTextColor(TEXT, BG);
+        Screen::tft.setTextColor(TEXT);
         {
             const String __t = String("Install App?");
             int __font = TITLE_FONT;
@@ -468,7 +469,6 @@ namespace AppManager
         int iconH = 20 * iconScale;
         int iconX = screenW() - RIGHT_MARGIN - iconW;
         int iconY = TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 12;
-        safePush20x20Icon(iconX, iconY, iconBuf, iconScale);
 
         // Text area to the LEFT of the icon
         int textX = LEFT_MARGIN;
@@ -485,6 +485,7 @@ namespace AppManager
         BtnRect yes{LEFT_MARGIN, btnY, btnW, 40};
         BtnRect no{screenW() - RIGHT_MARGIN - btnW, btnY, btnW, 40};
 
+        safePush20x20Icon(iconX, iconY, iconBuf, iconScale);
         drawButton(yes, "Install", ACCENT, AT, BUTTON_FONT);
         drawButton(no, "Cancel", DANGER, AT, BUTTON_FONT);
 

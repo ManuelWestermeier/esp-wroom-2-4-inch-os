@@ -378,7 +378,7 @@ static void drawWiFiList()
     int thirdW = (Screen::tft.width() - (LIST_MARGIN * 2)) / 3;
     drawButtonRect(LIST_MARGIN, btnY, thirdW - 8, 40, "Connect", PRIMARY, TEXT);
     drawButtonRect(LIST_MARGIN + thirdW, btnY, thirdW - 8, 40, "Rescan", ACCENT2, TEXT);
-    drawButtonRect(LIST_MARGIN + 2 * thirdW, btnY, thirdW - 8, 50, "Cancel/OK", DANGER, TEXT);
+    drawButtonRect(LIST_MARGIN + 2 * thirdW, btnY, thirdW, 40, "Cancel/OK", DANGER, TEXT);
 }
 
 // --- connection routine with visual feedback ---
