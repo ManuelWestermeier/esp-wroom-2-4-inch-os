@@ -11,7 +11,7 @@ extern "C"
 #include <cstring>
 
 // Cache size
-static constexpr int SVG_CACHE_SIZE = 7;
+static constexpr int SVG_CACHE_SIZE = 4;
 
 struct SVGImageChacheItem
 {
