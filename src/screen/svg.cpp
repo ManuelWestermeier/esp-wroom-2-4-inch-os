@@ -9,26 +9,37 @@ extern "C"
 
 NSVGimage *createSVG(String svgString)
 {
-    // // Ensure Serial is initialized
+    // Ensure Serial is ready
     // if (!Serial)
     // {
     //     Serial.begin(115200);
-    //     delay(50); // give time to start
+    //     delay(50);
     // }
 
     // size_t heapBefore = ESP.getFreeHeap();
-    // Serial.printf("Free heap before parse: %u bytes\n", heapBefore);
+    // unsigned long startTime = micros();
 
     NSVGimage *image = nsvgParse((char *)svgString.c_str(), "px", 96.0f);
 
+    // unsigned long endTime = micros();
     // size_t heapAfter = ESP.getFreeHeap();
-    // Serial.printf("Free heap after parse: %u bytes\n", heapAfter);
 
-    // if (!image)
+    // size_t heapUsed = (heapBefore > heapAfter) ? (heapBefore - heapAfter) : 0;
+    // float timeMs = (endTime - startTime) / 1000.0f;
+
+    // if (image)
     // {
-    //     Serial.println("nsvgParse failed (out of memory)!");
-    //     Serial.printf("Used heap: %u bytes\n", heapBefore - heapAfter);
-    //     Serial.printf("Largest free block: %u bytes\n", ESP.getFreeHeap());
+    //     Serial.printf("[SVG] Parse OK\n");
+    //     Serial.printf("       Used heap: %u bytes\n", (unsigned)heapUsed);
+    //     Serial.printf("       Time: %.2f ms\n", timeMs);
+    //     Serial.printf("       Free heap after: %u bytes\n", (unsigned)heapAfter);
+    // }
+    // else
+    // {
+    //     Serial.printf("[SVG] Parse FAILED\n");
+    //     Serial.printf("       Heap diff: %u bytes\n", (unsigned)heapUsed);
+    //     Serial.printf("       Time: %.2f ms\n", timeMs);
+    //     Serial.printf("       Free heap now: %u bytes\n", (unsigned)heapAfter);
     // }
 
     return image;
