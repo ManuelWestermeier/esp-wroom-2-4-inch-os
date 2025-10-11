@@ -82,6 +82,19 @@ void setup()
     // SD_FS::deleteDir("/09fc96082d34c2dfc1295d92073b5ea1dc8ef8da95f14dfded011ffb96d3e54b");
     // SD_FS::deleteDir("/62c66a7a5dd70c3146618063c344e531e6d4b59e379808443ce962b3abd63c5a");
     // SD_FS::deleteDir("/1b16b1df538ba12dc3f97edbb85caa7050d46c148134290feba80f8236c83db9");
+    // auto start = micros();
+    // ENC_FS::writeFile({"data", "test.txt"}, 0, 22000, Buffer(22000));
+    // Serial.println("Time Passed: " + String(micros() - start) + "ms");
+    // start = micros();
+    // // for (int i = 0; i < 22000; i += 100)
+    // // {
+    // //     ENC_FS::readFilePart({"data", "test.txt"}, i * 100, (i + 1) * 100);
+    // // }
+    // ENC_FS::readFilePart({"data", "test.txt"}, 0, 22000);
+    // Serial.println("Time Passed: " + String(micros() - start) + "ms");
+    // start = micros();
+    // ENC_FS::deleteFile({"data", "test.txt"});
+    // Serial.println("Time Passed: " + String(micros() - start) + "ms");
 
     startWindowRender();
 }
