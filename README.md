@@ -8,6 +8,14 @@ This operating system runs on ESP32 WROOM with a 2.4-inch display, supporting Lu
 
 ---
 
+## Hardware:
+
+9,31€ | TZT ESP32 LVGL WIFI Bluetooth 
+2,4 inch Display 
+https://a.aliexpress.com/_EIfzhhS 
+
+---
+
 ## Application Structure
 
 Each application consists of several required files hosted on a web server:
