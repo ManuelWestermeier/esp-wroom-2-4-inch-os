@@ -17,6 +17,10 @@ This operating system runs on ESP32 WROOM with a 2.4-inch display, supporting Lu
 
 [https://a.aliexpress.com/_EIfzhhS ](view product (affiliate to help me))
 
+Or Micro USB:
+
+https://s.click.aliexpress.com/e/_c3EuJOdv
+
 ---
 
 ## Application Structure
