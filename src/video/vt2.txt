@@ -1,0 +1,240 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <TFT_eSPI.h>
+#include <driver/dac.h>
+#include <driver/timer.h>
+
+#define TFT_BL 27
+#define WIDTH 320
+#define HEIGHT 240
+
+// WiFi credentials
+const char *WIFI_SSID = "LocalHost";
+const char *WIFI_PASS = "hhhhhhhy";
+
+// URL to stream from
+const char *VPF3_URL = "https://manuelwestermeier.github.io/output.vpf3";
+
+// Display
+TFT_eSPI tft = TFT_eSPI();
+
+// Buffers
+static uint16_t lineBuf[WIDTH];
+static uint8_t audioBuf[512];
+
+// Audio
+volatile const uint8_t *audioPtr = nullptr;
+volatile size_t audioLen = 0;
+volatile bool audioBusy = false;
+hw_timer_t *audioTimer = nullptr;
+portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+
+// ---------------------- AUDIO TIMER ISR ------------------------
+void IRAM_ATTR onAudioTimer()
+{
+    portENTER_CRITICAL_ISR(&timerMux);
+    if (audioLen && audioPtr)
+    {
+        dac_output_voltage(DAC_CHANNEL_2, *audioPtr++);
+        audioLen--;
+    }
+    else
+    {
+        audioBusy = false;
+        timerAlarmDisable(audioTimer);
+        audioPtr = nullptr;
+        audioLen = 0;
+    }
+    portEXIT_CRITICAL_ISR(&timerMux);
+}
+
+// ---------------------- AUDIO QUEUE ------------------------
+void playAudioChunk(uint8_t *data, size_t len, uint32_t sampleRate)
+{
+    while (audioBusy)
+        delay(1);
+
+    portENTER_CRITICAL(&timerMux);
+    audioPtr = data;
+    audioLen = len;
+    uint32_t periodTicks = 1000000UL / sampleRate;
+    timerAlarmWrite(audioTimer, periodTicks, true);
+    timerAlarmEnable(audioTimer);
+    audioBusy = true;
+    portEXIT_CRITICAL(&timerMux);
+}
+
+// ---------------------- Stream helpers ------------------------
+uint16_t read16(WiFiClient *c)
+{
+    int b1 = c->read();
+    int b2 = c->read();
+    return (b1 < 0 || b2 < 0) ? 0 : (uint16_t)(b1 | (b2 << 8));
+}
+
+uint32_t read32(WiFiClient *c)
+{
+    int a = c->read();
+    int b = c->read();
+    int d = c->read();
+    int e = c->read();
+    if (a < 0)
+        a = b = d = e = 0;
+    return (uint32_t)a | ((uint32_t)b << 8) | ((uint32_t)d << 16) | ((uint32_t)e << 24);
+}
+
+bool readBytes(WiFiClient *c, uint8_t *buf, size_t len)
+{
+    size_t got = 0;
+    while (got < len && c->connected())
+    {
+        int r = c->read(&buf[got], len - got);
+        if (r <= 0)
+            delay(1);
+        else
+            got += r;
+    }
+    return got == len;
+}
+
+// ---------------------- MAIN STREAM PLAYER ------------------------
+bool playVPF3Stream(const char *url)
+{
+    HTTPClient http;
+    Serial.printf("Connecting to: %s\n", url);
+    if (!http.begin(url))
+    {
+        Serial.println("HTTP begin failed!");
+        return false;
+    }
+
+    int code = http.GET();
+    if (code != HTTP_CODE_OK)
+    {
+        Serial.printf("HTTP failed, code=%d\n", code);
+        http.end();
+        return false;
+    }
+
+    WiFiClient *stream = http.getStreamPtr();
+    char magic[5] = {0};
+    readBytes(stream, (uint8_t *)magic, 4);
+    if (strcmp(magic, "VPF3") != 0)
+    {
+        Serial.println("Invalid VPF3 stream!");
+        http.end();
+        return false;
+    }
+
+    uint16_t width = read16(stream);
+    uint16_t height = read16(stream);
+    uint8_t fps = stream->read();
+    uint32_t frameCount = read32(stream);
+    uint32_t audioSR = read32(stream);
+    stream->read(); // channels
+    stream->read(); // bits
+
+    uint16_t palette[64];
+    for (int i = 0; i < 64; i++)
+        palette[i] = read16(stream);
+
+    Serial.printf("Streaming %dx%d, %lu frames, %u fps, %lu Hz\n",
+                  width, height, (unsigned long)frameCount,
+                  fps, (unsigned long)audioSR);
+
+    uint32_t frameTimeUs = 1000000UL / fps;
+    uint32_t lastFrame = micros();
+
+    for (uint32_t frame = 0; frame < frameCount; frame++)
+    {
+        uint32_t vlen = read32(stream);
+        uint32_t alen = read32(stream);
+
+        // --- VIDEO ---
+        for (uint16_t y = 0; y < height; y++)
+        {
+            uint16_t lineLen = read16(stream);
+            int x = 0;
+            uint32_t bytesRead = 0;
+
+            while (bytesRead < lineLen && x < width)
+            {
+                int count = stream->read();
+                int idx = stream->read();
+                if (count < 0 || idx < 0)
+                    break;
+                bytesRead += 2;
+                uint16_t color = palette[idx & 63];
+                int limit = min(width - x, count);
+                for (int k = 0; k < limit; k++)
+                    lineBuf[x++] = color;
+            }
+
+            while (x < width)
+                lineBuf[x++] = TFT_BLACK;
+
+            tft.pushImage(0, y, width, 1, lineBuf);
+
+            // skip remaining bytes of this line if not read
+            while (bytesRead++ < lineLen && stream->available())
+                stream->read();
+        }
+
+        // --- AUDIO ---
+        uint32_t remain = alen;
+        while (remain > 0 && stream->connected())
+        {
+            size_t toRead = remain < sizeof(audioBuf) ? remain : sizeof(audioBuf);
+            if (!readBytes(stream, audioBuf, toRead))
+                break;
+            playAudioChunk(audioBuf, toRead, audioSR);
+            while (audioBusy)
+                delay(1);
+            remain -= toRead;
+        }
+
+        uint32_t now = micros();
+        uint32_t elapsed = now - lastFrame;
+        if (elapsed < frameTimeUs)
+            delayMicroseconds(frameTimeUs - elapsed);
+        lastFrame = micros();
+    }
+
+    http.end();
+    Serial.println("Stream finished.");
+    return true;
+}
+
+// ---------------------- SETUP ------------------------
+void setup()
+{
+    Serial.begin(115200);
+    delay(300);
+    Serial.println("Init...");
+
+    pinMode(TFT_BL, OUTPUT);
+    digitalWrite(TFT_BL, HIGH);
+
+    tft.init();
+    tft.setRotation(2);
+    tft.setSwapBytes(true);
+    tft.fillScreen(TFT_BLACK);
+
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    Serial.print("Connecting to WiFi");
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        delay(300);
+        Serial.print(".");
+    }
+    Serial.println("\nWiFi connected!");
+
+    dac_output_enable(DAC_CHANNEL_2);
+    audioTimer = timerBegin(0, 80, true);
+    timerAttachInterrupt(audioTimer, &onAudioTimer, true);
+
+    playVPF3Stream(VPF3_URL);
+}
+
+void loop() {}
