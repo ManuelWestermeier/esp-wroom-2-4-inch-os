@@ -4,20 +4,20 @@
 
 This operating system runs on ESP32 WROOM with a 2.4-inch display, supporting Lua-based applications with a windowing system, networking capabilities, and file system access.
 
-13791 lines code currently
+14460 lines code currently
 
 ---
 
 ## Hardware:
 
-9,31€ | TZT ESP32 LVGL WIFI Bluetooth 
-2,4 inch Display 
+9,31€ | TZT ESP32 LVGL WIFI Bluetooth
+2,4 inch Display
 
 ![S93e49b6d87144cc2acb9010a4aed9b15U](https://github.com/user-attachments/assets/fe693c9f-bcbf-4e8a-81d9-8b3fac056d96)
 
 USB-C Module affiliet link:
 
-https://a.aliexpress.com/_EIfzhhS 
+https://a.aliexpress.com/_EIfzhhS
 
 Or Micro USB:
 
