@@ -1,0 +1,230 @@
+#include <Arduino.h>
+#include <TFT_eSPI.h>
+#include <SD.h>
+#include <SPI.h>
+#include <driver/dac.h>
+#include <driver/timer.h>
+
+#define SD_CS 5
+#define TFT_BL 27
+
+// Display logical dimensions (width x height in pixels)
+#define WIDTH 320
+#define HEIGHT 240
+
+// instantiate TFT (uses User_Setup.h from TFT_eSPI)
+TFT_eSPI tft = TFT_eSPI(WIDTH, HEIGHT);
+
+// --- small buffers (<4 KB total)
+static uint16_t lineBuf[WIDTH]; // 320 pixels -> 640 bytes
+static uint8_t audioBuf[512];   // audio staging buffer
+
+volatile const uint8_t *audioPtr = nullptr;
+volatile size_t audioLen = 0;
+volatile bool audioBusy = false;
+hw_timer_t *audioTimer = nullptr;
+portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+
+void IRAM_ATTR onAudioTimer()
+{
+    portENTER_CRITICAL_ISR(&timerMux);
+    if (audioLen && audioPtr)
+    {
+        // write next sample (0..255) to DAC channel 2
+        dac_output_voltage(DAC_CHANNEL_2, *audioPtr++);
+        audioLen--;
+    }
+    else
+    {
+        // no more audio -> disable alarm and clear state
+        audioBusy = false;
+        timerAlarmDisable(audioTimer);
+        audioPtr = nullptr;
+        audioLen = 0;
+    }
+    portEXIT_CRITICAL_ISR(&timerMux);
+}
+
+// queue a chunk to play; blocks if previous chunk is still playing
+void playAudioChunk(uint8_t *data, size_t len, uint32_t sampleRate)
+{
+    // wait for previous chunk to finish
+    while (audioBusy)
+    {
+        delay(1);
+    }
+
+    portENTER_CRITICAL(&timerMux);
+    audioPtr = data;
+    audioLen = len;
+    // Use timer with prescaler 80: 1 tick = 1 microsecond on typical ESP32 APB clock
+    uint32_t periodTicks = 1000000UL / sampleRate; // microseconds
+    timerAlarmWrite(audioTimer, periodTicks, true);
+    timerAlarmEnable(audioTimer);
+    audioBusy = true;
+    portEXIT_CRITICAL(&timerMux);
+}
+
+static inline uint16_t read16(File &f)
+{
+    int b1 = f.read();
+    int b2 = f.read();
+    if (b1 < 0 || b2 < 0)
+        return 0;
+    return (uint16_t)(b1 | (b2 << 8));
+}
+static inline uint32_t read32(File &f)
+{
+    int a = f.read();
+    int b = f.read();
+    int c = f.read();
+    int d = f.read();
+    if (a < 0)
+        a = 0;
+    if (b < 0)
+        b = 0;
+    if (c < 0)
+        c = 0;
+    if (d < 0)
+        d = 0;
+    return (uint32_t)a | ((uint32_t)b << 8) | ((uint32_t)c << 16) | ((uint32_t)d << 24);
+}
+
+// ---------------------------
+// Main player
+// ---------------------------
+bool playVPF3FromSD(const char *path)
+{
+    File f = SD.open(path, FILE_READ);
+    if (!f)
+    {
+        Serial.println("File open fail");
+        return false;
+    }
+
+    char magic[5] = {0};
+    f.readBytes(magic, 4);
+    if (strcmp(magic, "VPF3") != 0)
+    {
+        Serial.println("Invalid file");
+        f.close();
+        return false;
+    }
+
+    uint16_t width = read16(f);
+    uint16_t height = read16(f);
+    uint8_t fps = f.read();
+    uint32_t frameCount = read32(f);
+    uint32_t audioSR = read32(f);
+    f.read(); // channels (ignored)
+    f.read(); // bits (ignored)
+
+    uint16_t palette[64];
+    for (int i = 0; i < 64; i++)
+        palette[i] = read16(f); // file stores little-endian RGB565
+
+    Serial.printf("Playing %s (%dx%d, %lu frames, %u fps, %lu Hz)\n",
+                  path, width, height, (unsigned long)frameCount,
+                  fps, (unsigned long)audioSR);
+
+    const uint32_t frameTimeUs = 1000000UL / fps;
+    uint32_t lastFrame = micros();
+
+    for (uint32_t frame = 0; frame < frameCount; frame++)
+    {
+        uint32_t vlen = read32(f);
+        uint32_t alen = read32(f);
+
+        // decode each line (file stores: for each line -> uint16 lineLen, [count:uint8, index:uint8]...)
+        for (uint16_t y = 0; y < height; y++)
+        {
+            uint16_t lineLen = read16(f);
+            uint32_t lineEnd = f.position() + lineLen;
+            int x = 0;
+
+            while (f.position() < lineEnd && x < width)
+            {
+                int count = f.read();
+                int idx = f.read();
+                if (count < 0 || idx < 0)
+                    break;
+                uint16_t color = palette[idx & 63];
+                int limit = min(width - x, count);
+                for (int k = 0; k < limit; k++)
+                    lineBuf[x++] = color;
+            }
+
+            // pad remainder with black if RLE was short
+            while (x < width)
+                lineBuf[x++] = TFT_BLACK;
+
+            // send line to TFT
+            tft.pushImage(0, y, width, 1, (uint16_t *)lineBuf);
+
+            // ensure file pointer is at end of the RLE block for this line
+            if (f.position() < lineEnd)
+                f.seek(lineEnd);
+        }
+
+        // audio: stream chunks to DAC
+        uint32_t remain = alen;
+        while (remain > 0)
+        {
+            size_t toRead = remain < sizeof(audioBuf) ? remain : sizeof(audioBuf);
+            size_t got = f.read(audioBuf, toRead);
+            if (got == 0)
+                break;
+            playAudioChunk(audioBuf, got, audioSR);
+            // wait for chunk to finish before sending next (keeps memory small/simple)
+            while (audioBusy)
+                delay(1);
+            remain -= got;
+        }
+
+        // frame timing
+        uint32_t now = micros();
+        uint32_t elapsed = now - lastFrame;
+        if (elapsed < frameTimeUs)
+            delayMicroseconds(frameTimeUs - elapsed);
+        lastFrame = micros();
+    }
+
+    f.close();
+    Serial.println("Done.");
+    return true;
+}
+
+// ---------------------------
+// Setup
+// ---------------------------
+void setup()
+{
+    Serial.begin(115200);
+    delay(300);
+    Serial.println("Init...");
+
+    pinMode(TFT_BL, OUTPUT);
+    digitalWrite(TFT_BL, HIGH);
+
+    tft.init();
+    tft.setRotation(2);     // landscape rotation requested by you
+    tft.setSwapBytes(true); // IMPORTANT: ensure correct R/G/B byte order for palette (fixes green->pink)
+    tft.fillScreen(TFT_BLACK);
+
+    if (!SD.begin(SD_CS))
+    {
+        Serial.println("SD init fail!");
+        while (1)
+            delay(1000);
+    }
+
+    // enable DAC + timer
+    dac_output_enable(DAC_CHANNEL_2);
+    audioTimer = timerBegin(0, 80, true); // prescaler 80 -> 1 tick = 1 us
+    timerAttachInterrupt(audioTimer, &onAudioTimer, true);
+
+    // play file on SD root
+    playVPF3FromSD("/output.vpf3");
+}
+
+void loop() {}

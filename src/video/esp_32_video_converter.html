@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ESP32 VPF3 Converter (RLE + 64-color)</title>
+  <style>
+    body {
+      font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial;
+      margin: 18px;
+      color: #222
+    }
+
+    label {
+      display: block;
+      margin-top: 8px
+    }
+
+    input,
+    select,
+    button {
+      margin-top: 6px
+    }
+
+    #preview {
+      border: 1px solid #ccc;
+      display: block;
+      margin-top: 12px
+    }
+
+    textarea {
+      width: 100%;
+      height: 120px
+    }
+
+    button[disabled] {
+      opacity: .5
+    }
+  </style>
+</head>
+
+<body>
+  <h1>ESP32 Converter — VPF3 (fast RLE, 64-color, 8-bit audio)</h1>
+
+  <label>Choose file (video): <input id="file" type="file" accept="video/*" /></label>
+  <label>Output size (max 320×240):
+    <select id="size">
+      <option value="320x240">320×240</option>
+      <option value="240x180">240×180</option>
+      <option value="160x120">160×120</option>
+    </select>
+  </label>
+  <label>Framerate (fps ≤20): <input id="fps" type="number" min="1" max="20" value="20" /></label>
+  <label>Audio sample rate:
+    <select id="sr">
+      <option value="22050">22050</option>
+      <option value="16000">16000</option>
+      <option value="11025">11025</option>
+    </select>
+  </label>
+  <label><input id="mute" type="checkbox" /> Mute audio</label>
+
+  <div style="margin-top:8px">
+    <button id="convert">Convert & Download .vpf3</button>
+    <button id="previewBtn">Convert + Preview</button>
+  </div>
+
+  <h3>Original / Preview</h3>
+  <video id="video" controls style="max-width:480px;display:block"></video>
+  <canvas id="preview" width="320" height="240"></canvas>
+
+  <h3>Log</h3>
+  <textarea id="log" readonly></textarea>
+
+  <script>
+    function log(s) { const t = document.getElementById('log'); t.value += s + '\n'; t.scrollTop = 999999; }
+    const fileInput = document.getElementById('file');
+    const videoEl = document.getElementById('video');
+    let currentFileBuffer = null;
+    let busy = false;
+
+    fileInput.addEventListener('change', async e => {
+      const f = e.target.files[0];
+      if (!f) return;
+      videoEl.src = URL.createObjectURL(f);
+      currentFileBuffer = await f.arrayBuffer();
+      log('Loaded local file: ' + f.name);
+    });
+
+    function parseSize() {
+      const s = document.getElementById('size').value.split('x');
+      return { w: Math.min(320, parseInt(s[0])), h: Math.min(240, parseInt(s[1])) };
+    }
+
+    // 2-bit per channel -> 64-color index
+    function rgbToIndex(r, g, b) {
+      const ri = r >> 6, gi = g >> 6, bi = b >> 6;
+      return (ri << 4) | (gi << 2) | bi;
+    }
+    function indexToRGB565(i) {
+      const ri = (i >> 4) & 0x3, gi = (i >> 2) & 0x3, bi = i & 0x3;
+      const r5 = Math.round(ri * 31 / 3) & 0x1F;
+      const g6 = Math.round(gi * 63 / 3) & 0x3F;
+      const b5 = Math.round(bi * 31 / 3) & 0x1F;
+      return (r5 << 11) | (g6 << 5) | b5;
+    }
+
+    async function seekVideoTo(time) {
+      return new Promise(res => {
+        const handler = () => { videoEl.removeEventListener('seeked', handler); setTimeout(res, 10); };
+        videoEl.addEventListener('seeked', handler, { once: true });
+        videoEl.currentTime = Math.min(videoEl.duration - 0.001, Math.max(0, time));
+      });
+    }
+
+    async function convertToVPF3({ preview = false } = {}) {
+      if (busy) throw new Error('Already running');
+      busy = true;
+      document.getElementById('convert').disabled = true;
+      document.getElementById('previewBtn').disabled = true;
+
+      try {
+        if (!videoEl.src) throw new Error('No video loaded');
+        const opts = parseSize();
+        const fps = Math.max(1, Math.min(20, parseInt(document.getElementById('fps').value) || 20));
+        const sr = parseInt(document.getElementById('sr').value) || 22050;
+        const mute = document.getElementById('mute').checked;
+
+        await new Promise(res => { if (videoEl.readyState >= 1) return res(); videoEl.addEventListener('loadedmetadata', res, { once: true }); });
+        const duration = videoEl.duration;
+        const inW = videoEl.videoWidth, inH = videoEl.videoHeight;
+        log(`Input: ${inW}x${inH}, ${duration.toFixed(2)}s`);
+
+        const outW = opts.w, outH = opts.h;
+        const frameCount = Math.max(1, Math.floor(duration * fps));
+        log('Frames: ' + frameCount + ' @' + fps + 'fps');
+
+        const canvas = document.createElement('canvas');
+        canvas.width = outW; canvas.height = outH;
+        const ctx = canvas.getContext('2d');
+
+        const frameVideoBuffers = [];
+
+        for (let i = 0; i < frameCount; i++) {
+          // sample at center of frame for better stability
+          const t = Math.min(duration - 0.001, (i + 0.5) / fps);
+          await seekVideoTo(t);
+
+          ctx.fillStyle = 'black'; ctx.fillRect(0, 0, outW, outH);
+          const arIn = inW / inH, arOut = outW / outH;
+          if (arIn > arOut) {
+            const sw = Math.round(inH * arOut);
+            const sx = Math.round((inW - sw) / 2);
+            ctx.drawImage(videoEl, sx, 0, sw, inH, 0, 0, outW, outH);
+          } else {
+            const sh = Math.round(inW / arOut);
+            const sy = Math.round((inH - sh) / 2);
+            ctx.drawImage(videoEl, 0, sy, inW, sh, 0, 0, outW, outH);
+          }
+
+          const im = ctx.getImageData(0, 0, outW, outH);
+          const px = im.data;
+
+          const parts = [];
+          // per-line RLE (uint16 length little-endian + data)
+          for (let y = 0; y < outH; y++) {
+            const lineIdx = new Uint8Array(outW);
+            for (let x = 0; x < outW; x++) {
+              const off = (y * outW + x) * 4;
+              lineIdx[x] = rgbToIndex(px[off], px[off + 1], px[off + 2]);
+            }
+            const rle = [];
+            let runVal = lineIdx[0], runCount = 1;
+            for (let k = 1; k < outW; k++) {
+              const v = lineIdx[k];
+              if (v === runVal && runCount < 255) runCount++;
+              else { rle.push(runCount, runVal); runVal = v; runCount = 1; }
+            }
+            rle.push(runCount, runVal);
+            const rleU8 = new Uint8Array(rle);
+            const lenBuf = new Uint8Array(2); const dv = new DataView(lenBuf.buffer);
+            dv.setUint16(0, rleU8.length, true);
+            parts.push(lenBuf); parts.push(rleU8);
+          }
+
+          // concat parts
+          let total = 0; for (const p of parts) total += p.length;
+          const out = new Uint8Array(total);
+          let ptr = 0; for (const p of parts) { out.set(p, ptr); ptr += p.length; }
+          frameVideoBuffers.push(out);
+          log(`Captured frame ${i + 1}/${frameCount} -> ${Math.round(out.length / 1024)} KB`);
+          // yield to UI occasionally
+          if (i % 8 === 0) await new Promise(r => setTimeout(r, 1));
+        }
+
+        // audio: decode to mono and resample to chosen sr (u8 unsigned 0..255)
+        let audioU8 = new Uint8Array(0);
+        if (!mute && currentFileBuffer) {
+          try {
+            const ac = new (window.AudioContext || window.webkitAudioContext)();
+            const decoded = await ac.decodeAudioData(currentFileBuffer.slice(0));
+
+            // create an OfflineAudioContext to resample/mix to mono at desired sr
+            const targetLength = Math.max(1, Math.ceil(decoded.length * sr / decoded.sampleRate));
+            const offline = new OfflineAudioContext(1, targetLength, sr);
+            const monoBuf = offline.createBuffer(1, targetLength, sr);
+            // mix channels to mono with simple averaging + resample sampling
+            const outData = monoBuf.getChannelData(0);
+            for (let si = 0; si < targetLength; si++) {
+              const origIdx = Math.floor(si * decoded.sampleRate / sr);
+              let sum = 0;
+              for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
+                const chdata = decoded.getChannelData(ch);
+                sum += (chdata[origIdx] || 0);
+              }
+              outData[si] = sum / decoded.numberOfChannels;
+            }
+            const src = offline.createBufferSource();
+            src.buffer = monoBuf;
+            src.connect(offline.destination);
+            src.start(0);
+            const rendered = await offline.startRendering();
+            const floatData = rendered.getChannelData(0);
+            const u8 = new Uint8Array(floatData.length);
+            for (let i = 0; i < floatData.length; i++) {
+              let v = Math.max(-1, Math.min(1, floatData[i]));
+              u8[i] = Math.round((v * 0.5 + 0.5) * 255);
+            }
+            audioU8 = u8;
+            log('Audio decoded, samples: ' + audioU8.length);
+          } catch (e) {
+            log('Audio decode failed: ' + e);
+          }
+        }
+
+        // split audio per frame
+        const samplesPerFrame = Math.floor(sr / Math.max(1, Math.floor(frameVideoBuffers.length ? (frameVideoBuffers.length * fps / frameVideoBuffers.length) : fps)));
+        // simpler: allocate chunks by frame index:
+        const audioChunks = [];
+        for (let i = 0; i < frameVideoBuffers.length; i++) {
+          const start = Math.floor(i * (audioU8.length / Math.max(1, frameVideoBuffers.length)));
+          const end = Math.floor((i + 1) * (audioU8.length / Math.max(1, frameVideoBuffers.length)));
+          audioChunks.push(audioU8.slice(start, end));
+        }
+
+        // Build file (VPF3)
+        const headerParts = [];
+        headerParts.push(new TextEncoder().encode('VPF3'));
+
+        // header: uint16 w, uint16 h, uint8 fps, uint32 frameCount, uint32 audioSR, uint8 channels, uint8 bits
+        const head = new ArrayBuffer(2 + 2 + 1 + 4 + 4 + 1 + 1);
+        const hdv = new DataView(head);
+        let off = 0;
+        hdv.setUint16(off, outW, true); off += 2;
+        hdv.setUint16(off, outH, true); off += 2;
+        hdv.setUint8(off, fps); off += 1;
+        hdv.setUint32(off, frameVideoBuffers.length, true); off += 4;
+        hdv.setUint32(off, sr, true); off += 4;
+        hdv.setUint8(off, 1); off += 1; // channels = 1
+        hdv.setUint8(off, 8); off += 1; // bits = 8
+        headerParts.push(new Uint8Array(head));
+
+        // palette: 64 * uint16 (little endian)
+        const pal = new Uint8Array(64 * 2);
+        const pview = new DataView(pal.buffer);
+        for (let i = 0; i < 64; i++) {
+          const rgb565 = indexToRGB565(i);
+          pview.setUint16(i * 2, rgb565, true);
+        }
+        headerParts.push(pal);
+
+        // frames
+        const bodyParts = [];
+        for (let i = 0; i < frameVideoBuffers.length; i++) {
+          const fb = frameVideoBuffers[i];
+          const fa = audioChunks[i] || new Uint8Array(0);
+          const meta = new ArrayBuffer(8);
+          const mv = new DataView(meta);
+          mv.setUint32(0, fb.length, true);
+          mv.setUint32(4, fa.length, true);
+          bodyParts.push(new Uint8Array(meta));
+          bodyParts.push(fb);
+          if (fa.length) bodyParts.push(fa);
+          log(`Packed frame ${i + 1}: vid ${fb.length} bytes, aud ${fa.length} bytes`);
+        }
+
+        const blobOut = new Blob([...headerParts, ...bodyParts], { type: 'application/octet-stream' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blobOut);
+        a.download = 'output.vpf3';
+        a.click();
+        log('.vpf3 ready');
+
+        if (preview) {
+          return blobOut;
+        } else {
+          // return nothing in normal convert
+          return blobOut;
+        }
+      } finally {
+        busy = false;
+        document.getElementById('convert').disabled = false;
+        document.getElementById('previewBtn').disabled = false;
+      }
+    }
+
+    document.getElementById('convert').addEventListener('click', async () => {
+      try { document.getElementById('log').value = ''; await convertToVPF3({ preview: false }); }
+      catch (e) { log('Error: ' + e.message); console.error(e); }
+    });
+
+    async function previewVPF3(blob) {
+      const ab = await blob.arrayBuffer();
+      const dv = new DataView(ab);
+      let off = 0;
+      const magic = new TextDecoder().decode(new Uint8Array(ab, 0, 4));
+      if (magic !== 'VPF3') throw new Error('Not VPF3');
+      off += 4;
+      const w = dv.getUint16(off, true); off += 2;
+      const h = dv.getUint16(off, true); off += 2;
+      const fps = dv.getUint8(off); off += 1;
+      const frameCount = dv.getUint32(off, true); off += 4;
+      const sr = dv.getUint32(off, true); off += 4;
+      const channels = dv.getUint8(off); off += 1;
+      const bits = dv.getUint8(off); off += 1;
+
+      const pal = new Uint16Array(64);
+      for (let i = 0; i < 64; i++) { pal[i] = dv.getUint16(off, true); off += 2; }
+
+      const frames = [];
+      for (let i = 0; i < frameCount; i++) {
+        const vlen = dv.getUint32(off, true); off += 4;
+        const alen = dv.getUint32(off, true); off += 4;
+        const vbuf = ab.slice(off, off + vlen); off += vlen;
+        const abuf = ab.slice(off, off + alen); off += alen;
+        frames.push({ v: vbuf, a: abuf });
+      }
+
+      // decode frames to ImageData
+      const canvas = document.getElementById('preview');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+
+      const frameBitmaps = frames.map(fr => {
+        const dv2 = new DataView(fr.v);
+        let p = 0;
+        const out = new Uint8ClampedArray(w * h * 4);
+        for (let y = 0; y < h; y++) {
+          const lineLen = dv2.getUint16(p, true); p += 2;
+          const lineEnd = p + lineLen;
+          let x = 0;
+          while (p < lineEnd) {
+            const count = dv2.getUint8(p++);
+            const idx = dv2.getUint8(p++);
+            const c = pal[idx & 63];
+            const r5 = (c >> 11) & 0x1F;
+            const g6 = (c >> 5) & 0x3F;
+            const b5 = c & 0x1F;
+            const r = Math.round(r5 * 255 / 31);
+            const g = Math.round(g6 * 255 / 63);
+            const b = Math.round(b5 * 255 / 31);
+            for (let k = 0; k < count && x < w; k++) {
+              const offpx = (y * w + x) * 4;
+              out[offpx] = r; out[offpx + 1] = g; out[offpx + 2] = b; out[offpx + 3] = 255;
+              x++;
+            }
+          }
+          // pad rest of line if RLE short
+          while (x < w) {
+            const offpx = (y * w + x) * 4;
+            out[offpx] = 0; out[offpx + 1] = 0; out[offpx + 2] = 0; out[offpx + 3] = 255;
+            x++;
+          }
+        }
+        return new ImageData(out, w, h);
+      });
+
+      // prepare audio buffer
+      let totalSamples = 0;
+      for (const f of frames) totalSamples += f.a.byteLength;
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuf = audioCtx.createBuffer(1, Math.max(1, totalSamples), sr);
+      let writePtr = 0;
+      for (const fr of frames) {
+        const au = new Uint8Array(fr.a);
+        const ch = audioBuf.getChannelData(0);
+        for (let i = 0; i < au.length && writePtr < audioBuf.length; i++) {
+          const f = (au[i] / 255) * 2 - 1;
+          ch[writePtr++] = f;
+        }
+      }
+      const src = audioCtx.createBufferSource();
+      src.buffer = audioBuf;
+      src.connect(audioCtx.destination);
+
+      // start playback + draw loop
+      const start = audioCtx.currentTime + 0.1;
+      src.start(start);
+      let frameIndex = 0;
+      const frameDuration = 1 / fps;
+      function drawLoop() {
+        const t = audioCtx.currentTime - start;
+        frameIndex = Math.floor(t / frameDuration);
+        if (frameIndex >= frameBitmaps.length) return;
+        ctx.putImageData(frameBitmaps[frameIndex], 0, 0);
+        requestAnimationFrame(drawLoop);
+      }
+      requestAnimationFrame(drawLoop);
+      log('Preview started');
+    }
+
+    document.getElementById('previewBtn').addEventListener('click', async () => {
+      try {
+        document.getElementById('log').value = '';
+        const blob = await convertToVPF3({ preview: true });
+        await previewVPF3(blob);
+      } catch (e) { log('Preview error: ' + e); console.error(e); }
+    });
+
+    log('Ready. Use Convert to make .vpf3 files.');
+  </script>
+</body>
+
+</html>
