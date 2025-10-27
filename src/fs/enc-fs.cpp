@@ -355,30 +355,62 @@ namespace ENC_FS
     bool rmDir(const Path &p)
     {
         String full = joinEncPath(p);
+        Serial.printf("[rmDir] Called for path: %s\n", full.c_str());
+
         if (!SD.exists(full.c_str()))
+        {
+            Serial.printf("[rmDir] Path does not exist: %s\n", full.c_str());
             return false;
+        }
+
         File f = SD.open(full.c_str());
         if (!f)
-            return SD.remove(full.c_str());
+        {
+            Serial.printf("[rmDir] Failed to open, attempting remove(): %s\n", full.c_str());
+            bool res = SD.remove(full.c_str());
+            Serial.printf("[rmDir] Remove result: %d\n", res);
+            return res;
+        }
+
         if (!f.isDirectory())
         {
+            Serial.printf("[rmDir] Not a directory, removing file: %s\n", full.c_str());
             f.close();
-            return SD.remove(full.c_str());
+            bool res = SD.remove(full.c_str());
+            Serial.printf("[rmDir] File remove result: %d\n", res);
+            return res;
         }
+
+        Serial.printf("[rmDir] Directory found, cleaning contents...\n");
         File entry = f.openNextFile();
         while (entry)
         {
             String en = String(entry.name());
-            SD.remove(en.c_str());
+            Serial.printf("[rmDir] Found entry: %s\n", en.c_str());
+
+            if (entry.isDirectory())
+            {
+                Serial.printf("[rmDir] Entry is directory, recursing via SD_FS::deleteDir()\n");
+                bool res = SD_FS::deleteDir(en);
+                Serial.printf("[rmDir] SD_FS::deleteDir('%s') => %d\n", en.c_str(), res);
+            }
+            else
+            {
+                bool res = SD.remove(en.c_str());
+                Serial.printf("[rmDir] Removed file %s => %d\n", en.c_str(), res);
+            }
+
             entry.close();
             entry = f.openNextFile();
         }
+
         f.close();
-#if defined(SD_HAS_RMDIR) || defined(RMDIR_ENABLED)
-        if (SD.rmdir)
-            return SD.rmdir(full.c_str());
-#endif
-        return true;
+        Serial.printf("[rmDir] Directory empty, attempting to remove folder itself: %s\n", full.c_str());
+
+        bool res = SD_FS::deleteDir(full);
+        Serial.printf("[rmDir] Final SD_FS::deleteDir('%s') => %d\n", full.c_str(), res);
+
+        return res;
     }
 
     Buffer readFilePart(const Path &p, long start, long end)
@@ -582,7 +614,7 @@ namespace ENC_FS
             Path p = storagePath(appId, key);
             return ENC_FS::readFile(p, (start < 0 ? 0 : start), end);
         }
-        
+
         bool del(const String &appId, const String &key)
         {
             Path p = storagePath(appId, key);
@@ -598,20 +630,35 @@ namespace ENC_FS
 
     void copyFileFromSPIFFS(const char *spiffsPath, const Path &sdPath)
     {
-        File f = SPIFFS.open(spiffsPath, "r");
-        if (!f)
+        File src = SPIFFS.open(spiffsPath, FILE_READ);
+        if (!src || src.isDirectory())
+            return;
+
+        File dest = SD.open(path2Str(sdPath), FILE_WRITE);
+        if (!dest)
         {
-            Serial.printf("Fehler beim Öffnen von %s in SPIFFS\n", spiffsPath);
+            src.close();
             return;
         }
 
-        Buffer content;
-        size_t size = f.size();       // Dateigröße ermitteln
-        content.resize(size);         // Vektor auf passende Größe bringen
-        f.read(content.data(), size); // Inhalt einlesen
-        f.close();
+        constexpr size_t bufSize = 1024;
+        uint8_t buffer[bufSize];
 
-        writeFile(sdPath, 0, 0, content); // auf SD schreiben
+        while (true)
+        {
+            size_t bytesRead = src.read(buffer, bufSize);
+            if (bytesRead == 0)
+                break;
+            if (dest.write(buffer, bytesRead) != bytesRead)
+            {
+                dest.close();
+                src.close();
+                SD.remove(path2Str(sdPath));
+                return;
+            }
+        }
+
+        dest.close();
+        src.close();
     }
-
 } // namespace ENC_FS

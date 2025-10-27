@@ -68,6 +68,8 @@ void setup()
     Auth::login("m", "m");
     // update paint app
     ENC_FS::copyFileFromSPIFFS("/test.lua", {"programs", "a-paint", "entry.lua"});
+    // ENC_FS::writeFileString({"programs", "a-paint", "entry.lua"}, "print(\"Hello World\")");
+    Serial.println(ENC_FS::readFileString({"programs", "a-paint", "entry.lua"}));
     ENC_FS::lsDirSerial({"programs"});
 
     // debug io
