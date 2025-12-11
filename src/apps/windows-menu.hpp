@@ -265,10 +265,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                         }
                         Screen::tft.fillScreen(BG);
                     }
-                    else
-                    {
-                        Windows::isRendering = true;
-                    }
+                    Windows::isRendering = true;
                     break;
                 }
             }
