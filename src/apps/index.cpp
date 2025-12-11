@@ -69,7 +69,7 @@ bool executeApplication(const std::vector<String> &args)
     }
 
     // Serial.println(runningTasks[0].name);-
-    if (runningTasks.size() > 1)
+    if (runningTasks.size() != 0)
     {
         return false;
     }
@@ -102,8 +102,6 @@ void AppRenderTask(void *pvParameters)
 {
     esp_task_wdt_delete(NULL); // unregister this task
     (void)pvParameters;
-    // Render-Task in die Liste aufnehmen
-    addRunningTask(xTaskGetCurrentTaskHandle());
 
     while (true)
     {
@@ -141,8 +139,6 @@ void startWindowRender()
         WindowAppRenderHandle = NULL;
         return;
     }
-
-    // Kein addRunningTask() hier -> macht der Task selbst am Anfang
 }
 
 // ---------------------- Task Monitor ----------------------
@@ -230,11 +226,6 @@ void startTaskMonitor(unsigned priority)
         Serial.println("ERROR: failed to create TaskMonitor");
         return;
     }
-
-    // Der Monitor taucht in der Liste auf, sobald er addRunningTask() ruft?
-    // -> Nein, der Monitor verwaltet andere Tasks und muss selbst nicht
-    // in runningTasks erscheinen. Wenn gewünscht, hier einkommentieren:
-    // addRunningTask(monitorHandle);
 }
 
 // ---------------------- Debug (single-shot) ----------------------
