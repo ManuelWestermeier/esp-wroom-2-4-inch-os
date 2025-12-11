@@ -60,12 +60,18 @@ void AppRunTask(void *pvParameters)
 //
 // args wird kopiert und die Kopie (heap) in den Task übergeben.
 //
-void executeApplication(const std::vector<String> &args)
+bool executeApplication(const std::vector<String> &args)
 {
     if (args.empty())
     {
         Serial.println("ERROR: no execute path specified");
-        return;
+        return false;
+    }
+
+    // Serial.println(runningTasks[0].name);-
+    if (runningTasks.size() > 1)
+    {
+        return false;
     }
 
     // Heap-allokierte Kopie der Argumente. AppRunTask löscht sie.
@@ -75,7 +81,7 @@ void executeApplication(const std::vector<String> &args)
     BaseType_t res = xTaskCreate(
         AppRunTask,                          // task function
         (String("App>>") + args[0]).c_str(), // name
-        8172,                               // stack (words) -> erhöht für Stabilität
+        8172,                                // stack (words) -> erhöht für Stabilität
         taskArgsPtr,                         // parameter (heap-allocated copy)
         1,                                   // priority
         &WindowAppRunHandle                  // task handle (optional)
@@ -85,11 +91,10 @@ void executeApplication(const std::vector<String> &args)
     {
         Serial.println("ERROR: failed to create AppRunTask");
         delete taskArgsPtr; // bei Fehler Speicher freigeben
-        return;
+        return false;
     }
 
-    // Wichtig: wir fügen den Task **nicht** hier ein.
-    // addRunningTask() passiert im Task selbst, sobald er wirklich läuft.
+    return true;
 }
 
 // ---------------------- Persistent Render Task ----------------------

@@ -10,7 +10,7 @@
 
 #include "../icons/index.hpp"
 
-extern void executeApplication(const std::vector<String> &args);
+extern bool executeApplication(const std::vector<String> &args);
 
 struct AppRenderData
 {
@@ -248,8 +248,27 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     continue;
                 if (appRect.isIn(pos))
                 {
-                    executeApplication({ENC_FS::path2Str(app.path)});
-                    Windows::isRendering = true;
+                    bool suceed = executeApplication({ENC_FS::path2Str(app.path)});
+                    if (!suceed)
+                    {
+                        Screen::tft.fillScreen(BG);
+                        tft.setTextDatum(CC_DATUM);
+                        tft.setTextSize(1);
+                        tft.setTextColor(TEXT);
+                        tft.drawString("You have to colose the current app,", 160, 120 - 20);
+                        tft.drawString("bevore opening a new", 160, 120 + 0);
+                        tft.drawString("(or internal app error)", 160, 120 + 20);
+                        delay(200);
+                        while (!Screen::isTouched())
+                        {
+                            delay(10);
+                        }
+                        Screen::tft.fillScreen(BG);
+                    }
+                    else
+                    {
+                        Windows::isRendering = true;
+                    }
                     break;
                 }
             }

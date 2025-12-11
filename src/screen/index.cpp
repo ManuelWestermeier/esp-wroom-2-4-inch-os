@@ -47,6 +47,11 @@ void Screen::init(byte b)
 #endif
 }
 
+bool Screen::isTouched() 
+{
+    return tft.getTouch(&touchY, &touchX);
+} 
+
 Screen::TouchPos Screen::getTouchPos()
 {
     TouchPos pos{};

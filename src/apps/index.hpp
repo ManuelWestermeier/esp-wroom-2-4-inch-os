@@ -53,7 +53,7 @@ void AppRunTask(void *pvParameters);
 //
 // args wird kopiert und die Kopie (heap) in den Task übergeben.
 //
-void executeApplication(const std::vector<String> &args);
+bool executeApplication(const std::vector<String> &args);
 
 // ---------------------- Persistent Render Task ----------------------
 void AppRenderTask(void *pvParameters);

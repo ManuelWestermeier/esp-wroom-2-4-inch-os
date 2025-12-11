@@ -33,6 +33,7 @@ namespace Screen
     };
 
     // Read the current touch state
+    bool isTouched();
     TouchPos getTouchPos();
 
     void drawImageFromSD(const char *filename, int x, int y);
