@@ -1,0 +1,35 @@
+language: cpp
+
+reviews:
+  auto_review:
+    enabled: true
+    base_branches:
+      - main
+      - master
+
+  review_level: thorough
+
+focus_areas:
+  - memory_management
+  - ownership
+  - heap_allocation
+  - fragmentation_risks
+  - freertos_tasks
+  - callbacks_and_lambdas
+
+assumptions:
+  embedded: true
+  long_running_system: true
+  no_process_restart: true
+
+ignore:
+  - ".pio/**"
+  - "build/**"
+  - "sdkconfig"
+  - "**/*.bin"
+  - "app/**"
+
+comments:
+  inline: true
+  summary: true
+  severity_labels: true
