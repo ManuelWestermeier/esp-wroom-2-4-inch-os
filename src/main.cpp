@@ -101,6 +101,21 @@ void setup()
     startWindowRender();
 }
 
+void monitor()
+{
+    static uint32_t last = 0;
+    if (millis() - last < 5000)
+        return; // 5s interval
+    last = millis();
+
+    Serial.printf(
+        "heap=%u  min=%u  largest=%u  tasks=%u\n",
+        ESP.getFreeHeap(),
+        ESP.getMinFreeHeap(),
+        heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+        uxTaskGetNumberOfTasks());
+}
+
 void loop()
 {
 
@@ -108,4 +123,5 @@ void loop()
     // Serial.println(ESP.getFreeHeap());
     delay(3000);
     // ArduinoOTA.handle();
+    monitor();
 }
