@@ -10,8 +10,11 @@ This operating system runs on ESP32 WROOM with a 2.4-inch display, supporting Lu
 
 ## Hardware:
 
-9,31€ | TZT ESP32 LVGL WIFI Bluetooth
-2,4 inch Display
+ESP32 2.8 inch Display Module 240*320 2.8" LCD TFT Touch Screen Display WiFi BLE Board ESP32-2432S028R ILI9341 Driver
+🔗Click & Buy: https://s.click.aliexpress.com/e/_c4aZCg3T (affiliet to support me)
+
+TZT ESP32 LVGL WIFI Bluetooth
+2.4 inch Display
 
 ![S93e49b6d87144cc2acb9010a4aed9b15U](https://github.com/user-attachments/assets/fe693c9f-bcbf-4e8a-81d9-8b3fac056d96)
 
