@@ -13,7 +13,7 @@ void sdSetup()
         Serial.println("⚠️ SPIFFS mount failed");
     }
 
-    SD_FS::lsDirSerial("/");
+    // SD_FS::lsDirSerial("/");
 
     if (!SD_FS::exists("/settings"))
     {

@@ -13,7 +13,7 @@
 #include "../utils/time.hpp"
 #include "../utils/hex.hpp"
 
-#define LOG_ALL_WIFIS true
+#define LOG_ALL_WIFIS false
 
 namespace UserWiFi
 {

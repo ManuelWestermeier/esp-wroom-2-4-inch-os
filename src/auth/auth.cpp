@@ -107,11 +107,13 @@ namespace Auth
         Rect createBtn{{50, 190 - 30}, {220, 40}};
         Rect messageArea{{40, 200}, {280, 30}};
 
+#if PRINT_ALL_USERS
         for (auto &f : SD_FS::readDir("/"))
         {
             if (f.isDirectory() && strcmp(f.name(), "System Volume Information") != 0)
                 Serial.println("USER: " + String(f.name()));
         }
+#endif
 
         int render = 50;
         String message = "";

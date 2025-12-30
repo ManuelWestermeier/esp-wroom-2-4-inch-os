@@ -10,6 +10,8 @@
 #include "utils/time.hpp"
 #include "../icons/index.hpp"
 
+#define PRINT_ALL_USERS false
+
 namespace Auth
 {
     extern String username;

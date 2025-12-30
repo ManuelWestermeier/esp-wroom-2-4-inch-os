@@ -33,6 +33,7 @@ namespace SD_FS
             Screen::tft.println("No SD card detected.");
             Screen::tft.println("Insert a SD card");
             Screen::tft.println("formatted as FAT32.");
+
             pinMode(TFT_BL, OUTPUT);
             analogWrite(TFT_BL, 200);
 
