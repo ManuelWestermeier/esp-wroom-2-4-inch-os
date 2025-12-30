@@ -198,14 +198,21 @@ namespace SD_FS
             return {};
         }
 
+        // Ensure path ends with single slash
+        String base = path;
+        if (base.length() > 0 && !base.endsWith("/"))
+            base += "/";
+
         File file = root.openNextFile();
         while (file)
         {
-            out.push_back(String(file.name()));
-            file.close(); // immediately close the file
+            String fullname = base + String(file.name()); // <--- absolute path
+            out.push_back(fullname);
+            file.close();
             file = root.openNextFile();
         }
 
+        root.close();
         return out;
     }
 

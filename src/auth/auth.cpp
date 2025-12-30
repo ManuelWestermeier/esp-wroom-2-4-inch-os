@@ -41,34 +41,46 @@ namespace Auth
 
     void copyPublicDir(const String &path)
     {
-        auto files = SD_FS::readDirStr(path);
+        auto files = SD_FS::readDirStr(path); // now returns absolute paths
 
-        for (const auto &fpath : files)
+        for (const auto &full : files)
         {
-            String fp = fpath.substring(7); // remove "/public"
+            // Remove "/public" prefix for ENC_FS target path
+            String fp = full.startsWith("/public/") ? full.substring(7) : full;
 
-            const size_t CHUNK_SIZE = 4096; // 4 KB per chunk, adjust to your available RAM
-
-            if (!SD_FS::isDirectory(fpath))
+            if (SD_FS::isDirectory(full))
             {
-                long fileSize = SD_FS::getFileSize(fpath);
+                ENC_FS::mkDir(ENC_FS::str2Path(fp));
+                copyPublicDir(full); // recurse
+            }
+            else
+            {
+                const size_t CHUNK_SIZE = 4096;
+                long fileSize = SD_FS::getFileSize(full);
                 if (fileSize <= 0)
                     continue;
 
                 ENC_FS::Buffer chunk(CHUNK_SIZE);
                 long offset = 0;
 
+                // Ensure parent directories exist
+                int lastSlash = fp.lastIndexOf('/');
+                if (lastSlash >= 0)
+                {
+                    String parentDir = fp.substring(0, lastSlash);
+                    ENC_FS::mkDir(ENC_FS::str2Path(parentDir));
+                }
+
                 while (offset < fileSize)
                 {
                     size_t bytesToRead = min((long)CHUNK_SIZE, fileSize - offset);
 
-                    if (!SD_FS::readFileBuff(fpath, offset, bytesToRead, chunk))
+                    if (!SD_FS::readFileBuff(full, offset, bytesToRead, chunk))
                     {
-                        Serial.printf("❌ Failed to read file chunk: %s\n", fpath.c_str());
-                        break; // skip this file if read fails
+                        Serial.printf("❌ Failed to read chunk: %s\n", full.c_str());
+                        break;
                     }
 
-                    // Write chunk to encrypted FS at the current offset
                     if (!ENC_FS::writeFile(ENC_FS::str2Path(fp), offset, offset + bytesToRead, chunk))
                     {
                         Serial.printf("❌ Failed to write chunk to ENC_FS: %s\n", fp.c_str());
@@ -101,8 +113,53 @@ namespace Auth
         name = user;
         password = Crypto::HASH::sha256String(pass);
 
+        // Bildschirm mit Hintergrundfarbe füllen
+        Screen::tft.fillScreen(BG);
+
+        // Text-Datum auf Mittelpunkt setzen (horizontal & vertikal)
+        Screen::tft.setTextDatum(MC_DATUM);
+
+        // Schriftgröße und Farbe setzen
+        Screen::tft.setTextSize(4);
+        Screen::tft.setTextColor(TEXT);
+
+        // Cursor auf Bildschirmmitte setzen
+        Screen::tft.setCursor(50, 100);
+
+        // Text ausgeben
+        Screen::tft.println("Copying Data...");
+
+        // Kurze Pause, damit Text sichtbar bleibt
+        delay(1500);
+
         copyPublicDir();
+
+        // Bildschirm mit Hintergrundfarbe füllen
+        Screen::tft.fillScreen(BG);
+
+        // Text-Datum auf Mittelpunkt setzen (horizontal & vertikal)
+        Screen::tft.setTextDatum(MC_DATUM);
+
+        // Schriftgröße und Farbe setzen
+        Screen::tft.setTextSize(4);
+
+        Screen::tft.setTextColor(TEXT);
+
+        // Cursor auf Bildschirmmitte setzen
+        Screen::tft.setCursor(50, 100);
+
+        // Text ausgeben
+        Screen::tft.println("Finished...");
+
+        // Kurze Pause, damit Text sichtbar bleibt
+        delay(1500);
+
         applyColorPalette();
+
+        tft.fillScreen(BG);
+        tft.setTextColor(TEXT);
+        tft.setTextSize(2);
+        tft.setCursor(0, 0);
 
         return true;
     }
