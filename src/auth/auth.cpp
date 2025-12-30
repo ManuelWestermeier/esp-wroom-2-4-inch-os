@@ -41,16 +41,23 @@ namespace Auth
 
     void copyPublicDir(const String &path)
     {
-        auto files = SD_FS::readDirStr(path); // now returns absolute paths
+        Serial.printf("📂 Reading directory: %s\n", path.c_str());
+        auto files = SD_FS::readDirStr(path); // returns absolute paths
 
         for (const auto &full : files)
         {
             // Remove "/public" prefix for ENC_FS target path
             String fp = full.startsWith("/public/") ? full.substring(7) : full;
 
+            Serial.printf("➡ Processing: %s -> %s\n", full.c_str(), fp.c_str());
+
             if (SD_FS::isDirectory(full))
             {
-                ENC_FS::mkDir(ENC_FS::str2Path(fp));
+                Serial.printf("📁 Creating directory on ENC_FS: %s\n", fp.c_str());
+                if (!ENC_FS::mkDir(ENC_FS::str2Path(fp)))
+                {
+                    Serial.printf("❌ Failed to create directory: %s\n", fp.c_str());
+                }
                 copyPublicDir(full); // recurse
             }
             else
@@ -58,7 +65,10 @@ namespace Auth
                 const size_t CHUNK_SIZE = 4096;
                 long fileSize = SD_FS::getFileSize(full);
                 if (fileSize <= 0)
+                {
+                    Serial.printf("⚠ Empty or inaccessible file: %s\n", full.c_str());
                     continue;
+                }
 
                 ENC_FS::Buffer chunk(CHUNK_SIZE);
                 long offset = 0;
@@ -68,27 +78,35 @@ namespace Auth
                 if (lastSlash >= 0)
                 {
                     String parentDir = fp.substring(0, lastSlash);
-                    ENC_FS::mkDir(ENC_FS::str2Path(parentDir));
+                    Serial.printf("📂 Ensuring parent directory exists: %s\n", parentDir.c_str());
+                    if (!ENC_FS::mkDir(ENC_FS::str2Path(parentDir)))
+                    {
+                        Serial.printf("❌ Failed to create parent directory: %s\n", parentDir.c_str());
+                    }
                 }
 
                 while (offset < fileSize)
                 {
                     size_t bytesToRead = min((long)CHUNK_SIZE, fileSize - offset);
 
+                    Serial.printf("🔹 Reading chunk: %s, offset=%ld, size=%zu\n", full.c_str(), offset, bytesToRead);
                     if (!SD_FS::readFileBuff(full, offset, bytesToRead, chunk))
                     {
-                        Serial.printf("❌ Failed to read chunk: %s\n", full.c_str());
+                        Serial.printf("❌ Failed to read chunk: %s at offset %ld\n", full.c_str(), offset);
                         break;
                     }
 
+                    Serial.printf("🔹 Writing chunk to ENC_FS: %s, offset=%ld\n", fp.c_str(), offset);
                     if (!ENC_FS::writeFile(ENC_FS::str2Path(fp), offset, offset + bytesToRead, chunk))
                     {
-                        Serial.printf("❌ Failed to write chunk to ENC_FS: %s\n", fp.c_str());
+                        Serial.printf("❌ Failed to write chunk to ENC_FS: %s at offset %ld\n", fp.c_str(), offset);
                         break;
                     }
 
                     offset += bytesToRead;
                 }
+
+                Serial.printf("✅ Finished file: %s\n", full.c_str());
             }
         }
     }
@@ -120,7 +138,7 @@ namespace Auth
         Screen::tft.setTextDatum(MC_DATUM);
 
         // Schriftgröße und Farbe setzen
-        Screen::tft.setTextSize(4);
+        Screen::tft.setTextSize(3);
         Screen::tft.setTextColor(TEXT);
 
         // Cursor auf Bildschirmmitte setzen
@@ -141,7 +159,7 @@ namespace Auth
         Screen::tft.setTextDatum(MC_DATUM);
 
         // Schriftgröße und Farbe setzen
-        Screen::tft.setTextSize(4);
+        Screen::tft.setTextSize(3);
 
         Screen::tft.setTextColor(TEXT);
 
