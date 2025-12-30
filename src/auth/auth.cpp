@@ -39,33 +39,44 @@ namespace Auth
         return false;
     }
 
-    void copyPublicDir(String path)
+    void copyPublicDir(const String &path)
     {
-        auto files = SD_FS::readDir(path);
+        auto files = SD_FS::readDirStr(path);
 
-        for (auto &f : files) // besser const &
+        for (const auto &fpath : files)
         {
-            String fp = String(f.path()).substring(7); // remove "/public"
+            String fp = fpath.substring(7); // remove "/public"
 
-            if (f.isDirectory())
-            {
-                ENC_FS::mkDir(ENC_FS::str2Path(fp));
-                copyPublicDir(f.path()); // <-- WICHTIG: ins Unterverzeichnis gehen
-            }
-            else
-            {
-                ENC_FS::Buffer buff;
-                auto file = SD.open(f.path(), "r");
+            const size_t CHUNK_SIZE = 4096; // 4 KB per chunk, adjust to your available RAM
 
-                if (!file)
+            if (!SD_FS::isDirectory(fpath))
+            {
+                long fileSize = SD_FS::getFileSize(fpath);
+                if (fileSize <= 0)
                     continue;
 
-                buff.resize(file.size());
-                file.read(buff.data(), buff.size());
-                file.close();
+                ENC_FS::Buffer chunk(CHUNK_SIZE);
+                long offset = 0;
 
-                ENC_FS::writeFile(
-                    ENC_FS::str2Path(fp), 0, 0, buff);
+                while (offset < fileSize)
+                {
+                    size_t bytesToRead = min((long)CHUNK_SIZE, fileSize - offset);
+
+                    if (!SD_FS::readFileBuff(fpath, offset, bytesToRead, chunk))
+                    {
+                        Serial.printf("❌ Failed to read file chunk: %s\n", fpath.c_str());
+                        break; // skip this file if read fails
+                    }
+
+                    // Write chunk to encrypted FS at the current offset
+                    if (!ENC_FS::writeFile(ENC_FS::str2Path(fp), offset, offset + bytesToRead, chunk))
+                    {
+                        Serial.printf("❌ Failed to write chunk to ENC_FS: %s\n", fp.c_str());
+                        break;
+                    }
+
+                    offset += bytesToRead;
+                }
             }
         }
     }

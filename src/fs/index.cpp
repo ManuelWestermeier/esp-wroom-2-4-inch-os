@@ -119,6 +119,35 @@ namespace SD_FS
         return result;
     }
 
+    bool readFileBuff(const String &path, long offset, size_t length, Buffer &buffer)
+    {
+        File file = SD.open(path, FILE_READ);
+        if (!file)
+        {
+            Serial.printf("❌ Failed to open file for reading: %s\n", path.c_str());
+            return false;
+        }
+
+        if (!file.seek(offset))
+        {
+            Serial.printf("❌ Failed to seek to offset %ld in file: %s\n", offset, path.c_str());
+            file.close();
+            return false;
+        }
+
+        size_t bytesRead = file.read(buffer.data(), length);
+        file.close();
+
+        if (bytesRead != length)
+        {
+            Serial.printf("❌ Read incomplete: requested %u bytes, got %u bytes from %s\n",
+                          (unsigned)length, (unsigned)bytesRead, path.c_str());
+            return false;
+        }
+
+        return true;
+    }
+
     bool deleteFile(const String &path)
     {
         if (!SD.remove(path))
@@ -157,6 +186,42 @@ namespace SD_FS
         }
 
         return out;
+    }
+
+    std::vector<String> readDirStr(const String &path)
+    {
+        std::vector<String> out;
+        File root = SD.open(path);
+        if (!root || !root.isDirectory())
+        {
+            Serial.printf("❌ Not a dir: %s\n", path.c_str());
+            return {};
+        }
+
+        File file = root.openNextFile();
+        while (file)
+        {
+            out.push_back(String(file.name()));
+            file.close(); // immediately close the file
+            file = root.openNextFile();
+        }
+
+        return out;
+    }
+
+    void forEachFile(const String &path, std::function<void(const String &name, bool isDir)> cb)
+    {
+        File root = SD.open(path);
+        if (!root || !root.isDirectory())
+            return;
+
+        File file = root.openNextFile();
+        while (file)
+        {
+            cb(file.name(), file.isDirectory());
+            file.close();
+            file = root.openNextFile();
+        }
     }
 
     bool createDir(const String &path)
@@ -233,6 +298,20 @@ namespace SD_FS
             Serial.printf("❌ Datei %s nicht gefunden.\n", path.c_str());
         if (f)
             f.close();
+    }
+
+    long getFileSize(const String &path)
+    {
+        File file = SD.open(path, FILE_READ);
+        if (!file)
+        {
+            Serial.printf("❌ Failed to open file for size: %s\n", path.c_str());
+            return -1;
+        }
+
+        long size = file.size();
+        file.close(); // always close immediately
+        return size;
     }
 
     void copyFileFromSPIFFS(const char *spiffsPath, const char *sdPath)
