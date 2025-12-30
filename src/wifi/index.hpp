@@ -3,7 +3,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <ArduinoOTA.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"

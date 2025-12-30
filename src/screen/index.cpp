@@ -3,6 +3,9 @@
 #include "../styles/global.hpp"
 #include "../sys-apps/designer.hpp"
 
+#include <Arduino.h>
+#include "../fs/index.hpp"
+
 using namespace Screen;
 
 // Define the single TFT instance
@@ -15,17 +18,35 @@ int Screen::MOVEMENT_TIME_THRESHOLD = 250;
 static uint16_t touchY = 0, touchX = 0;
 static uint16_t lastTouchY = UINT16_MAX, lastTouchX = 0;
 static uint32_t lastTime = 0;
-static byte screenBrightNess = 0;
+static int screenBrightNess = -1;
 
 void Screen::setBrightness(byte b)
 {
+    if (b < 20)
+        b = 20; // avoid too dark
     pinMode(TFT_BL, OUTPUT);
     analogWrite(TFT_BL, b);
     screenBrightNess = b;
+    SD_FS::writeFile("/settings/screen-brightness.txt", String(b));
 }
 
 byte Screen::getBrightness()
 {
+    if (screenBrightNess == -1)
+    {
+        if (SD_FS::exists("/settings/screen-brightness.txt"))
+        {
+            screenBrightNess == constrain(SD_FS::readFile("/settings/screen-brightness.txt").toInt(), 20, 255);
+        }
+        else
+        {
+            if (!SD_FS::exists("/settings"))
+            {
+                SD_FS::createDir("/settings");
+            }
+            SD_FS::writeFile("/settings/screen-brightness.txt", String(200));
+        }
+    }
     return screenBrightNess;
 }
 
@@ -35,8 +56,7 @@ void Screen::init(byte b)
     setBrightness(b);
     tft.init();
     tft.setRotation(2);
-    
-    
+
     tft.fillScreen(BG);
     tft.setTextColor(TEXT);
     tft.setTextSize(2);
@@ -47,10 +67,10 @@ void Screen::init(byte b)
 #endif
 }
 
-bool Screen::isTouched() 
+bool Screen::isTouched()
 {
     return tft.getTouch(&touchY, &touchX);
-} 
+}
 
 Screen::TouchPos Screen::getTouchPos()
 {

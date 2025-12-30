@@ -1,6 +1,6 @@
 #include "global.hpp"
 
-#include "../config.hpp"
+#define DARKMODE
 
 #ifndef RGB
 #define RGB(r, g, b) ((uint16_t)(((r & 0xF8) << 8) | \

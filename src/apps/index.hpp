@@ -68,5 +68,3 @@ void startWindowRender();
 void TaskMonitor(void *pvParameters);
 
 void startTaskMonitor(unsigned priority = 1);
-// ---------------------- Debug (single-shot) ----------------------
-void debugTaskLog();

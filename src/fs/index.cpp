@@ -7,40 +7,75 @@ namespace SD_FS
 
     bool init(uint8_t csPin)
     {
+        // --- Color scheme ---
+        const uint16_t BG_ERROR = 0x7800;  // dark red
+        const uint16_t BG_WARN = 0xFBE0;   // soft yellow
+        const uint16_t BG_INFO = 0x001F;   // dark blue
+        const uint16_t TEXT_MAIN = 0xFFFF; // white
+
         if (!SPIFFS.begin(true))
         {
-            Serial.println("SPIFFS konnte nicht gemountet werden");
+            Serial.println("⚠️ SPIFFS mount failed");
         }
+
+        // --- SD init failed ---
         if (!SD.begin(csPin))
         {
-            Serial.println("❌ SD card initialization failed!");
-            Screen::tft.fillScreen(DANGER);
+            Serial.println("❌ SD card initialization failed");
+
+            Screen::tft.fillScreen(BG_ERROR);
             Screen::tft.setCursor(20, 20);
+            Screen::tft.setTextColor(TEXT_MAIN);
             Screen::tft.setTextSize(3);
-            Screen::tft.setTextColor(TEXT);
 
-            Screen::tft.println("SD card initialization failed!");
-            Screen::tft.println("Please add a SD-Card");
+            Screen::tft.println("SD ERROR");
+            Screen::tft.println();
 
-            delay(1000);
-            Screen::tft.fillScreen(DANGER);
+            Screen::tft.setTextSize(2);
+            Screen::tft.println("No SD card detected.");
+            Screen::tft.println("Insert a SD card");
+            Screen::tft.println("formatted as FAT32.");
+
+            delay(1500);
             return init(csPin);
         }
+
+        // --- Root not accessible ---
         if (!SD.exists("/"))
         {
-            Screen::tft.fillScreen(DANGER);
-            Screen::tft.setCursor(20, 20);
-            Screen::tft.setTextSize(3);
-            Screen::tft.setTextColor(TEXT);
-
-            Screen::tft.println("SD mounted, but root not accessible");
-            Screen::tft.println("Please fix your SD-Card");
-
             Serial.println("⚠️ SD mounted, but root not accessible");
-            delay(1000);
-            Screen::tft.fillScreen(DANGER);
+
+            Screen::tft.fillScreen(BG_WARN);
+            Screen::tft.setCursor(20, 20);
+            Screen::tft.setTextColor(TEXT_MAIN);
+            Screen::tft.setTextSize(3);
+
+            Screen::tft.println("SD WARNING");
+            Screen::tft.println();
+
+            Screen::tft.setTextSize(2);
+            Screen::tft.println("SD detected but unusable.");
+            Screen::tft.println("Please FORMAT the");
+            Screen::tft.println("SD card as FAT32.");
+
+            delay(1500);
             return init(csPin);
         }
+
+        // --- Success (optional but good UX) ---
+        Screen::tft.fillScreen(BG_INFO);
+        Screen::tft.setCursor(20, 20);
+        Screen::tft.setTextColor(TEXT_MAIN);
+        Screen::tft.setTextSize(3);
+
+        Screen::tft.println("SD OK");
+        Screen::tft.println();
+
+        Screen::tft.setTextSize(2);
+        Screen::tft.println("SD card mounted");
+        Screen::tft.println("successfully.");
+
+        delay(500);
         return true;
     }
 

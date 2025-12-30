@@ -130,9 +130,6 @@ namespace UserWiFi
                         Serial.println("[WiFi] Could not connect.");
                     else
                     {
-                        ArduinoOTA.setPassword("GSg2asgj&&!j2");
-                        ArduinoOTA.begin();
-
                         // Print the ESP32 IP address
                         Serial.print("ESP32 IP Address: ");
                         Serial.println(WiFi.localIP());

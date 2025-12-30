@@ -1,8 +1,4 @@
-// add fs, speedcode, net, audio
-
 #include <Arduino.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
 #include "fs/index.hpp"
 #include "sys-apps/file-picker.hpp"
@@ -16,112 +12,30 @@
 
 #include "anim/entry.hpp"
 #include "auth/auth.hpp"
+#include "sys/initialize.hpp"
+#include "sys/monitor.hpp"
 
 using namespace Windows;
 
 using namespace ENC_FS;
 
-void printWakeupReason()
-{
-    esp_sleep_wakeup_cause_t reason = esp_sleep_get_wakeup_cause();
-
-    switch (reason)
-    {
-    case ESP_SLEEP_WAKEUP_EXT0:
-        Serial.println("Wakeup durch externes Signal (ext0) auf GPIO0");
-        break;
-    case ESP_SLEEP_WAKEUP_TIMER:
-        Serial.println("Wakeup durch Timer");
-        break;
-    case ESP_SLEEP_WAKEUP_UNDEFINED:
-    default:
-        Serial.println("Normaler Start (kein Wakeup)");
-        break;
-    }
-}
-
 void setup()
 {
-    // disable Arduino loop watchdog
-    disableCore0WDT();
-    disableCore1WDT();
-
-    // esp_task_wdt_delete(NULL); // unregister this task
-    Serial.begin(115200);
+    initializeSetup();
     Serial.println("Booting MW 2.4i OS...\n");
-    pinMode(0, INPUT_PULLUP); // Button is active LOW
 
-    printWakeupReason();
-
-    SD_FS::init();
-    // tree();
-    // SD_FS::lsDirSerial("/");
-
+    startAnimationMWOS();
     // UserWiFi::addPublicWifi("io", "hhhhhh90");
-    UserWiFi::start();
 
-    // Audio::init(60);
-    Screen::init(120);
-    // startAnimationMWOS();
-
-    // Auth::init();
-    Auth::login("m", "m");
-    // update paint app
-    ENC_FS::copyFileFromSPIFFS("/test.lua", {"programs", "a-paint", "entry.lua"});
-    // ENC_FS::writeFileString({"programs", "a-paint", "entry.lua"}, "print(\"Hello World\")");
-    Serial.println(ENC_FS::readFileString({"programs", "a-paint", "entry.lua"}));
-    ENC_FS::lsDirSerial({"programs"});
-
-    // debug io
-    //  readString("what is you age?", "15");
-    // Serial.println(filePicker("/"));
-
-    // delete users
-    // SD_FS::deleteDir("/a1fce4363854ff888cff4b8e7875d600c2682390412a8cf79b37d0b11148b0fa");
-    // SD_FS::deleteDir("/7kBKr4ub09sEDviFMC1pUE");
-    // SD_FS::deleteDir("/299bc1dc09b2d73f81ca536ea8e4399a4bbfe6264ed6f3ba25a415fb6299e73a");
-    // SD_FS::deleteDir("/-DbczHj-B82S9qgW2N_wH8");
-    // SD_FS::deleteDir("/09fc96082d34c2dfc1295d92073b5ea1dc8ef8da95f14dfded011ffb96d3e54b");
-    // SD_FS::deleteDir("/62c66a7a5dd70c3146618063c344e531e6d4b59e379808443ce962b3abd63c5a");
-    // SD_FS::deleteDir("/1b16b1df538ba12dc3f97edbb85caa7050d46c148134290feba80f8236c83db9");
-    // auto start = micros();
-    // ENC_FS::writeFile({"data", "test.txt"}, 0, 22000, Buffer(22000));
-    // Serial.println("Time Passed: " + String(micros() - start) + "ms");
-    // start = micros();
-    // // for (int i = 0; i < 22000; i += 100)
-    // // {
-    // //     ENC_FS::readFilePart({"data", "test.txt"}, i * 100, (i + 1) * 100);
-    // // }
-    // ENC_FS::readFilePart({"data", "test.txt"}, 0, 22000);
-    // Serial.println("Time Passed: " + String(micros() - start) + "ms");
-    // start = micros();
-    // ENC_FS::deleteFile({"data", "test.txt"});
-    // Serial.println("Time Passed: " + String(micros() - start) + "ms");
+    Auth::init();
+    // Auth::login("m", "m");
 
     startWindowRender();
-}
-
-void monitor()
-{
-    static uint32_t last = 0;
-    if (millis() - last < 5000)
-        return; // 5s interval
-    last = millis();
-
-    Serial.printf(
-        "heap=%u  min=%u  largest=%u  tasks=%u\n",
-        ESP.getFreeHeap(),
-        ESP.getMinFreeHeap(),
-        heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
-        uxTaskGetNumberOfTasks());
 }
 
 void loop()
 {
 
-    // debugTaskLog();
-    // Serial.println(ESP.getFreeHeap());
     delay(3000);
-    // ArduinoOTA.handle();
     monitor();
 }
