@@ -62,19 +62,6 @@ namespace SD_FS
             return init(csPin);
         }
 
-        // --- Success (optional but good UX) ---
-        Screen::tft.fillScreen(BG_INFO);
-        Screen::tft.setCursor(20, 20);
-        Screen::tft.setTextColor(TEXT_MAIN);
-        Screen::tft.setTextSize(3);
-
-        Screen::tft.println("SD OK");
-        Screen::tft.println();
-
-        Screen::tft.setTextSize(2);
-        Screen::tft.println("SD card mounted");
-        Screen::tft.println("successfully.");
-
         delay(500);
         return true;
     }

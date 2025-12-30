@@ -4,7 +4,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "../fs/index.hpp"
+#include "../audio/index.hpp"
+#include "../screen/index.hpp"
+#include "../wifi/index.hpp"
+
 #include "startup.hpp"
+#include "sd-setup.hpp"
 
 void initializeSetup()
 {
@@ -16,9 +22,9 @@ void initializeSetup()
     Serial.begin(115200);
     pinMode(0, INPUT_PULLUP); // Button is active LOW
 
-    // Audio::init(60);
+    Audio::init(60);
     Screen::init(120);
-    SD_FS::init();
+    sdSetup();
     UserWiFi::start();
 
     startupCheck();
