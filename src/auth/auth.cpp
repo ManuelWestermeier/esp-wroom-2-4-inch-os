@@ -41,23 +41,16 @@ namespace Auth
 
     void copyPublicDir(const String &path)
     {
-        Serial.printf("📂 Reading directory: %s\n", path.c_str());
-        auto files = SD_FS::readDirStr(path); // returns absolute paths
+        esp_log_level_set("*", ESP_LOG_NONE);
+        auto files = SD_FS::readDirStr(path);
 
         for (const auto &full : files)
         {
-            // Remove "/public" prefix for ENC_FS target path
             String fp = full.startsWith("/public/") ? full.substring(7) : full;
-
-            Serial.printf("➡ Processing: %s -> %s\n", full.c_str(), fp.c_str());
 
             if (SD_FS::isDirectory(full))
             {
-                Serial.printf("📁 Creating directory on ENC_FS: %s\n", fp.c_str());
-                if (!ENC_FS::mkDir(ENC_FS::str2Path(fp)))
-                {
-                    Serial.printf("❌ Failed to create directory: %s\n", fp.c_str());
-                }
+                ENC_FS::mkDir(ENC_FS::str2Path(fp));
                 copyPublicDir(full); // recurse
             }
             else
@@ -65,50 +58,30 @@ namespace Auth
                 const size_t CHUNK_SIZE = 4096;
                 long fileSize = SD_FS::getFileSize(full);
                 if (fileSize <= 0)
-                {
-                    Serial.printf("⚠ Empty or inaccessible file: %s\n", full.c_str());
                     continue;
-                }
 
                 ENC_FS::Buffer chunk(CHUNK_SIZE);
                 long offset = 0;
 
-                // Ensure parent directories exist
                 int lastSlash = fp.lastIndexOf('/');
                 if (lastSlash >= 0)
                 {
                     String parentDir = fp.substring(0, lastSlash);
-                    Serial.printf("📂 Ensuring parent directory exists: %s\n", parentDir.c_str());
-                    if (!ENC_FS::mkDir(ENC_FS::str2Path(parentDir)))
-                    {
-                        Serial.printf("❌ Failed to create parent directory: %s\n", parentDir.c_str());
-                    }
+                    ENC_FS::mkDir(ENC_FS::str2Path(parentDir));
                 }
 
                 while (offset < fileSize)
                 {
                     size_t bytesToRead = min((long)CHUNK_SIZE, fileSize - offset);
-
-                    Serial.printf("🔹 Reading chunk: %s, offset=%ld, size=%zu\n", full.c_str(), offset, bytesToRead);
                     if (!SD_FS::readFileBuff(full, offset, bytesToRead, chunk))
-                    {
-                        Serial.printf("❌ Failed to read chunk: %s at offset %ld\n", full.c_str(), offset);
                         break;
-                    }
-
-                    Serial.printf("🔹 Writing chunk to ENC_FS: %s, offset=%ld\n", fp.c_str(), offset);
                     if (!ENC_FS::writeFile(ENC_FS::str2Path(fp), offset, offset + bytesToRead, chunk))
-                    {
-                        Serial.printf("❌ Failed to write chunk to ENC_FS: %s at offset %ld\n", fp.c_str(), offset);
                         break;
-                    }
-
                     offset += bytesToRead;
                 }
-
-                Serial.printf("✅ Finished file: %s\n", full.c_str());
             }
         }
+        esp_log_level_set("*", ESP_LOG_INFO); // or ESP_LOG_WARN / ESP_LOG_ERROR
     }
 
     bool createAccount(const String &user, const String &pass)
@@ -142,7 +115,7 @@ namespace Auth
         Screen::tft.setTextColor(TEXT);
 
         // Cursor auf Bildschirmmitte setzen
-        Screen::tft.setCursor(50, 100);
+        Screen::tft.setCursor(20, 100);
 
         // Text ausgeben
         Screen::tft.println("Copying Data...");
