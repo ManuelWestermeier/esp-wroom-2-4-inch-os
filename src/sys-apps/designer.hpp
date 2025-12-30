@@ -81,8 +81,8 @@ static inline void saveTheme(const Theme &t)
     Serial.println("Saving theme: " + content);
 
     if (!Auth::username.isEmpty())
-        ENC_FS::writeFileString(ENC_FS::str2Path("/theme.txt"), content);
-    SD_FS::writeFile("/theme.txt", content);
+        ENC_FS::writeFileString(ENC_FS::str2Path("/settings/theme.txt"), content);
+    SD_FS::writeFile("/settings/theme.txt", content);
 }
 
 static inline Theme loadTheme()
@@ -92,13 +92,13 @@ static inline Theme loadTheme()
 
     if (Auth::username.isEmpty())
     {
-        fileExists = SD_FS::exists("/theme.txt");
+        fileExists = SD_FS::exists("/settings/theme.txt");
         if (fileExists)
-            content = SD_FS::readFile("/theme.txt");
+            content = SD_FS::readFile("/settings/theme.txt");
     }
     else
     {
-        auto path = ENC_FS::str2Path("/theme.txt");
+        auto path = ENC_FS::str2Path("/settings/theme.txt");
         fileExists = ENC_FS::exists(path);
         if (fileExists)
             content = ENC_FS::readFileString(path);

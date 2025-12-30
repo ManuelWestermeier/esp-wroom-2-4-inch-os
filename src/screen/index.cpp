@@ -34,26 +34,15 @@ byte Screen::getBrightness()
 {
     if (screenBrightNess == -1)
     {
-        if (SD_FS::exists("/settings/screen-brightness.txt"))
-        {
-            screenBrightNess == constrain(SD_FS::readFile("/settings/screen-brightness.txt").toInt(), 20, 255);
-        }
-        else
-        {
-            if (!SD_FS::exists("/settings"))
-            {
-                SD_FS::createDir("/settings");
-            }
-            SD_FS::writeFile("/settings/screen-brightness.txt", String(200));
-        }
+        screenBrightNess == constrain(SD_FS::readFile("/settings/screen-brightness.txt").toInt(), 20, 255);
     }
     return screenBrightNess;
 }
 
-void Screen::init(byte b)
+void Screen::init()
 {
     applyColorPalette();
-    setBrightness(b);
+
     tft.init();
     tft.setRotation(2);
 
@@ -62,6 +51,7 @@ void Screen::init(byte b)
     tft.setTextSize(2);
     tft.setCursor(0, 0);
 
+    setBrightness(getBrightness());
 #ifdef TOUCH_CS
     tft.begin();
 #endif

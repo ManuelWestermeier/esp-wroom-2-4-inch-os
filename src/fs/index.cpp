@@ -13,14 +13,12 @@ namespace SD_FS
         const uint16_t BG_INFO = 0x001F;   // dark blue
         const uint16_t TEXT_MAIN = 0xFFFF; // white
 
-        if (!SPIFFS.begin(true))
-        {
-            Serial.println("⚠️ SPIFFS mount failed");
-        }
-
         // --- SD init failed ---
         if (!SD.begin(csPin))
         {
+            tft.init();
+            tft.setRotation(2);
+
             Serial.println("❌ SD card initialization failed");
 
             Screen::tft.fillScreen(BG_ERROR);
@@ -35,6 +33,8 @@ namespace SD_FS
             Screen::tft.println("No SD card detected.");
             Screen::tft.println("Insert a SD card");
             Screen::tft.println("formatted as FAT32.");
+            pinMode(TFT_BL, OUTPUT);
+            analogWrite(TFT_BL, 200);
 
             delay(1500);
             return init(csPin);
@@ -43,6 +43,9 @@ namespace SD_FS
         // --- Root not accessible ---
         if (!SD.exists("/"))
         {
+            tft.init();
+            tft.setRotation(2);
+
             Serial.println("⚠️ SD mounted, but root not accessible");
 
             Screen::tft.fillScreen(BG_WARN);
@@ -57,6 +60,8 @@ namespace SD_FS
             Screen::tft.println("SD detected but unusable.");
             Screen::tft.println("Please FORMAT the");
             Screen::tft.println("SD card as FAT32.");
+            pinMode(TFT_BL, OUTPUT);
+            analogWrite(TFT_BL, 200);
 
             delay(1500);
             return init(csPin);

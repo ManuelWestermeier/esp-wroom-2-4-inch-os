@@ -23,7 +23,7 @@ namespace Screen
     byte getBrightness();
 
     // Initialize display and touch
-    void init(byte b = 200);
+    void init();
 
     // Touch data: absolute position + movement delta
     struct TouchPos : Vec
