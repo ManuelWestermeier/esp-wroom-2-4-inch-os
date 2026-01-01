@@ -24,7 +24,6 @@ void Screen::setBrightness(byte b)
 {
     if (b < 20)
         b = 20; // avoid too dark
-    pinMode(TFT_BL, OUTPUT);
     analogWrite(TFT_BL, b);
     screenBrightNess = b;
     SD_FS::writeFile("/settings/screen-brightness.txt", String(b));
@@ -51,7 +50,11 @@ void Screen::init()
     tft.setTextSize(2);
     tft.setCursor(0, 0);
 
-    setBrightness(getBrightness());
+    auto brightness = getBrightness();
+#ifndef USE_STARTUP_ANIMATION
+    setBrightness(brightness);
+#endif
+
 #ifdef TOUCH_CS
     tft.begin();
 #endif

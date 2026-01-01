@@ -24,4 +24,15 @@ void sdSetup()
     {
         SD_FS::createDir("/public");
     }
+
+    /**
+    wifi
+    programs
+    shared-libs
+    pictures
+    videos
+    audios
+    documents
+    settings
+      */
 }
