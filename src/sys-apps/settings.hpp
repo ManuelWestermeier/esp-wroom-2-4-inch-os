@@ -1,9 +1,10 @@
 #pragma once
+
 #include <Arduino.h>
 
 #include "../styles/global.hpp"
 #include "../icons/index.hpp"
-#include "../settings/index.hpp"
+#include "../audio/index.hpp"
 #include "../utils/shutdown.hpp"
 #include "../screen/index.hpp"
 #include "../screen/svg.hpp"
@@ -129,14 +130,14 @@ namespace SettingsMenu
         s.value = newVal;
         if (index == 0)
         {
-            Settings::screenBrightNess = s.value;
-            Screen::setBrightness(s.value);
+            newVal = map(x - s.x, 0, s.w, BRIGHTNESS_MIN, 255);
+            newVal = constrain(newVal, BRIGHTNESS_MIN, 255);
+            Screen::setBrightness(newVal);
         }
         else if (index == 1)
         {
-            Settings::volume = s.value;
+            Audio::setVolume(newVal);
         }
-        Settings::change();
 
         drawSlider(s, true);
     }
@@ -211,8 +212,8 @@ namespace SettingsMenu
     {
         for (auto &s : sliders)
             s.value = (strcmp(s.label, "Brightness") == 0)
-                          ? Settings::screenBrightNess
-                          : Settings::volume;
+                          ? Screen::getBrightness()
+                          : Audio::getVolume();
 
         goBack = false;
         drawUI();

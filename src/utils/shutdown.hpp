@@ -9,7 +9,7 @@
 inline void shutdown()
 {
     Serial.println("Shutdown initiated...");
-    if (readString("do you want to Shutdown/restart? y/n", "n").equalsIgnoreCase("y"))
+    if (readString("do you want to Shutdown/restart? y/n", "y").equalsIgnoreCase("y"))
     {
         const auto ANIM_TIME = 1500;
 

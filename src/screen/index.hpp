@@ -10,6 +10,8 @@
 #include <TFT_eSPI.h>
 #include <SD.h>
 
+#define BRIGHTNESS_MIN 5
+
 namespace Screen
 {
     // The one-and-only TFT object (defined in index.cpp)

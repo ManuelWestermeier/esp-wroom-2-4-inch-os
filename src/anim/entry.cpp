@@ -25,14 +25,12 @@ void startAnimationMWOS()
 
     while (millis() - start < duration)
     {
-        brightNessVal = (millis() - start) / (float)duration * brightNess;
-        Screen::setBrightness((byte)brightNessVal);
-        if (brightNessVal > brightNess)
-            brightNessVal = brightNess;
-
         float progress = (millis() - start) / (float)duration; // 0..1
         if (progress > 1)
             progress = 1;
+
+        brightNessVal = progress * brightNess;
+        Screen::setBrightness((byte)brightNessVal);
 
         // Touch skip check
         uint16_t tx, ty;

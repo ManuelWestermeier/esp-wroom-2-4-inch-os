@@ -22,8 +22,8 @@ static int screenBrightNess = -1;
 
 void Screen::setBrightness(byte b)
 {
-    if (b < 20)
-        b = 20; // avoid too dark
+    if (b < BRIGHTNESS_MIN)
+        b = BRIGHTNESS_MIN; // avoid too dark
     analogWrite(TFT_BL, b);
     screenBrightNess = b;
     SD_FS::writeFile("/settings/screen-brightness.txt", String(b));
@@ -33,7 +33,11 @@ byte Screen::getBrightness()
 {
     if (screenBrightNess == -1)
     {
-        screenBrightNess == constrain(SD_FS::readFile("/settings/screen-brightness.txt").toInt(), 20, 255);
+        int val = SD_FS::readFile("/settings/screen-brightness.txt").toInt();
+        if (val < 0)
+            val = 200;
+
+        screenBrightNess = constrain((byte)val, (byte)BRIGHTNESS_MIN, (byte)255);
     }
     return screenBrightNess;
 }
