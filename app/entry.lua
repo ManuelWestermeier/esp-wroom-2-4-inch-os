@@ -1,117 +1,113 @@
--- PixelPaint 12x12 with FS string storage
-local win = createWindow(20, 20, 240, 240)
-WIN_setName(win, "PixelPaint")
+-- === Scrollable ToDo App for ESP32 OS ===
+local win = createWindow(10, 10, 300, 220)
+WIN_setName(win, "ToDo App")
 
-local GRID_SIZE = 12
-
--- Palette
-local colors = {0xF800, 0x07E0, 0x001F, 0xFFFF, 0xFFE0, 0xF81F, 0x07FF, 0x0000}
-local currentColor = colors[1]
-
--- Serialize canvas table to string
-local function serializeCanvas(c)
-    local t = {}
-    for y = 1, GRID_SIZE do
-        for x = 1, GRID_SIZE do
-            table.insert(t, string.format("%04X", c[x][y]))
-        end
-    end
-    return table.concat(t, ",")
-end
-
--- Deserialize string to canvas table
-local function deserializeCanvas(s)
-    local c = {}
-    local values = {}
-    for hex in s:gmatch("[^,]+") do
-        table.insert(values, tonumber(hex, 16))
-    end
-    for x = 1, GRID_SIZE do
-        c[x] = {}
-        for y = 1, GRID_SIZE do
-            c[x][y] = values[(y-1)*GRID_SIZE + x] or 0xFFFF
-        end
-    end
-    return c
-end
-
--- Load saved canvas or initialize
-local saved = FS_get("pixelpaint")
-local canvas = {}
+-- Load tasks
+local tasks = {}
+local saved = FS_get("todo_data")
 if saved then
-    canvas = deserializeCanvas(saved)
-else
-    for i = 1, GRID_SIZE do
-        canvas[i] = {}
-        for j = 1, GRID_SIZE do
-            canvas[i][j] = 0xFFFF -- white
+    tasks = load("return "..saved)()  -- deserialize table
+end
+
+-- Colors
+local BG_COLOR = 0xFFFF
+local TEXT_COLOR = 0x0000
+local DONE_COLOR = 0x07E0
+local BUTTON_COLOR = 0xF800
+
+-- Scroll state
+local scrollY = 0
+local lastTouchY = nil
+
+-- Save tasks to FS
+local function saveTasks()
+    FS_set("todo_data", tostring(tasks))
+end
+
+-- Add a task
+local function addTask()
+    local ok, text = WIN_readText(win, "New task:", "")
+    if ok and text ~= "" then
+        table.insert(tasks, {text=text, done=false})
+        saveTasks()
+    end
+end
+
+-- Handle a click or tap
+local function handleClick(x, y)
+    local visibleStart = scrollY
+    local visibleEnd = scrollY + 180  -- window content height
+    local lineHeight = 20
+
+    -- Check Add Task button
+    if x >= 10 and x <= 290 and y >= 200 and y <= 220 then
+        addTask()
+        return
+    end
+
+    -- Check Delete buttons & toggle done
+    for i, task in ipairs(tasks) do
+        local ty = (i-1)*lineHeight - scrollY + 25
+        if ty >= 25 and ty <= 200 then
+            if x >= 200 and x <= 260 and y >= ty and y <= ty+16 then
+                table.remove(tasks, i)
+                saveTasks()
+                return
+            elseif x >= 10 and x <= 190 and y >= ty and y <= ty+16 then
+                task.done = not task.done
+                saveTasks()
+                return
+            end
         end
     end
 end
 
--- Compute pixel size dynamically
-local function getPixelSize()
-    local x, y, w, h = WIN_getRect(win)
-    local sizeX = math.floor(w / GRID_SIZE)
-    local sizeY = math.floor((h-30) / GRID_SIZE)
-    return math.max(1, math.min(sizeX, sizeY))
-end
+-- Draw visible tasks
+local function drawTasks()
+    WIN_fillBg(win, 1, BG_COLOR)
+    WIN_writeText(win, 1, 10, 5, "ToDo List", 2, TEXT_COLOR)
 
--- Render canvas only if dirty
-local dirty = true
-local function drawCanvas()
-    if not dirty then return end
-    dirty = false
-    local pxSize = getPixelSize()
-    for x = 1, GRID_SIZE do
-        for y = 1, GRID_SIZE do
-            WIN_fillRect(win, 1, (x-1)*pxSize, (y-1)*pxSize, pxSize-1, pxSize-1, canvas[x][y])
+    local lineHeight = 20
+    for i, task in ipairs(tasks) do
+        local ty = (i-1)*lineHeight - scrollY + 25
+        if ty >= 25 and ty <= 200 then  -- only draw visible
+            local col = task.done and DONE_COLOR or TEXT_COLOR
+            WIN_writeText(win, 1, 10, ty, (i..". ")..task.text, 1, col)
+            WIN_drawRect(win, 1, 200, ty, 60, 16, BUTTON_COLOR)
+            WIN_writeText(win, 1, 205, ty+3, "Del", 1, 0xFFFF)
         end
     end
-end
 
-local function drawPalette()
-    local pxSize = getPixelSize()
-    for i, color in ipairs(colors) do
-        WIN_fillRect(win, 1, (i-1)*pxSize, GRID_SIZE*pxSize+5, pxSize-1, pxSize-1, color)
-    end
-end
-
-local function checkPaletteClick(x, y)
-    local pxSize = getPixelSize()
-    if y >= GRID_SIZE*pxSize+5 then
-        local index = math.floor(x/pxSize)+1
-        if colors[index] then
-            currentColor = colors[index]
-        end
-        return true
-    end
-    return false
+    -- Add Task button
+    WIN_drawRect(win, 1, 10, 200, 280, 20, BUTTON_COLOR)
+    WIN_writeText(win, 1, 15, 203, "Add Task", 1, 0xFFFF)
 end
 
 -- Main loop
 while not WIN_closed(win) do
-    local pressed, state, mx, my = WIN_getLastEvent(win, 1)
+    drawTasks()
+
+    local pressed, state, x, y, moveX, moveY, wasClicked = WIN_getLastEvent(win, 1)
+
     if pressed then
-        if not checkPaletteClick(mx, my) then
-            local pxSize = getPixelSize()
-            local gx = math.floor(mx/pxSize)+1
-            local gy = math.floor(my/pxSize)+1
-            if gx>=1 and gx<=GRID_SIZE and gy>=1 and gy<=GRID_SIZE then
-                if canvas[gx][gy] ~= currentColor then
-                    canvas[gx][gy] = currentColor
-                    dirty = true
-                    FS_set("pixelpaint", serializeCanvas(canvas))
-                end
+        if state == 1 then
+            -- Start dragging for scroll
+            lastTouchY = y
+        elseif state == 2 and lastTouchY then
+            -- Dragging: adjust scroll
+            scrollY = scrollY - (y - lastTouchY)
+            if scrollY < 0 then scrollY = 0 end
+            local maxScroll = math.max(0, #tasks*20 - 180)
+            if scrollY > maxScroll then scrollY = maxScroll end
+            lastTouchY = y
+        elseif state == 3 then
+            -- Touch released, handle click
+            if wasClicked then
+                handleClick(x, y)
             end
+            lastTouchY = nil
         end
     end
 
-    if dirty then
-        WIN_fillBg(win, 1, 0x0000)
-        drawCanvas()
-        drawPalette()
-    end
-
-    delay(16)
+    delay(16) -- ~60 FPS
 end
