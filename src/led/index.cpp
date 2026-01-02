@@ -1,5 +1,6 @@
 #include "index.hpp"
-#include "../screen/index.hpp" // For Screen::getBrightness()
+
+#include "../screen/index.hpp"
 
 namespace LED
 {
@@ -7,44 +8,50 @@ namespace LED
     constexpr int PIN_G = 16;
     constexpr int PIN_B = 17;
 
-    static uint8_t curR = 0;
-    static uint8_t curG = 0;
-    static uint8_t curB = 0;
+    constexpr int PWM_FREQ = 5000;    // 5 kHz
+    constexpr int PWM_RES  = 8;       // 8-bit resolution (0-255)
 
-    // ===== BRIGHTNESS SCALING =====
+    constexpr int CHANNEL_R = 0;
+    constexpr int CHANNEL_G = 1;
+    constexpr int CHANNEL_B = 2;
+
+    static uint8_t curR = 0, curG = 0, curB = 0;
+
     static inline uint8_t applyBrightness(uint8_t v)
     {
         byte b = Screen::getBrightness(); // 0..255
         return (uint16_t(v) * b) >> 8;
     }
 
-    // ===== INITIALIZE =====
     void init()
     {
-        pinMode(PIN_R, OUTPUT);
-        pinMode(PIN_G, OUTPUT);
-        pinMode(PIN_B, OUTPUT);
+        // Setup channels
+        ledcSetup(CHANNEL_R, PWM_FREQ, PWM_RES);
+        ledcSetup(CHANNEL_G, PWM_FREQ, PWM_RES);
+        ledcSetup(CHANNEL_B, PWM_FREQ, PWM_RES);
+
+        // Attach pins
+        ledcAttachPin(PIN_R, CHANNEL_R);
+        ledcAttachPin(PIN_G, CHANNEL_G);
+        ledcAttachPin(PIN_B, CHANNEL_B);
 
         off();
     }
 
-    // ===== SET COLOR =====
     void rgb(uint8_t r, uint8_t g, uint8_t b)
     {
         curR = r; curG = g; curB = b;
 
-        analogWrite(PIN_R, applyBrightness(r));
-        analogWrite(PIN_G, applyBrightness(g));
-        analogWrite(PIN_B, applyBrightness(b));
+        ledcWrite(CHANNEL_R, applyBrightness(r));
+        ledcWrite(CHANNEL_G, applyBrightness(g));
+        ledcWrite(CHANNEL_B, applyBrightness(b));
     }
 
-    // ===== TURN OFF =====
     void off()
     {
         rgb(0, 0, 0);
     }
 
-    // ===== FADE TO COLOR =====
     void fadeTo(uint8_t r, uint8_t g, uint8_t b, uint16_t stepDelay)
     {
         while(curR != r || curG != g || curB != b)
@@ -58,15 +65,14 @@ namespace LED
         }
     }
 
-    // ===== REFRESH BRIGHTNESS =====
     void refresh(uint8_t brightness)
     {
         uint8_t r = (uint16_t(curR) * brightness) >> 8;
         uint8_t g = (uint16_t(curG) * brightness) >> 8;
         uint8_t b = (uint16_t(curB) * brightness) >> 8;
 
-        analogWrite(PIN_R, r);
-        analogWrite(PIN_G, g);
-        analogWrite(PIN_B, b);
+        ledcWrite(CHANNEL_R, r);
+        ledcWrite(CHANNEL_G, g);
+        ledcWrite(CHANNEL_B, b);
     }
 }
