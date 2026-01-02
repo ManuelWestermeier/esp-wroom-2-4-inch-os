@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -9,6 +10,7 @@
 #include "../screen/index.hpp"
 #include "../wifi/index.hpp"
 #include "../anim/entry.hpp"
+#include "../led/index.hpp"
 #include "../config.hpp"
 
 #include "startup.hpp"
@@ -17,18 +19,23 @@
 void initializeSetup()
 {
     pinMode(TFT_BL, OUTPUT);
+    pinMode(0, INPUT_PULLUP); // Button is active LOW
+
     // disable Arduino loop watchdog
     disableCore0WDT();
     // disableCore1WDT();
     esp_task_wdt_delete(NULL); // unregister this task
 
     Serial.begin(115200);
-    pinMode(0, INPUT_PULLUP); // Button is active LOW
+    Serial.println("MW-MINI-OS");
 
     // Audio::init(60);
     sdSetup();
     Screen::init();
     UserWiFi::start();
+
+    LED::init();
+    LED::rgb(200, 0, 200);
 
     startupCheck();
 

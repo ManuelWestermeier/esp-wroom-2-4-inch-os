@@ -4,8 +4,8 @@
 
 #include "../styles/global.hpp"
 #include "../sys-apps/designer.hpp"
+#include "../led/index.hpp"
 #include "../fs/index.hpp"
-
 
 using namespace Screen;
 
@@ -27,6 +27,8 @@ void Screen::setBrightness(byte b, bool store)
         b = BRIGHTNESS_MIN; // avoid too dark
     analogWrite(TFT_BL, b);
     screenBrightNess = b;
+
+    LED::refresh(b);
 
     if (store)
         SD_FS::writeFile("/settings/screen-brightness.txt", String(b));
