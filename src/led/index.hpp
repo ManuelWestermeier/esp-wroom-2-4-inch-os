@@ -1,28 +1,20 @@
 #pragma once
-
 #include <Arduino.h>
 
 namespace LED
 {
-    // PWM configuration
-    extern int freq;
-    extern int resolution;
-
-    // Pins
-    extern int pinR;
-    extern int pinG;
-    extern int pinB;
-
-    // Channels
-    extern int chR;
-    extern int chG;
-    extern int chB;
-
+    // ===== INITIALIZE =====
     void init();
+
+    // ===== SET COLOR =====
     void rgb(uint8_t r, uint8_t g, uint8_t b);
+
+    // ===== TURN OFF =====
     void off();
-    
-    void fadeTo(uint8_t r, uint8_t g, uint8_t b, uint16_t stepDelay = 10);
-    
-    void refresh(uint8_t r);
+
+    // ===== FADE TO COLOR =====
+    void fadeTo(uint8_t r, uint8_t g, uint8_t b, uint16_t stepDelay);
+
+    // ===== REFRESH BRIGHTNESS =====
+    void refresh(uint8_t brightness);
 }

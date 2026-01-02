@@ -35,7 +35,7 @@ void initializeSetup()
     UserWiFi::start();
 
     LED::init();
-    LED::rgb(200, 0, 200);
+    LED::rgb(255, 0, 0);
 
     startupCheck();
 
