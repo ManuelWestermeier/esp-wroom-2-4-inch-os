@@ -19,7 +19,7 @@ namespace LED
 
     static inline uint8_t applyBrightness(uint8_t v)
     {
-        return;
+        return 0;
         byte b = Screen::getBrightness(); // 0..255
         return (uint16_t(v) * b) >> 8;
     }
