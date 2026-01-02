@@ -1,10 +1,11 @@
 #include "index.hpp"
 
+#include <Arduino.h>
+
 #include "../styles/global.hpp"
 #include "../sys-apps/designer.hpp"
-
-#include <Arduino.h>
 #include "../fs/index.hpp"
+
 
 using namespace Screen;
 
@@ -20,13 +21,15 @@ static uint16_t lastTouchY = UINT16_MAX, lastTouchX = 0;
 static uint32_t lastTime = 0;
 static int screenBrightNess = -1;
 
-void Screen::setBrightness(byte b)
+void Screen::setBrightness(byte b, bool store)
 {
-    if (b < BRIGHTNESS_MIN)
+    if (b < BRIGHTNESS_MIN && !store)
         b = BRIGHTNESS_MIN; // avoid too dark
     analogWrite(TFT_BL, b);
     screenBrightNess = b;
-    SD_FS::writeFile("/settings/screen-brightness.txt", String(b));
+
+    if (store)
+        SD_FS::writeFile("/settings/screen-brightness.txt", String(b));
 }
 
 byte Screen::getBrightness()
@@ -39,6 +42,7 @@ byte Screen::getBrightness()
 
         screenBrightNess = constrain((byte)val, (byte)BRIGHTNESS_MIN, (byte)255);
     }
+
     return screenBrightNess;
 }
 
@@ -55,6 +59,7 @@ void Screen::init()
     tft.setCursor(0, 0);
 
     auto brightness = getBrightness();
+
 #ifndef USE_STARTUP_ANIMATION
     setBrightness(brightness);
 #endif

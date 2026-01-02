@@ -1,7 +1,5 @@
 #include <Arduino.h>
 
-#define USE_STARTUP_ANIMATION
-
 #include "apps/windows.hpp"
 #include "apps/index.hpp"
 

@@ -20,10 +20,10 @@ inline void shutdown()
         {
             uint32_t elapsed = millis() - start;
             uint8_t brightness = 255 - (elapsed * 255 / ANIM_TIME);
-            Screen::setBrightness(brightness);
+            Screen::setBrightness(brightness, false);
             delay(10);
         }
-        Screen::setBrightness(0);
+        Screen::setBrightness(0, false);
 
         Serial.println("ESP32 geht jetzt in Deep Sleep...");
         Serial.println("Drücke GPIO0 (BOOT-Taste), um aufzuwachen.");

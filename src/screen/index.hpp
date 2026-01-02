@@ -21,7 +21,7 @@ namespace Screen
     extern int MOVEMENT_TIME_THRESHOLD;
 
     // Set backlight brightness (0–255)
-    void setBrightness(byte b = 255);
+    void setBrightness(byte b = 255, bool store = true);
     byte getBrightness();
 
     // Initialize display and touch

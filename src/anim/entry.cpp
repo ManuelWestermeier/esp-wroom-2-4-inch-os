@@ -30,7 +30,7 @@ void startAnimationMWOS()
             progress = 1;
 
         brightNessVal = progress * brightNess;
-        Screen::setBrightness((byte)brightNessVal);
+        Screen::setBrightness((byte)brightNessVal, false);
 
         // Touch skip check
         uint16_t tx, ty;

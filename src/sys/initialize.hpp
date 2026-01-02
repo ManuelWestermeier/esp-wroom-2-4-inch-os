@@ -9,6 +9,7 @@
 #include "../screen/index.hpp"
 #include "../wifi/index.hpp"
 #include "../anim/entry.hpp"
+#include "../config.hpp"
 
 #include "startup.hpp"
 #include "sd-setup.hpp"
@@ -16,7 +17,6 @@
 void initializeSetup()
 {
     pinMode(TFT_BL, OUTPUT);
-    analogWrite(TFT_BL, 0);
     // disable Arduino loop watchdog
     disableCore0WDT();
     // disableCore1WDT();
