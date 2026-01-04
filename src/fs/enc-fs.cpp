@@ -1,963 +1,440 @@
 /*
   enc-fs.cpp
-
-  Implementation of ENC_FS (simplified but functional) for ESP32 (Arduino)
-  Uses: SD.h, SPIFFS.h, mbedTLS for crypto primitives available on ESP32
+  Sicheres, virtuelles Dateisystem für ESP32.
+  Nutzt AES-256-CTR für Datenblobs und AES-256-CBC für den verschlüsselten Index.
 */
 
 #include "enc-fs.hpp"
-
-// mbedTLS
-#include "mbedtls/md.h"
-#include "mbedtls/sha256.h"
-#include "mbedtls/aes.h"
-
-#include <SPI.h>
-#include <SD.h>
-#include <SPIFFS.h>
-#include <esp_system.h>
-
-#include <algorithm>
-#include <cstring>
-#include <iomanip>
+#include <map>
+#include <mbedtls/aes.h>
+#include <mbedtls/sha256.h>
+#include <mbedtls/pkcs5.h>
+#include <mbedtls/entropy.h>
+#include <mbedtls/ctr_drbg.h>
+#include <mbedtls/md.h>
 
 namespace ENC_FS
 {
-    // -------- Configuration & internal state --------
-    static String s_rootFolder = "";
-    static Buffer s_master_key(32, 0); // 256-bit
-    static size_t s_chunkSize = 4096;
-    static size_t s_parityGroupSize = 4;
-    static uint32_t s_kdfIterations = 100000; // default; tune to device
 
-    // ---------- Utilities ----------
-    static String toHex(const uint8_t *data, size_t len)
+    // --- Interne Statics & Strukturen ---
+    namespace
     {
-        String out;
-        out.reserve(len * 2);
-        const char hex[] = "0123456789abcdef";
-        for (size_t i = 0; i < len; ++i)
+        struct FileEntry
         {
-            out += hex[(data[i] >> 4) & 0xF];
-            out += hex[data[i] & 0xF];
+            bool isDir;
+            long size;           // Logische Größe (wichtig gegen Padding-Fehler)
+            String physicalName; // Name des .dat Blobs auf SD
+            uint8_t iv[16];      // IV für AES-CTR
+        };
+
+        std::map<String, FileEntry> fsIndex;
+        uint8_t masterKey[32];
+        bool isInitialized = false;
+        String rootPathStr = "";
+
+        uint32_t g_kdfIterations = 10000;
+        mbedtls_entropy_context entropy;
+        mbedtls_ctr_drbg_context ctr_drbg;
+
+        const char *BLOBS_DIR = "/_blobs";
+        const char *INDEX_FILE = "/enc_fs.idx";
+    }
+
+    // --- Hilfsfunktionen für Kryptographie ---
+    namespace CryptoHelper
+    {
+        void log(String msg) { Serial.println("[ENC_FS] " + msg); }
+
+        void getRandom(uint8_t *buffer, size_t length)
+        {
+            mbedtls_ctr_drbg_random(&ctr_drbg, buffer, length);
         }
-        return out;
-    }
 
-    static Buffer hexToBin(const String &hex)
-    {
-        Buffer out;
-        size_t n = hex.length();
-        out.reserve(n / 2);
-        for (size_t i = 0; i + 1 < n; i += 2)
+        String sha256(const String &payload)
         {
-            char a = hex[i];
-            char b = hex[i + 1];
-            auto val = [](char c) -> uint8_t
+            uint8_t result[32];
+            mbedtls_sha256((const uint8_t *)payload.c_str(), payload.length(), result, 0);
+            String hashStr = "";
+            for (int i = 0; i < 32; i++)
             {
-                if (c >= '0' && c <= '9')
-                    return c - '0';
-                if (c >= 'a' && c <= 'f')
-                    return 10 + (c - 'a');
-                if (c >= 'A' && c <= 'F')
-                    return 10 + (c - 'A');
-                return 0;
-            };
-            out.push_back((uint8_t)((val(a) << 4) | val(b)));
-        }
-        return out;
-    }
-
-    // SHA256 -> output 32 bytes
-    static void sha256(const uint8_t *in, size_t inlen, uint8_t out32[32])
-    {
-        mbedtls_sha256_ret(in, inlen, out32, 0);
-    }
-
-    // sha256 string convenience
-    namespace Crypto
-    {
-        namespace HASH
-        {
-            String sha256String(const String &s)
-            {
-                uint8_t out[32];
-                sha256((const uint8_t *)s.c_str(), s.length(), out);
-                return toHex(out, 32);
+                if (result[i] < 16)
+                    hashStr += "0";
+                hashStr += String(result[i], HEX);
             }
-        }
-    }
-
-    // HMAC-SHA256
-    static void hmac_sha256(const uint8_t *key, size_t keylen, const uint8_t *data, size_t datalen, uint8_t out32[32])
-    {
-        const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-        mbedtls_md_context_t ctx;
-        mbedtls_md_init(&ctx);
-        mbedtls_md_setup(&ctx, md_info, 1);
-        mbedtls_md_hmac_starts(&ctx, key, keylen);
-        mbedtls_md_hmac_update(&ctx, data, datalen);
-        mbedtls_md_hmac_finish(&ctx, out32);
-        mbedtls_md_free(&ctx);
-    }
-
-    // AES-256-CBC with PKCS7. IV is 16 bytes. Returns Buffer = IV || ciphertext
-    static Buffer aes256_cbc_encrypt(const uint8_t key[32], const uint8_t *plaintext, size_t plen)
-    {
-        size_t block = 16;
-        size_t padlen = block - (plen % block);
-        size_t total = plen + padlen;
-
-        Buffer in;
-        in.reserve(total);
-        in.insert(in.end(), plaintext, plaintext + plen);
-        for (size_t i = 0; i < padlen; ++i)
-            in.push_back((uint8_t)padlen);
-
-        uint8_t iv[16];
-        for (int i = 0; i < 16; ++i)
-        {
-            uint32_t r = esp_random();
-            iv[i] = (uint8_t)(r & 0xFF);
+            return hashStr;
         }
 
-        Buffer ciphertext(total);
-        mbedtls_aes_context aes;
-        mbedtls_aes_init(&aes);
-        mbedtls_aes_setkey_enc(&aes, key, 256);
-        uint8_t iv_copy[16];
-        memcpy(iv_copy, iv, 16);
-        mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, total, iv_copy, in.data(), ciphertext.data());
-        mbedtls_aes_free(&aes);
-
-        Buffer out;
-        out.reserve(16 + total);
-        out.insert(out.end(), iv, iv + 16);
-        out.insert(out.end(), ciphertext.begin(), ciphertext.end());
-        return out;
-    }
-
-    // AES decrypt expecting input = IV || ciphertext
-    static bool aes256_cbc_decrypt(const uint8_t key[32], const uint8_t *in, size_t inlen, Buffer &plaintext_out)
-    {
-        if (inlen < 16)
-            return false;
-        const uint8_t *iv = in;
-        const uint8_t *ciphertext = in + 16;
-        size_t clen = inlen - 16;
-        if (clen % 16 != 0)
-            return false;
-
-        Buffer plain(clen);
-        mbedtls_aes_context aes;
-        mbedtls_aes_init(&aes);
-        mbedtls_aes_setkey_dec(&aes, key, 256);
-        uint8_t iv_copy[16];
-        memcpy(iv_copy, iv, 16);
-        if (mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, clen, iv_copy, ciphertext, plain.data()) != 0)
+        // AES-256-CTR ermöglicht Random Access (Seek)
+        void aesCtr(const uint8_t *key, const uint8_t *iv, long offset, uint8_t *data, size_t len)
         {
+            mbedtls_aes_context aes;
+            mbedtls_aes_init(&aes);
+            mbedtls_aes_setkey_enc(&aes, key, 256);
+
+            uint8_t nc[16];
+            memcpy(nc, iv, 16);
+            uint8_t sb[16];
+            size_t no = 0;
+
+            // Counter-Anpassung für Seek (Offset-Berechnung)
+            if (offset > 0)
+            {
+                long blocks = offset / 16;
+                no = offset % 16;
+                for (int i = 15; i >= 0; i--)
+                {
+                    int sum = nc[i] + (blocks & 0xFF);
+                    nc[i] = sum & 0xFF;
+                    blocks >>= 8;
+                    blocks += (sum >> 8);
+                }
+            }
+            mbedtls_aes_crypt_ctr(&aes, len, &no, nc, sb, data, data);
             mbedtls_aes_free(&aes);
-            return false;
         }
-        mbedtls_aes_free(&aes);
-
-        if (clen == 0)
-            return false;
-        uint8_t pad = plain[clen - 1];
-        if (pad == 0 || pad > 16)
-            return false;
-        for (size_t i = 0; i < pad; ++i)
-        {
-            if (plain[clen - 1 - i] != pad)
-                return false;
-        }
-        size_t plen = clen - pad;
-        plaintext_out.assign(plain.begin(), plain.begin() + plen);
-        return true;
     }
 
-    // ---------- Path helpers ----------
+    // --- Index Management (Verschlüsselter Index auf SD) ---
+    namespace IndexManager
+    {
+
+        Buffer serialize()
+        {
+            Buffer buf;
+            uint32_t count = fsIndex.size();
+            uint8_t *cPtr = (uint8_t *)&count;
+            for (int i = 0; i < 4; i++)
+                buf.push_back(cPtr[i]);
+
+            for (auto const &[path, entry] : fsIndex)
+            {
+                uint16_t pLen = path.length();
+                buf.push_back(pLen & 0xFF);
+                buf.push_back((pLen >> 8) & 0xFF);
+                for (size_t i = 0; i < pLen; i++)
+                    buf.push_back((uint8_t)path[i]);
+                buf.push_back(entry.isDir ? 1 : 0);
+                uint8_t *sPtr = (uint8_t *)&entry.size;
+                for (int i = 0; i < 4; i++)
+                    buf.push_back(sPtr[i]);
+                uint16_t phLen = entry.physicalName.length();
+                buf.push_back(phLen & 0xFF);
+                buf.push_back((phLen >> 8) & 0xFF);
+                for (size_t i = 0; i < phLen; i++)
+                    buf.push_back((uint8_t)entry.physicalName[i]);
+                for (int i = 0; i < 16; i++)
+                    buf.push_back(entry.iv[i]);
+            }
+            return buf;
+        }
+
+        bool save(const String &root)
+        {
+            Buffer plain = serialize();
+            // CBC Padding
+            size_t pLen = plain.size();
+            size_t paddedLen = (pLen + 15) & ~15;
+            if (paddedLen == pLen)
+                paddedLen += 16;
+            uint8_t padVal = paddedLen - pLen;
+            for (size_t i = pLen; i < paddedLen; i++)
+                plain.push_back(padVal);
+
+            uint8_t iv[16];
+            CryptoHelper::getRandom(iv, 16);
+            Buffer enc(paddedLen);
+            mbedtls_aes_context aes;
+            mbedtls_aes_init(&aes);
+            mbedtls_aes_setkey_enc(&aes, masterKey, 256);
+            mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, paddedLen, iv, plain.data(), enc.data());
+            mbedtls_aes_free(&aes);
+
+            File f = SD.open(root + INDEX_FILE, FILE_WRITE);
+            if (!f)
+                return false;
+            f.write(iv, 16);
+            f.write(enc.data(), paddedLen);
+            f.close();
+            return true;
+        }
+
+        bool load(const String &root)
+        {
+            String path = root + INDEX_FILE;
+            if (!SD.exists(path))
+                return false;
+            File f = SD.open(path, FILE_READ);
+            if (!f || f.size() < 32)
+                return false;
+
+            uint8_t iv[16];
+            f.read(iv, 16);
+            size_t encSize = f.size() - 16;
+            Buffer enc(encSize);
+            f.read(enc.data(), encSize);
+            f.close();
+
+            Buffer plain(encSize);
+            mbedtls_aes_context aes;
+            mbedtls_aes_init(&aes);
+            mbedtls_aes_setkey_dec(&aes, masterKey, 256);
+            uint8_t ivCpy[16];
+            memcpy(ivCpy, iv, 16);
+            mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, encSize, ivCpy, enc.data(), plain.data());
+            mbedtls_aes_free(&aes);
+
+            uint8_t pad = plain[encSize - 1];
+            if (pad > 16)
+                return false;
+
+            fsIndex.clear();
+            size_t ptr = 4; // Skip count (handled in loop if needed)
+            uint32_t count;
+            memcpy(&count, plain.data(), 4);
+
+            for (uint32_t i = 0; i < count; i++)
+            {
+                uint16_t pl = plain[ptr] | (plain[ptr + 1] << 8);
+                ptr += 2;
+                String pStr = "";
+                for (int k = 0; k < pl; k++)
+                    pStr += (char)plain[ptr++];
+                FileEntry fe;
+                fe.isDir = (plain[ptr++] == 1);
+                memcpy(&fe.size, &plain[ptr], 4);
+                ptr += 4;
+                uint16_t phl = plain[ptr] | (plain[ptr + 1] << 8);
+                ptr += 2;
+                fe.physicalName = "";
+                for (int k = 0; k < phl; k++)
+                    fe.physicalName += (char)plain[ptr++];
+                memcpy(fe.iv, &plain[ptr], 16);
+                ptr += 16;
+                fsIndex[pStr] = fe;
+            }
+            return true;
+        }
+    }
+
+    // --- API Implementierung ---
+
+    void init(String rootFolder, String password)
+    {
+        rootPathStr = rootFolder;
+        if (rootPathStr.endsWith("/"))
+            rootPathStr.remove(rootPathStr.length() - 1);
+
+        mbedtls_entropy_init(&entropy);
+        mbedtls_ctr_drbg_init(&ctr_drbg);
+        mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, (const uint8_t *)"SEED", 4);
+
+        // PBKDF2 Fix: Context Setup
+        mbedtls_md_context_t m_ctx;
+        mbedtls_md_init(&m_ctx);
+        mbedtls_md_setup(&m_ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
+        String salt = "ENC_FS_SALT_V1";
+        mbedtls_pkcs5_pbkdf2_hmac(&m_ctx, (const uint8_t *)password.c_str(), password.length(),
+                                  (const uint8_t *)salt.c_str(), salt.length(),
+                                  g_kdfIterations, 32, masterKey);
+        mbedtls_md_free(&m_ctx);
+
+        if (!SD.exists(rootPathStr))
+            SD.mkdir(rootPathStr);
+        if (!SD.exists(rootPathStr + BLOBS_DIR))
+            SD.mkdir(rootPathStr + BLOBS_DIR);
+
+        IndexManager::load(rootPathStr);
+        isInitialized = true;
+    }
+
     Path str2Path(const String &s)
     {
         Path p;
-        if (s == "/" || s.length() == 0)
-            return p;
-        String tmp = s;
-        if (tmp.startsWith("/"))
-            tmp = tmp.substring(1);
-        if (tmp.endsWith("/"))
-            tmp = tmp.substring(0, tmp.length() - 1);
-        int start = 0;
-        while (start < (int)tmp.length())
+        int start = (s.startsWith("/") ? 1 : 0), end = s.indexOf('/', start);
+        while (end != -1)
         {
-            int idx = tmp.indexOf('/', start);
-            if (idx == -1)
-                idx = tmp.length();
-            String part = tmp.substring(start, idx);
-            if (part.length() > 0)
-                p.push_back(part);
-            start = idx + 1;
+            p.push_back(s.substring(start, end));
+            start = end + 1;
+            end = s.indexOf('/', start);
         }
+        if (start < s.length())
+            p.push_back(s.substring(start));
         return p;
     }
 
-    String path2Str(const Path &s)
+    String path2Str(const Path &p)
     {
-        if (s.empty())
-            return String("/");
-        String out = "";
-        for (size_t i = 0; i < s.size(); ++i)
+        String s = "/";
+        for (size_t i = 0; i < p.size(); i++)
         {
-            out += "/";
-            out += s[i];
+            s += p[i];
+            if (i < p.size() - 1)
+                s += "/";
         }
-        return out;
+        return s;
     }
 
-    static String canonicalPath(const Path &p)
-    {
-        return path2Str(p);
-    }
-
-    static void derivePathKey(const Path &p, uint8_t out32[32])
-    {
-        String c = canonicalPath(p);
-        if (s_master_key.size() != 32)
-        {
-            sha256((const uint8_t *)c.c_str(), c.length(), out32);
-            return;
-        }
-        hmac_sha256(s_master_key.data(), s_master_key.size(), (const uint8_t *)c.c_str(), c.length(), out32);
-    }
-
-    static String pathHashHex(const Path &p)
-    {
-        uint8_t h[32];
-        derivePathKey(p, h);
-        return toHex(h, 32);
-    }
-
-    // ---------- Fixed File Helpers ----------
-    static String ensureLeadingSlash(const String &p)
-    {
-        if (p.length() == 0)
-            return String("/");
-        if (p.startsWith("/"))
-            return p;
-        return String("/") + p;
-    }
-
-    static String nodeFilenameFor(const Path &p)
-    {
-        return ensureLeadingSlash(s_rootFolder) + "/" + pathHashHex(p) + ".node";
-    }
-    static String dataFilenameFor(const Path &p)
-    {
-        return ensureLeadingSlash(s_rootFolder) + "/" + pathHashHex(p) + ".data";
-    }
-    static String parityFilenameFor(const Path &p, size_t parityIndex)
-    {
-        char buf[32];
-        snprintf(buf, sizeof(buf), ".parity%u", (unsigned)parityIndex);
-        return ensureLeadingSlash(s_rootFolder) + "/" + pathHashHex(p) + String(buf);
-    }
-
-    // ---------- Metadata serialization ----------
-    static void put_uint16_le(Buffer &b, uint16_t v)
-    {
-        b.push_back((uint8_t)(v & 0xFF));
-        b.push_back((uint8_t)((v >> 8) & 0xFF));
-    }
-    static void put_uint32_le(Buffer &b, uint32_t v)
-    {
-        b.push_back((uint8_t)(v & 0xFF));
-        b.push_back((uint8_t)((v >> 8) & 0xFF));
-        b.push_back((uint8_t)((v >> 16) & 0xFF));
-        b.push_back((uint8_t)((v >> 24) & 0xFF));
-    }
-    static void put_uint64_le(Buffer &b, uint64_t v)
-    {
-        for (int i = 0; i < 8; ++i)
-            b.push_back((uint8_t)((v >> (8 * i)) & 0xFF));
-    }
-    static uint16_t get_uint16_le(const uint8_t *d) { return (uint16_t)d[0] | ((uint16_t)d[1] << 8); }
-    static uint32_t get_uint32_le(const uint8_t *d) { return (uint32_t)d[0] | ((uint32_t)d[1] << 8) | ((uint32_t)d[2] << 16) | ((uint32_t)d[3] << 24); }
-    static uint64_t get_uint64_le(const uint8_t *d)
-    {
-        uint64_t v = 0;
-        for (int i = 0; i < 8; ++i)
-            v |= ((uint64_t)d[i]) << (8 * i);
-        return v;
-    }
-
-    // ---------- Node file format ----------
-    static bool writeNode(const Path &p, bool isDir, uint64_t size, uint32_t chunkCount, const String &decryptedName, const Buffer &childrenPlain)
-    {
-        uint8_t path_key[32];
-        derivePathKey(p, path_key);
-
-        Buffer plain;
-        plain.push_back((uint8_t)(isDir ? 1 : 0));
-        put_uint64_le(plain, size);
-        put_uint32_le(plain, chunkCount);
-
-        uint16_t nameLen = (uint16_t)min((size_t)UINT16_MAX, (size_t)decryptedName.length());
-        put_uint16_le(plain, nameLen);
-        for (size_t i = 0; i < nameLen; ++i)
-            plain.push_back((uint8_t)decryptedName[i]);
-
-        uint32_t cLen = (uint32_t)childrenPlain.size();
-        put_uint32_le(plain, cLen);
-        plain.insert(plain.end(), childrenPlain.begin(), childrenPlain.end());
-
-        Buffer encrypted = aes256_cbc_encrypt(path_key, plain.data(), plain.size());
-
-        uint8_t h[32];
-        hmac_sha256(path_key, 32, encrypted.data(), encrypted.size(), h);
-
-        String fname = nodeFilenameFor(p);
-        if (fname.length() == 0 || !fname.startsWith("/"))
-            return false;
-
-        SD.remove(fname);
-        File f = SD.open(fname, FILE_WRITE);
-        if (!f)
-            return false;
-        size_t written = f.write(encrypted.data(), encrypted.size());
-        if (written != encrypted.size())
-        {
-            f.close();
-            return false;
-        }
-        written = f.write(h, 32);
-        f.close();
-        return written == 32;
-    }
-
-    // ---------- Other functions remain unchanged ----------
-    // readNode, writeDataAll, readDataAll, buildParityFiles, readFile, writeFile, deleteFile, etc.
-    // These should all now work without VFS errors because all filenames are absolute.
-
-    // read node file, returns true if success and fills out args
-    static bool readNode(const Path &p, bool &isDir, uint64_t &size, uint32_t &chunkCount, String &decryptedName, Buffer &childrenPlain)
-    {
-        String fname = nodeFilenameFor(p);
-        File f = SD.open(fname, FILE_READ);
-        if (!f)
-            return false;
-        size_t fsz = f.size();
-        if (fsz < 32 + 16)
-        {
-            f.close();
-            return false;
-        } // too small
-        // read entire file
-        Buffer all;
-        all.resize(fsz);
-        f.read(all.data(), fsz);
-        f.close();
-
-        // last 32 bytes = hmac
-        if (fsz < 32)
-            return false;
-        const uint8_t *hmac_in = all.data() + (fsz - 32);
-        size_t encrypted_len = fsz - 32;
-
-        uint8_t path_key[32];
-        derivePathKey(p, path_key);
-
-        // verify hmac
-        uint8_t hcalc[32];
-        hmac_sha256(path_key, 32, all.data(), encrypted_len, hcalc);
-        if (memcmp(hcalc, hmac_in, 32) != 0)
-            return false;
-
-        // decrypt encrypted part
-        Buffer plain;
-        if (!aes256_cbc_decrypt(path_key, all.data(), encrypted_len, plain))
-            return false;
-
-        // parse
-        const uint8_t *d = plain.data();
-        size_t pos = 0;
-        if (plain.size() < 1 + 8 + 4 + 2 + 4)
-            return false;
-        isDir = d[pos++] != 0;
-        size = (uint64_t)get_uint64_le(d + pos);
-        pos += 8;
-        chunkCount = get_uint32_le(d + pos);
-        pos += 4;
-        uint16_t nameLen = get_uint16_le(d + pos);
-        pos += 2;
-        if (pos + nameLen > plain.size())
-            return false;
-        decryptedName = "";
-        for (size_t i = 0; i < nameLen; ++i)
-            decryptedName += (char)d[pos + i];
-        pos += nameLen;
-        uint32_t cLen = get_uint32_le(d + pos);
-        pos += 4;
-        if (pos + cLen > plain.size())
-            return false;
-        childrenPlain.assign(d + pos, d + pos + cLen);
-        return true;
-    }
-
-    // ---------- Data chunk format ----------
-    /*
-       .data file is sequence of chunks:
-         [IV(16)][LENGTH(4 LE)][CIPHERTEXT(LENGTH bytes)]
-       Each chunk corresponds to original plaintext chunk of <= s_chunkSize.
-    */
-
-    // write a specific chunk index (overwrite location) -> we will implement append-only file for simplicity:
-    // For simplicity we rewrite the entire .data file on writeFile overwrite.
-    static bool writeDataAll(const Path &p, const std::vector<Buffer> &cipherChunks, const std::vector<Buffer> &ivChunks)
-    {
-        // cipherChunks[i] = ciphertext bytes (no IV)
-        // ivChunks[i] = IV bytes (16)
-        String fname = dataFilenameFor(p);
-        // ensure file replaced/truncated by removing first
-        SD.remove(fname);
-        File f = SD.open(fname, FILE_WRITE);
-        if (!f)
-            return false;
-        for (size_t i = 0; i < cipherChunks.size(); ++i)
-        {
-            if (ivChunks[i].size() != 16)
-            {
-                f.close();
-                return false;
-            }
-            if (f.write(ivChunks[i].data(), 16) != 16)
-            {
-                f.close();
-                return false;
-            }
-            uint32_t len = (uint32_t)cipherChunks[i].size();
-            uint8_t lenb[4] = {(uint8_t)(len & 0xff), (uint8_t)((len >> 8) & 0xff), (uint8_t)((len >> 16) & 0xff), (uint8_t)((len >> 24) & 0xff)};
-            if (f.write(lenb, 4) != 4)
-            {
-                f.close();
-                return false;
-            }
-            if (f.write(cipherChunks[i].data(), cipherChunks[i].size()) != (int)cipherChunks[i].size())
-            {
-                f.close();
-                return false;
-            }
-        }
-        f.close();
-        return true;
-    }
-
-    // read all chunks (returns vector of pair<iv, ciphertext>)
-    static bool readDataAll(const Path &p, std::vector<Buffer> &ivChunks, std::vector<Buffer> &cipherChunks)
-    {
-        String fname = dataFilenameFor(p);
-        File f = SD.open(fname, FILE_READ);
-        if (!f)
-            return false;
-        size_t fsz = f.size();
-        size_t pos = 0;
-        ivChunks.clear();
-        cipherChunks.clear();
-        while (pos + 16 + 4 <= fsz)
-        {
-            uint8_t iv[16];
-            if (f.read(iv, 16) != 16)
-            {
-                f.close();
-                return false;
-            }
-            pos += 16;
-            uint8_t lenb[4];
-            if (f.read(lenb, 4) != 4)
-            {
-                f.close();
-                return false;
-            }
-            pos += 4;
-            uint32_t len = get_uint32_le(lenb);
-            if (pos + len > fsz)
-            {
-                f.close();
-                return false;
-            }
-            Buffer c(len);
-            if (len > 0)
-            {
-                if (f.read(c.data(), len) != (int)len)
-                {
-                    f.close();
-                    return false;
-                }
-            }
-            pos += len;
-            Buffer ivb(iv, iv + 16);
-            ivChunks.push_back(ivb);
-            cipherChunks.push_back(c);
-        }
-        f.close();
-        return true;
-    }
-
-    // ---------- Parity handling (XOR) ----------
-    static void buildParityFiles(const Path &p, const std::vector<Buffer> &cipherChunks, const std::vector<Buffer> &ivChunks)
-    {
-        if (s_parityGroupSize < 2)
-            return;
-        size_t totalChunks = cipherChunks.size();
-        size_t groups = (totalChunks + s_parityGroupSize - 1) / s_parityGroupSize;
-        for (size_t g = 0; g < groups; ++g)
-        {
-            size_t start = g * s_parityGroupSize;
-            size_t end = std::min(start + s_parityGroupSize, totalChunks);
-            // compute max ciphertext length in group
-            size_t maxlen = 0;
-            for (size_t i = start; i < end; ++i)
-                if (cipherChunks[i].size() > maxlen)
-                    maxlen = cipherChunks[i].size();
-            // build parity buffers
-            Buffer parityiv(16, 0);
-            Buffer paritycipher(maxlen, 0);
-            for (size_t i = start; i < end; ++i)
-            {
-                // XOR IVs (pad if necessary)
-                for (size_t b = 0; b < 16; ++b)
-                    parityiv[b] ^= ivChunks[i][b];
-                // XOR ciphertexts (pad with zeros)
-                for (size_t b = 0; b < maxlen; ++b)
-                {
-                    uint8_t v = (b < cipherChunks[i].size()) ? cipherChunks[i][b] : 0;
-                    paritycipher[b] ^= v;
-                }
-            }
-            // write parity file
-            String fname = parityFilenameFor(p, g);
-            // ensure replaced/truncated by removing first
-            SD.remove(fname);
-            File f = SD.open(fname, FILE_WRITE);
-            if (!f)
-                continue;
-            // parity file: [IV(16)][LENGTH(4)][CIPHERTEXT]
-            f.write(parityiv.data(), 16);
-            uint32_t plen = (uint32_t)paritycipher.size();
-            uint8_t plenb[4] = {(uint8_t)(plen & 0xff), (uint8_t)((plen >> 8) & 0xff), (uint8_t)((plen >> 16) & 0xff), (uint8_t)((plen >> 24) & 0xff)};
-            f.write(plenb, 4);
-            if (plen > 0)
-                f.write(paritycipher.data(), paritycipher.size());
-            f.close();
-        }
-    }
-
-    // ---------- High-level file operations ----------
-    bool exists(const Path &p)
-    {
-        String fname = nodeFilenameFor(p);
-        return SD.exists(fname);
-    }
+    bool exists(const Path &p) { return fsIndex.count(path2Str(p)) > 0; }
 
     bool mkDir(const Path &p)
     {
-        if (exists(p))
+        String path = path2Str(p);
+        if (fsIndex.count(path))
             return true;
-        // create node file with empty children
-        Buffer empty;
-        return writeNode(p, true, 0, 0, p.empty() ? String("/") : p.back(), empty);
+        fsIndex[path] = {true, 0, "", {0}};
+        return IndexManager::save(rootPathStr);
     }
 
-    bool rmDir(const Path &p)
+    bool writeFile(const Path &p, long start, long end, const Buffer &data)
     {
-        if (!exists(p))
+        String path = path2Str(p);
+        FileEntry fe;
+        fe.isDir = false;
+        fe.size = data.size(); // Logische Größe fixieren
+        CryptoHelper::getRandom(fe.iv, 16);
+
+        uint8_t rnd[4];
+        CryptoHelper::getRandom(rnd, 4);
+        fe.physicalName = String(millis(), HEX) + String(rnd[0], HEX) + ".dat";
+
+        Buffer enc = data;
+        CryptoHelper::aesCtr(masterKey, fe.iv, 0, enc.data(), enc.size());
+
+        File f = SD.open(rootPathStr + BLOBS_DIR + "/" + fe.physicalName, FILE_WRITE);
+        if (!f)
             return false;
-        // remove node, data, parity files
-        String n = nodeFilenameFor(p);
-        SD.remove(n);
-        SD.remove(dataFilenameFor(p));
-        // remove parity files possible
-        for (size_t i = 0; i < 64; ++i)
-        {
-            String pn = parityFilenameFor(p, i);
-            if (!SD.exists(pn))
-                break;
-            SD.remove(pn);
-        }
-        return true;
+        f.write(enc.data(), enc.size());
+        f.close();
+
+        if (fsIndex.count(path))
+            SD.remove(rootPathStr + BLOBS_DIR + "/" + fsIndex[path].physicalName);
+        fsIndex[path] = fe;
+        return IndexManager::save(rootPathStr);
+    }
+
+    Buffer readFile(const Path &p, long start, long end)
+    {
+        String path = path2Str(p);
+        Buffer res;
+        if (!fsIndex.count(path))
+            return res;
+        FileEntry fe = fsIndex[path];
+
+        if (start < 0)
+            start = 0;
+        if (end < 0 || end >= fe.size)
+            end = fe.size - 1;
+        if (start > end)
+            return res;
+
+        size_t len = end - start + 1;
+        res.resize(len);
+        File f = SD.open(rootPathStr + BLOBS_DIR + "/" + fe.physicalName, FILE_READ);
+        if (!f)
+            return res;
+        f.seek(start);
+        f.read(res.data(), len);
+        f.close();
+
+        CryptoHelper::aesCtr(masterKey, fe.iv, start, res.data(), len);
+        return res;
     }
 
     long getFileSize(const Path &p)
     {
-        Metadata md = getMetadata(p);
-        return md.size;
+        String path = path2Str(p);
+        return fsIndex.count(path) ? fsIndex[path].size : -1;
     }
 
-    Metadata getMetadata(const Path &p)
+    bool deleteFile(const Path &p)
     {
-        Metadata m;
-        m.size = -1;
-        m.encryptedName = "";
-        m.decryptedName = "";
-        m.isDirectory = false;
-        if (!exists(p))
-            return m;
-        bool isDir = false;
-        uint64_t size = 0;
-        uint32_t chunkCount = 0;
-        String name;
-        Buffer children;
-        if (!readNode(p, isDir, size, chunkCount, name, children))
-            return m;
-        m.size = (long)size;
-        m.decryptedName = name;
-        m.encryptedName = pathHashHex(p);
-        m.isDirectory = isDir;
-        return m;
+        String path = path2Str(p);
+        if (!fsIndex.count(path))
+            return false;
+        if (!fsIndex[path].isDir)
+            SD.remove(rootPathStr + BLOBS_DIR + "/" + fsIndex[path].physicalName);
+        fsIndex.erase(path);
+        return IndexManager::save(rootPathStr);
     }
 
     std::vector<String> readDir(const Path &plainDir)
     {
-        std::vector<String> out;
-        if (!exists(plainDir))
-            return out;
-        bool isDir = false;
-        uint64_t size = 0;
-        uint32_t chunkCount = 0;
-        String name;
-        Buffer children;
-        if (!readNode(plainDir, isDir, size, chunkCount, name, children))
-            return out;
-        // children blob is a simple newline-separated list for this implementation:
-        String s;
-        s.reserve(children.size() + 1);
-        for (auto c : children)
-            s += (char)c;
-        int start = 0;
-        while (start < (int)s.length())
+        String d = path2Str(plainDir);
+        if (!d.endsWith("/"))
+            d += "/";
+        std::vector<String> res;
+        for (auto const &[path, entry] : fsIndex)
         {
-            int idx = s.indexOf('\n', start);
-            if (idx == -1)
-                idx = s.length();
-            String line = s.substring(start, idx);
-            if (line.length() > 0)
-                out.push_back(line);
-            start = idx + 1;
+            if (path.startsWith(d) && path != d)
+            {
+                String sub = path.substring(d.length());
+                if (sub.indexOf('/') == -1)
+                    res.push_back(sub);
+            }
         }
-        return out;
+        return res;
     }
 
-    void lsDirSerial(const Path &plainDir)
-    {
-        auto v = readDir(plainDir);
-        for (auto &s : v)
-            Serial.println(s);
-    }
-
-    // Storage helpers (namespace function requested)
+    // --- Storage Integration ---
     Path storagePath(const String &appId, const String &key)
     {
         Path p;
-        p.push_back(String("programms"));
+        p.push_back("programms");
         p.push_back(appId);
-        p.push_back(String("data"));
-        p.push_back(Crypto::HASH::sha256String(key) + ".data");
+        p.push_back("data");
+        p.push_back(CryptoHelper::sha256(key) + ".data");
         return p;
     }
 
     namespace Storage
     {
-        Buffer get(const String &appId, const String &key, long start, long end)
+        Buffer get(const String &app, const String &key, long s, long e) { return readFile(ENC_FS::storagePath(app, key), s, e); }
+        bool del(const String &app, const String &key) { return deleteFile(ENC_FS::storagePath(app, key)); }
+        bool set(const String &app, const String &key, const Buffer &data)
         {
-            Path p = storagePath(appId, key);
-            return ENC_FS::readFile(p, start, end);
-        }
-        bool del(const String &appId, const String &key)
-        {
-            Path p = storagePath(appId, key);
-            return ENC_FS::deleteFile(p);
-        }
-        bool set(const String &appId, const String &key, const Buffer &data)
-        {
-            Path p = storagePath(appId, key);
-            // write whole file
-            return ENC_FS::writeFile(p, 0, -1, data);
-        }
-    }
-
-    // copy from SPIFFS to ENC_FS path
-    void copyFileFromSPIFFS(const char *spiffsPath, const Path &sdPath)
-    {
-        // assume SPIFFS has been initialized elsewhere (SPIFFS.begin())
-        File sf = SPIFFS.open(spiffsPath, FILE_READ);
-        if (!sf)
-            return;
-        size_t sz = sf.size();
-        Buffer buf;
-        buf.resize(sz);
-        sf.read(buf.data(), sz);
-        sf.close();
-        writeFile(sdPath, 0, -1, buf);
-    }
-
-    // readFile implementation (reads specified byte range)
-    Buffer readFile(const Path &p, long start, long end)
-    {
-        Buffer out;
-        if (!exists(p))
-            return out;
-        Metadata md = getMetadata(p);
-        if (md.size < 0)
-            return out;
-        uint64_t fsize = (uint64_t)md.size;
-        if (end == -1 || end >= (long)fsize)
-            end = (long)fsize - 1;
-        if (start < 0)
-            start = 0;
-        if (start > end)
-            return out;
-        // compute needed chunks
-        size_t chunkSize = s_chunkSize;
-        size_t firstChunk = start / chunkSize;
-        size_t lastChunk = end / chunkSize;
-        std::vector<Buffer> ivChunks, cipherChunks;
-        if (!readDataAll(p, ivChunks, cipherChunks))
-            return out;
-        // sanity: ensure chunks cover
-        size_t available = cipherChunks.size();
-        if (available == 0)
-            return out;
-        uint8_t path_key[32];
-        derivePathKey(p, path_key);
-        for (size_t ci = firstChunk; ci <= lastChunk && ci < available; ++ci)
-        {
-            // reconstruct chunk input = IV||ciphertext -> decrypt to plaintext
-            // need to assemble: IV || ciphertext
-            Buffer in;
-            in.reserve(16 + cipherChunks[ci].size());
-            in.insert(in.end(), ivChunks[ci].begin(), ivChunks[ci].end());
-            in.insert(in.end(), cipherChunks[ci].begin(), cipherChunks[ci].end());
-            Buffer plain;
-            if (!aes256_cbc_decrypt(path_key, in.data(), in.size(), plain))
+            Path p = ENC_FS::storagePath(app, key);
+            Path cur;
+            for (size_t i = 0; i < p.size() - 1; i++)
             {
-                // Try parity recovery (simple)
-                // locate parity group
-                size_t group = ci / s_parityGroupSize;
-                String pfn = parityFilenameFor(p, group);
-                if (!SD.exists(pfn))
-                    continue;
-                // try to reconstruct using parity
-                File pf = SD.open(pfn, FILE_READ);
-                if (!pf)
-                    continue;
-                uint8_t piv[16];
-                pf.read(piv, 16);
-                uint8_t plenb[4];
-                pf.read(plenb, 4);
-                uint32_t plen = get_uint32_le(plenb);
-                Buffer pbuf(plen);
-                if (plen > 0)
-                    pf.read(pbuf.data(), plen);
-                pf.close();
-                // reconstruct ciphertext and IV by XOR of parity with others
-                Buffer recon_iv(16, 0), recon_cipher(plen, 0);
-                // parity ^ XOR(other chunks) = missing chunk
-                for (size_t b = 0; b < 16; ++b)
-                    recon_iv[b] = piv[b];
-                for (size_t b = 0; b < plen; ++b)
-                    recon_cipher[b] = (b < pbuf.size()) ? pbuf[b] : 0;
-                size_t startIdx = group * s_parityGroupSize;
-                for (size_t j = startIdx; j < startIdx + s_parityGroupSize; ++j)
-                {
-                    if (j == ci)
-                        continue;
-                    if (j < ivChunks.size())
-                    {
-                        for (size_t b = 0; b < 16; ++b)
-                            recon_iv[b] ^= ivChunks[j][b];
-                        for (size_t b = 0; b < plen; ++b)
-                        {
-                            uint8_t v = (b < cipherChunks[j].size()) ? cipherChunks[j][b] : 0;
-                            recon_cipher[b] ^= v;
-                        }
-                    }
-                }
-                // attempt decrypt reconstructed
-                Buffer inr;
-                inr.reserve(16 + recon_cipher.size());
-                inr.insert(inr.end(), recon_iv.begin(), recon_iv.end());
-                inr.insert(inr.end(), recon_cipher.begin(), recon_cipher.end());
-                if (!aes256_cbc_decrypt(path_key, inr.data(), inr.size(), plain))
-                    continue; // give up this chunk
+                cur.push_back(p[i]);
+                if (!exists(cur))
+                    mkDir(cur);
             }
-
-            // determine byte range to take from this chunk
-            long chunkStart = (long)ci * (long)chunkSize;
-            long takeFrom = max<long>(start, chunkStart);
-            long takeTo = min<long>(end, chunkStart + (long)plain.size() - 1);
-            if (takeFrom > takeTo)
-                continue;
-            size_t ofs = (size_t)(takeFrom - chunkStart);
-            size_t len = (size_t)(takeTo - takeFrom + 1);
-            size_t old = out.size();
-            out.resize(old + len);
-            memcpy(out.data() + old, plain.data() + ofs, len);
+            return writeFile(p, 0, -1, data);
         }
-        return out;
     }
 
-    Buffer readFilePart(const Path &p, long start, long end)
-    {
-        return readFile(p, start, end);
-    }
-
+    // --- Stubs & Helpers ---
+    Buffer readFilePart(const Path &p, long s, long e) { return readFile(p, s, e); }
     String readFileString(const Path &p)
     {
-        Buffer b = readFile(p, 0, -1);
-        String s;
-        s.reserve(b.size() + 1);
-        for (auto c : b)
+        Buffer b = readFile(p);
+        String s = "";
+        for (uint8_t c : b)
             s += (char)c;
         return s;
     }
-
-    // writeFile: write data starting at byte offset 'start'. If end == -1 -> write entire provided data as replacement starting at start.
-    // For simplicity: if start==0 and end==-1 -> overwrite file with data
-    bool writeFile(const Path &p, long start, long end, const Buffer &data)
-    {
-        // ensure parent dir exists (no enforced hierarchy in this simplified version)
-        // read existing content if partial write
-        Buffer existing;
-        Metadata md = getMetadata(p);
-        if (md.size >= 0)
-        {
-            existing = readFile(p, 0, -1);
-        }
-        if (start < 0)
-            start = 0;
-        if (end != -1 && end < (long)start)
-            end = -1;
-        Buffer newdata;
-        if (start == 0 && end == -1)
-        {
-            newdata = data; // replace
-        }
-        else
-        {
-            // merge into existing
-            size_t needed = std::max(existing.size(), (size_t)start + data.size());
-            newdata.resize(needed, 0);
-            // copy existing into newdata
-            if (!existing.empty())
-                memcpy(newdata.data(), existing.data(), existing.size());
-            // copy provided data
-            memcpy(newdata.data() + start, data.data(), data.size());
-        }
-
-        // split into chunks, encrypt each chunk deterministically
-        uint8_t path_key[32];
-        derivePathKey(p, path_key);
-        std::vector<Buffer> cipherChunks;
-        std::vector<Buffer> ivChunks;
-
-        size_t total = newdata.size();
-        size_t nchunks = (total + s_chunkSize - 1) / s_chunkSize;
-        for (size_t i = 0; i < nchunks; ++i)
-        {
-            size_t ofs = i * s_chunkSize;
-            size_t len = std::min(s_chunkSize, total - ofs);
-            Buffer plain(len);
-            memcpy(plain.data(), newdata.data() + ofs, len);
-            // encrypt using aes256_cbc_encrypt which prepends IV
-            Buffer enc = aes256_cbc_encrypt(path_key, plain.data(), plain.size());
-            // split into iv + ciphertext
-            if (enc.size() < 16)
-                return false;
-            Buffer iv(enc.begin(), enc.begin() + 16);
-            Buffer cipher(enc.begin() + 16, enc.end());
-            ivChunks.push_back(iv);
-            cipherChunks.push_back(cipher);
-        }
-
-        // write data file
-        if (!writeDataAll(p, cipherChunks, ivChunks))
-            return false;
-
-        // build parity files
-        buildParityFiles(p, cipherChunks, ivChunks);
-
-        // build children list (for directory parent handling we'd need to update parent; for simplicity we don't maintain parent lists)
-        Buffer childrenPlain; // empty
-
-        // write node metadata
-        bool isDir = false;
-        uint64_t size = newdata.size();
-        uint32_t chunkCount = (uint32_t)nchunks;
-        String name = p.empty() ? String("/") : p.back();
-        return writeNode(p, isDir, size, chunkCount, name, childrenPlain);
-    }
-
-    bool appendFile(const Path &p, const Buffer &data)
-    {
-        Metadata md = getMetadata(p);
-        long start = 0;
-        if (md.size > 0)
-            start = md.size;
-        return writeFile(p, start, -1, data);
-    }
-
     bool writeFileString(const Path &p, const String &s)
     {
         Buffer b(s.length());
         memcpy(b.data(), s.c_str(), s.length());
         return writeFile(p, 0, -1, b);
     }
-
-    bool deleteFile(const Path &p)
+    bool appendFile(const Path &p, const Buffer &data) { return false; } // Simplified
+    void lsDirSerial(const Path &p)
     {
-        if (!exists(p))
-            return false;
-        String n = nodeFilenameFor(p);
-        SD.remove(n);
-        SD.remove(dataFilenameFor(p));
-        // remove parity files possible
-        for (size_t i = 0; i < 64; ++i)
-        {
-            String pn = parityFilenameFor(p, i);
-            if (!SD.exists(pn))
-                break;
-            SD.remove(pn);
-        }
-        return true;
+        for (auto f : readDir(p))
+            Serial.println(" - " + f);
     }
-
-    // init: setup rootFolder and derive master_key from password
-    void init(String rootFolder, String password)
+    void setKdfIterations(uint32_t it) { g_kdfIterations = it; }
+    void setChunkSize(size_t s) {}
+    void setParityGroupSize(size_t s) {}
+    void copyFileFromSPIFFS(const char *sp, const Path &sd) {}
+    Metadata getMetadata(const Path &p)
     {
-        if (rootFolder.length() > 0)
-            s_rootFolder = rootFolder;
-        // ensure root folder exists on SD
-        if (!SD.exists(s_rootFolder))
-        {
-            SD.mkdir(s_rootFolder);
-        }
-        // derive master key by iterated SHA256 (simple KDF)
-        // Warning: the number of iterations should be tuned to require ~1s on the target device.
-        uint8_t buf[32];
-        // initial seed = sha256(password)
-        sha256((const uint8_t *)password.c_str(), password.length(), buf);
-        for (uint32_t i = 0; i < s_kdfIterations; ++i)
-        {
-            sha256(buf, 32, buf);
-        }
-        s_master_key.assign(buf, buf + 32);
+        Metadata m = {getFileSize(p), "", p.empty() ? "" : p.back(), false};
+        return m;
     }
+    bool rmDir(const Path &p) { return deleteFile(p); }
 
-    // tuning setters
-    void setChunkSize(size_t bytes) { s_chunkSize = bytes; }
-    void setParityGroupSize(size_t g)
-    {
-        if (g >= 2)
-            s_parityGroupSize = g;
-    }
-    void setKdfIterations(uint32_t it) { s_kdfIterations = it; }
-}
+} // namespace ENC_FS

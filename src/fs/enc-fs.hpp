@@ -51,6 +51,7 @@ namespace ENC_FS
     void lsDirSerial(const Path &plainDir);
 
     // storagePath as specified by the user
+    // to path { programms, appId, data, CryptoHelper::sha256(key) + ".data" }
     Path storagePath(const String &appId, const String &key);
 
     namespace Storage
