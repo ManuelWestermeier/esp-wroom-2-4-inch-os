@@ -1,0 +1,248 @@
+ENC_FS – Virtuelles, verschlüsseltes Dateisystem für ESP32
+==================================================
+
+1. Überblick
+------------
+ENC_FS ist ein virtuelles Dateisystem für den ESP32, das auf dem normalen
+SD.h-Dateisystem aufsetzt. Es stellt eine sichere, verschlüsselte und
+fehlertolerante Abstraktionsschicht bereit, ohne selbst ein Block-Device
+zu implementieren.
+
+Alle Daten liegen physisch unter:
+    /{rootFolder}/
+
+Virtuell existiert jedoch ein vollständiger Dateibaum mit Root "/".
+
+Ziele:
+- Keine Metadaten-Leaks (Namen, Struktur, Größen)
+- Starke Verschlüsselung (AES-256)
+- Integritätsprüfung (HMAC-SHA256)
+- Fehlerkorrektur (XOR-Parity)
+- ESP32-performant
+- High-Level API
+
+
+2. Virtuelle Pfade
+------------------
+Intern arbeitet ENC_FS ausschließlich mit virtuellen Pfaden:
+
+    using Path = std::vector<String>;
+
+Beispiel:
+    "/desktop/folder/x.txt"
+    -> Path({"desktop", "folder", "x.txt"})
+
+Hilfsfunktionen:
+- Path str2Path(const String&)
+- String path2Str(const Path&)
+
+Der virtuelle Root ist:
+- als Path: {}
+- als String: "/"
+
+Physisch existiert keine echte Ordnerstruktur.
+
+
+3. Physische Speicherung
+------------------------
+Jeder virtuelle Pfad wird deterministisch auf einen Hash abgebildet.
+
+Physische Dateien:
+- <hash>.node     -> Metadaten (verschlüsselt)
+- <hash>.data     -> Dateiinhalte (Chunk-basiert)
+- <hash>.parityX  -> Fehlerkorrektur
+
+Der Hash ist:
+    HMAC_SHA256(path_key, canonical_path)
+
+Ohne Passwort ist keine Zuordnung möglich.
+
+
+4. Schlüsselarchitektur
+-----------------------
+
+4.1 Master-Key
+--------------
+Beim Aufruf von init(rootFolder, password):
+
+- Das Passwort wird iterativ mit SHA256 gehasht
+- Ziel: ~1 Sekunde Rechenzeit auf dem ESP32
+- Ergebnis: master_key (256 Bit)
+- Passwort wird danach nicht mehr benötigt
+
+Eigenschaften:
+- Brute-Force-resistent
+- Einmalige Kosten
+- Danach sehr schnell
+
+
+4.2 Pfad-spezifische Schlüssel
+------------------------------
+Für jeden Pfad:
+
+    path_key = HMAC_SHA256(master_key, canonical_path)
+
+Eigenschaften:
+- Jede Datei / jeder Ordner hat einen eigenen Schlüssel
+- Kein Schlüssel-Reuse
+- Kompromittierung eines Schlüssels gefährdet keine anderen Dateien
+
+
+5. Verschlüsselung
+------------------
+- Algorithmus: AES-256-CBC
+- Padding: PKCS7
+- Jeder Chunk besitzt ein eigenes IV
+- IV wird niemals wiederverwendet
+
+Warum CBC:
+- Gut unterstützt auf ESP32 (mbedTLS)
+- Geringer Speicherbedarf
+- Sicher bei korrekter IV-Nutzung
+
+
+6. Metadaten (.node)
+--------------------
+Jede Datei und jeder Ordner besitzt genau eine .node-Datei.
+
+Inhalt (logisch):
+- Typ (Datei / Ordner)
+- Größe
+- Chunk-Anzahl
+- Verschlüsseltes Metadaten-Blob
+- HMAC-SHA256
+
+Alles außer einem minimalen Header ist verschlüsselt.
+
+Ordner-Metadaten enthalten:
+- Liste der Kinder (Name, Typ, Größe)
+- Komplett verschlüsselt
+
+
+7. Dateiinhalte (.data)
+-----------------------
+Dateien werden in feste Chunks (z.B. 4 KiB) zerlegt.
+
+Format pro Chunk:
+    [IV][LENGTH][CIPHERTEXT]
+
+Eigenschaften:
+- Teilweises Lesen möglich
+- Keine Muster erkennbar
+- Keine Klartextlängen-Leaks
+
+
+8. Fehlerkorrektur (.parityX)
+-----------------------------
+Für jeweils N Chunks wird ein XOR-Parity-Block erzeugt.
+
+Beispiel:
+    parity = chunk0 XOR chunk1 XOR chunk2 XOR chunk3
+
+Ermöglicht:
+- Wiederherstellung eines defekten Chunks pro Gruppe
+
+Schützt gegen:
+- Bitfehler
+- SD-Karten-Sektorfehler
+- Teilweise Dateikorruption
+
+Sehr geringe CPU- und Speicher-Kosten.
+
+
+9. Integrität & Manipulationsschutz
+-----------------------------------
+Für jede .node-Datei:
+
+    HMAC_SHA256(path_key, IV || encrypted_meta)
+
+Beim Lesen:
+- HMAC wird neu berechnet
+- Abweichung -> Datei ungültig
+
+Schützt gegen:
+- Manipulation
+- Bitflips
+- Replay-Angriffe
+
+
+10. Verzeichnislogik
+--------------------
+Ordner existieren nur virtuell.
+
+Physisch:
+- Keine echten Unterordner
+- Keine Klartext-Namen
+
+Virtuell:
+- Ordner enthalten verschlüsselte Kinderlisten
+- readDir() entschlüsselt diese im RAM
+
+
+11. API-Design
+--------------
+Alle Funktionen arbeiten ausschließlich mit virtuellen Pfaden.
+
+Initialisierung:
+- init(rootFolder, password)
+
+Verzeichnisse:
+- createDir()
+- readDir()
+- deleteDir()
+
+Dateien:
+- writeFile()
+- readFile()
+- writeFilePart()
+- readFilePart()
+- deleteFile()
+
+Abfragen:
+- exists()
+- info()
+
+Ziel:
+- Einfach nutzbar
+- Keine Kryptografie-Kenntnisse nötig
+- Klare Fehlercodes
+
+
+12. Sicherheitsmodell
+---------------------
+Angreifer hat:
+- Vollzugriff auf SD-Karte
+
+Angreifer sieht:
+- Zufällige Dateinamen
+- Verschlüsselte Daten
+- Keine Struktur
+
+Angreifer kann nicht:
+- Dateien entschlüsseln
+- Namen erraten
+- Struktur rekonstruieren
+- Gültige Dateien fälschen
+
+DoS durch Löschen ist möglich, aber unvermeidbar.
+
+
+13. Performance
+---------------
+- init(): teuer, einmalig (< 2s)
+- Laufzeit:
+  - AES + HMAC pro Chunk
+  - Linearer Durchsatz
+  - Für ESP32 optimiert
+
+Geeignet für:
+- Große Dateien
+- Embedded-Systeme
+- Sicherheitskritische Anwendungen
+
+
+14. Kurzfassung
+---------------
+ENC_FS ist ein hochsicheres, verschlüsseltes, fehlertolerantes
+virtuelles Dateisystem für den ESP32, das keinerlei Metadaten im Klartext
+leakt und dennoch eine einfache, klassische Dateisystem-API bietet.

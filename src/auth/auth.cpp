@@ -2,6 +2,7 @@
 
 #include "../sys-apps/designer.hpp"
 #include "../styles/global.hpp"
+#include "../fs/enc-fs.hpp"
 
 namespace Auth
 {
@@ -32,6 +33,7 @@ namespace Auth
             username = Crypto::HASH::sha256String(user);
             password = Crypto::HASH::sha256String(pass);
             name = user;
+            ENC_FS::init(user, path);
             applyColorPalette();
             return true;
         }
@@ -103,6 +105,7 @@ namespace Auth
         username = Crypto::HASH::sha256String(user);
         name = user;
         password = Crypto::HASH::sha256String(pass);
+        ENC_FS::init(user, authFile);
 
         // Bildschirm mit Hintergrundfarbe füllen
         Screen::tft.fillScreen(BG);
