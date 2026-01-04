@@ -25,5 +25,6 @@ namespace Crypto
     namespace HASH
     {
         String sha256String(const String &text);
+        String sha256StringMul(const String &text, const int it);
     }
 }

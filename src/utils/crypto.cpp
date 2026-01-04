@@ -112,5 +112,36 @@ namespace Crypto
 
             return out;
         }
+
+        inline char hexChar(uint8_t c)
+        {
+            return c < 10 ? ('0' + c) : ('a' + (c - 10));
+        }
+
+        String sha256StringMul(const String &text, const int it)
+        {
+            if (it <= 0)
+                return text;
+
+            std::vector<uint8_t> buffer(text.begin(), text.end()); // input buffer
+            uint8_t hash[32];
+
+            for (int iteration = 0; iteration < it; ++iteration)
+            {
+                mbedtls_sha256(buffer.data(), buffer.size(), hash, 0);
+
+                buffer.assign(hash, hash + 32); // Ergebnis als Input für nächste Iteration
+            }
+
+            // Jetzt erst in Hex konvertieren
+            char hexOutput[64];
+            for (int i = 0; i < 32; ++i)
+            {
+                hexOutput[i * 2] = hexChar(buffer[i] >> 4);
+                hexOutput[i * 2 + 1] = hexChar(buffer[i] & 0x0F);
+            }
+
+            return String(hexOutput, 64);
+        }
     }
 }

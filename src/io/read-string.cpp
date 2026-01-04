@@ -167,9 +167,9 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
 
     if (mode == KbMode::LOWER || mode == KbMode::UPPER)
     {
-        const char *r1 = (mode == KbMode::UPPER) ? "QWERTYUIOP" : "qwertyuiop";
+        const char *r1 = (mode == KbMode::UPPER) ? "QWERTYUIOP" : "qwertzuiop";
         const char *r2 = (mode == KbMode::UPPER) ? "ASDFGHJKL" : "asdfghjkl";
-        const char *r3 = (mode == KbMode::UPPER) ? "ZXCVBNM" : "zxcvbnm";
+        const char *r3 = (mode == KbMode::UPPER) ? "ZXCVBNM" : "yxcvbnm";
 
         // Row 1
         addRow(String(r1), y);

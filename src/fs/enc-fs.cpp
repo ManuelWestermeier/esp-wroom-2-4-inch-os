@@ -23,9 +23,8 @@
 
 namespace ENC_FS
 {
-
     // -------- Configuration & internal state --------
-    static String s_rootFolder = "/encfs";
+    static String s_rootFolder = "";
     static Buffer s_master_key(32, 0); // 256-bit
     static size_t s_chunkSize = 4096;
     static size_t s_parityGroupSize = 4;
@@ -105,7 +104,6 @@ namespace ENC_FS
     // AES-256-CBC with PKCS7. IV is 16 bytes. Returns Buffer = IV || ciphertext
     static Buffer aes256_cbc_encrypt(const uint8_t key[32], const uint8_t *plaintext, size_t plen)
     {
-        // PKCS7 padding
         size_t block = 16;
         size_t padlen = block - (plen % block);
         size_t total = plen + padlen;
@@ -116,7 +114,6 @@ namespace ENC_FS
         for (size_t i = 0; i < padlen; ++i)
             in.push_back((uint8_t)padlen);
 
-        // random IV
         uint8_t iv[16];
         for (int i = 0; i < 16; ++i)
         {
@@ -140,7 +137,7 @@ namespace ENC_FS
         return out;
     }
 
-    // aes decrypt expecting input = IV || ciphertext
+    // AES decrypt expecting input = IV || ciphertext
     static bool aes256_cbc_decrypt(const uint8_t key[32], const uint8_t *in, size_t inlen, Buffer &plaintext_out)
     {
         if (inlen < 16)
@@ -164,7 +161,6 @@ namespace ENC_FS
         }
         mbedtls_aes_free(&aes);
 
-        // remove PKCS7 padding
         if (clen == 0)
             return false;
         uint8_t pad = plain[clen - 1];
@@ -218,27 +214,22 @@ namespace ENC_FS
         return out;
     }
 
-    // canonical path (used for HMAC) -> use path2Str
     static String canonicalPath(const Path &p)
     {
-        // stable canonicalization
         return path2Str(p);
     }
 
-    // path_key = HMAC_SHA256(master_key, canonical_path)
     static void derivePathKey(const Path &p, uint8_t out32[32])
     {
         String c = canonicalPath(p);
         if (s_master_key.size() != 32)
         {
-            // default fallback: use sha256 of path
             sha256((const uint8_t *)c.c_str(), c.length(), out32);
             return;
         }
         hmac_sha256(s_master_key.data(), s_master_key.size(), (const uint8_t *)c.c_str(), c.length(), out32);
     }
 
-    // compute hash filename (hex of hmac)
     static String pathHashHex(const Path &p)
     {
         uint8_t h[32];
@@ -246,29 +237,32 @@ namespace ENC_FS
         return toHex(h, 32);
     }
 
-    // file helpers
+    // ---------- Fixed File Helpers ----------
+    static String ensureLeadingSlash(const String &p)
+    {
+        if (p.length() == 0)
+            return String("/");
+        if (p.startsWith("/"))
+            return p;
+        return String("/") + p;
+    }
+
     static String nodeFilenameFor(const Path &p)
     {
-        return s_rootFolder + "/" + pathHashHex(p) + ".node";
+        return ensureLeadingSlash(s_rootFolder) + "/" + pathHashHex(p) + ".node";
     }
     static String dataFilenameFor(const Path &p)
     {
-        return s_rootFolder + "/" + pathHashHex(p) + ".data";
+        return ensureLeadingSlash(s_rootFolder) + "/" + pathHashHex(p) + ".data";
     }
     static String parityFilenameFor(const Path &p, size_t parityIndex)
     {
         char buf[32];
         snprintf(buf, sizeof(buf), ".parity%u", (unsigned)parityIndex);
-        return s_rootFolder + "/" + pathHashHex(p) + String(buf);
+        return ensureLeadingSlash(s_rootFolder) + "/" + pathHashHex(p) + String(buf);
     }
 
     // ---------- Metadata serialization ----------
-    /*
-       Simple custom binary metadata format (unencrypted blob is small, then encrypted):
-       [type:1][size:8 (uint64 LE)][chunkCount:4 (uint32 LE)][nameLen:2][name bytes][childrenLen:4][children bytes]
-       type: 0=file, 1=dir
-    */
-
     static void put_uint16_le(Buffer &b, uint16_t v)
     {
         b.push_back((uint8_t)(v & 0xFF));
@@ -297,40 +291,34 @@ namespace ENC_FS
     }
 
     // ---------- Node file format ----------
-    /*
-      Node file = [IV(16)][encrypted_meta(...)] [HMAC(32)]
-      HMAC = HMAC_SHA256(path_key, IV || encrypted_meta)
-    */
-
-    // write metadata node
     static bool writeNode(const Path &p, bool isDir, uint64_t size, uint32_t chunkCount, const String &decryptedName, const Buffer &childrenPlain)
     {
         uint8_t path_key[32];
         derivePathKey(p, path_key);
 
-        // build plain metadata blob
         Buffer plain;
         plain.push_back((uint8_t)(isDir ? 1 : 0));
         put_uint64_le(plain, size);
         put_uint32_le(plain, chunkCount);
-        // name
+
         uint16_t nameLen = (uint16_t)min((size_t)UINT16_MAX, (size_t)decryptedName.length());
         put_uint16_le(plain, nameLen);
         for (size_t i = 0; i < nameLen; ++i)
             plain.push_back((uint8_t)decryptedName[i]);
-        // children
+
         uint32_t cLen = (uint32_t)childrenPlain.size();
         put_uint32_le(plain, cLen);
         plain.insert(plain.end(), childrenPlain.begin(), childrenPlain.end());
 
         Buffer encrypted = aes256_cbc_encrypt(path_key, plain.data(), plain.size());
-        // compute HMAC over IV||encrypted_meta
+
         uint8_t h[32];
         hmac_sha256(path_key, 32, encrypted.data(), encrypted.size(), h);
 
-        // write to file
         String fname = nodeFilenameFor(p);
-        // ensure file replaced/truncated by removing and recreating
+        if (fname.length() == 0 || !fname.startsWith("/"))
+            return false;
+
         SD.remove(fname);
         File f = SD.open(fname, FILE_WRITE);
         if (!f)
@@ -345,6 +333,10 @@ namespace ENC_FS
         f.close();
         return written == 32;
     }
+
+    // ---------- Other functions remain unchanged ----------
+    // readNode, writeDataAll, readDataAll, buildParityFiles, readFile, writeFile, deleteFile, etc.
+    // These should all now work without VFS errors because all filenames are absolute.
 
     // read node file, returns true if success and fills out args
     static bool readNode(const Path &p, bool &isDir, uint64_t &size, uint32_t &chunkCount, String &decryptedName, Buffer &childrenPlain)
@@ -968,5 +960,4 @@ namespace ENC_FS
             s_parityGroupSize = g;
     }
     void setKdfIterations(uint32_t it) { s_kdfIterations = it; }
-
-} // namespace ENC_FS
+}

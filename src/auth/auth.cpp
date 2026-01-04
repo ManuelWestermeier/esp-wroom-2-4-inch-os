@@ -4,6 +4,8 @@
 #include "../styles/global.hpp"
 #include "../fs/enc-fs.hpp"
 
+#define HASH_IT 30000
+
 namespace Auth
 {
     String username = "";
@@ -14,7 +16,7 @@ namespace Auth
     {
         if (user.isEmpty())
             return false;
-        String path = "/" + Crypto::HASH::sha256String(user);
+        String path = "/" + Crypto::HASH::sha256StringMul(user, HASH_IT);
         return SD_FS::exists(path);
     }
 
@@ -25,15 +27,15 @@ namespace Auth
         if (!exists(user))
             return false;
 
-        String path = "/" + Crypto::HASH::sha256String(user) + "/" +
-                      Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
+        String path = "/" + Crypto::HASH::sha256StringMul(user, HASH_IT) + "/" +
+                      Crypto::HASH::sha256StringMul(user + "\n" + pass, HASH_IT) + ".auth";
 
         if (SD_FS::exists(path))
         {
-            username = Crypto::HASH::sha256String(user);
-            password = Crypto::HASH::sha256String(pass);
+            username = Crypto::HASH::sha256StringMul(user, HASH_IT);
+            password = Crypto::HASH::sha256StringMul(pass, HASH_IT);
             name = user;
-            ENC_FS::init(user, path);
+            ENC_FS::init("/" + username, path);
             applyColorPalette();
             return true;
         }
@@ -93,19 +95,19 @@ namespace Auth
         if (exists(user))
             return false;
 
-        String userDir = "/" + Crypto::HASH::sha256String(user);
+        String userDir = "/" + Crypto::HASH::sha256StringMul(user, HASH_IT);
         if (!SD_FS::createDir(userDir))
             return false;
         userDir += "/";
 
-        String authFile = userDir + Crypto::HASH::sha256String(user + "\n" + pass) + ".auth";
+        String authFile = userDir + Crypto::HASH::sha256StringMul(user + "\n" + pass, HASH_IT) + ".auth";
         if (!SD_FS::writeFile(authFile, "AUTH"))
             return false;
 
-        username = Crypto::HASH::sha256String(user);
+        username = Crypto::HASH::sha256StringMul(user, HASH_IT);
         name = user;
-        password = Crypto::HASH::sha256String(pass);
-        ENC_FS::init(user, authFile);
+        password = Crypto::HASH::sha256StringMul(pass, HASH_IT);
+        ENC_FS::init("/" + username, authFile);
 
         // Bildschirm mit Hintergrundfarbe füllen
         Screen::tft.fillScreen(BG);
