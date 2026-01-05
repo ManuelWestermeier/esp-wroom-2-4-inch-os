@@ -11,6 +11,7 @@
 #include <vector>
 #include <SD.h>
 #include <FS.h>
+#include <SPIFFS.h>
 
 namespace ENC_FS
 {
@@ -65,9 +66,6 @@ namespace ENC_FS
 
     void init(String rootFolder, String password);
 
-    // Advanced / tuning
-    void setChunkSize(size_t bytes);    // default 4 KiB
-    void setParityGroupSize(size_t g);  // default 4
     void setKdfIterations(uint32_t it); // iterations for password -> master_key (dangerous to change at runtime)
 
 } // namespace ENC_FS
