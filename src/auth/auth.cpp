@@ -2,7 +2,6 @@
 
 #include "../sys-apps/designer.hpp"
 #include "../styles/global.hpp"
-#include "../fs/enc-fs.hpp"
 
 #define HASH_IT 30000
 
@@ -35,7 +34,6 @@ namespace Auth
             username = Crypto::HASH::sha256StringMul(user, HASH_IT);
             password = Crypto::HASH::sha256StringMul(pass, HASH_IT);
             name = user;
-            ENC_FS::init("/" + username, path);
             applyColorPalette();
             return true;
         }
@@ -107,7 +105,6 @@ namespace Auth
         username = Crypto::HASH::sha256StringMul(user, HASH_IT);
         name = user;
         password = Crypto::HASH::sha256StringMul(pass, HASH_IT);
-        ENC_FS::init("/" + username, authFile);
 
         // Bildschirm mit Hintergrundfarbe füllen
         Screen::tft.fillScreen(BG);

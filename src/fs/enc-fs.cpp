@@ -1,170 +1,112 @@
 #include "enc-fs.hpp"
 
-#include <Arduino.h>
-#include <SD.h>
-#include <mbedtls/gcm.h>
-#include <mbedtls/md.h>
-#include <mbedtls/pkcs5.h>
 #include <mbedtls/sha256.h>
+#include <mbedtls/aes.h>
 #include <esp_system.h>
+#include "../auth/auth.hpp"
+#include <cstring>
+#include <cctype>
 
 namespace ENC_FS
 {
-
-    static String g_rootFolder;
-    static uint8_t g_masterKey[32];
-    static uint8_t g_salt[16];
-    static uint32_t g_kdfIterations = 20000; // reasonable default for ESP32
-
     // ---------- Helpers ----------
 
-    static void random_bytes(uint8_t *buf, size_t len)
+    Buffer sha256(const String &s)
     {
-        size_t i = 0;
-        while (i < len)
-        {
-            uint32_t r = esp_random();
-            for (int b = 0; b < 4 && i < len; ++b)
-            {
-                buf[i++] = (r >> (8 * b)) & 0xFF;
-            }
-        }
+        Buffer out(32);
+        mbedtls_sha256_context ctx;
+        mbedtls_sha256_init(&ctx);
+        mbedtls_sha256_starts_ret(&ctx, 0); // SHA-256
+        mbedtls_sha256_update_ret(&ctx, (const unsigned char *)s.c_str(), s.length());
+        mbedtls_sha256_finish_ret(&ctx, out.data());
+        mbedtls_sha256_free(&ctx);
+        return out;
     }
 
-    static String hexEncode(const uint8_t *data, size_t len)
+    void pkcs7_pad(Buffer &b)
+    {
+        const size_t B = 16;
+        size_t pad = B - (b.size() % B);
+        if (pad == 0)
+            pad = B;
+        b.insert(b.end(), pad, (uint8_t)pad);
+    }
+
+    bool pkcs7_unpad(Buffer &b)
+    {
+        if (b.empty())
+            return false;
+        uint8_t p = b.back();
+        if (p == 0 || p > 16 || p > b.size())
+            return false;
+        size_t n = b.size();
+        for (size_t i = 0; i < p; ++i)
+            if (b[n - 1 - i] != p)
+                return false;
+        b.resize(n - p);
+        return true;
+    }
+
+    // ---------- Hex encode/decode (used instead of base64url for robustness) ----------
+    // We keep the function names base64url_encode/decode to match the header.
+
+    static inline char nibble_to_hex(uint8_t n)
     {
         static const char hex[] = "0123456789abcdef";
-        String s;
-        s.reserve(len * 2);
+        return hex[n & 0xF];
+    }
+
+    String base64url_encode(const uint8_t *data, size_t len)
+    {
+        // hex encoding: 2 chars per byte
+        String out;
+        out.reserve(len * 2);
         for (size_t i = 0; i < len; ++i)
         {
-            s += hex[(data[i] >> 4) & 0xF];
-            s += hex[data[i] & 0xF];
+            uint8_t b = data[i];
+            out += nibble_to_hex(b >> 4);
+            out += nibble_to_hex(b & 0x0F);
         }
-        return s;
+        return out;
     }
 
-    static void hexDecode(const String &s, uint8_t *out, size_t outLen)
+    static inline int hexval(char c)
     {
-        size_t len = s.length();
-        size_t pos = 0;
-        for (size_t i = 0; i + 1 < len && pos < outLen; i += 2)
-        {
-            char a = s[i];
-            char b = s[i + 1];
-            auto val = [](char c) -> uint8_t
-            {
-                if (c >= '0' && c <= '9')
-                    return c - '0';
-                if (c >= 'a' && c <= 'f')
-                    return c - 'a' + 10;
-                if (c >= 'A' && c <= 'F')
-                    return c - 'A' + 10;
-                return 0;
-            };
-            out[pos++] = (val(a) << 4) | val(b);
-        }
+        if (c >= '0' && c <= '9')
+            return c - '0';
+        if (c >= 'a' && c <= 'f')
+            return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F')
+            return c - 'A' + 10;
+        return -1;
     }
 
-    // HMAC-SHA256 (deterministic encrypted names)
-    static void hmac_sha256(const uint8_t *key, size_t keylen, const uint8_t *msg, size_t msglen, uint8_t out[32])
+    bool base64url_decode(const String &s, Buffer &out)
     {
-        const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-        mbedtls_md_context_t ctx;
-        mbedtls_md_init(&ctx);
-        if (mbedtls_md_setup(&ctx, md_info, 1) == 0)
-        {
-            mbedtls_md_hmac_starts(&ctx, key, keylen);
-            mbedtls_md_hmac_update(&ctx, msg, msglen);
-            mbedtls_md_hmac_finish(&ctx, out);
-        }
-        else
-        {
-            memset(out, 0, 32);
-        }
-        mbedtls_md_free(&ctx);
-    }
-
-    // PBKDF2-SHA256: derive master key from password and salt
-    static bool derive_master_key(const String &password, const uint8_t salt[16], uint32_t iterations, uint8_t outKey[32])
-    {
-        mbedtls_md_context_t md_ctx;
-        const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-        mbedtls_md_init(&md_ctx);
-        if (mbedtls_md_setup(&md_ctx, md_info, 1) != 0)
-        {
-            mbedtls_md_free(&md_ctx);
+        size_t L = s.length();
+        if (L % 2 != 0)
             return false;
-        }
-        int rc = mbedtls_pkcs5_pbkdf2_hmac(&md_ctx,
-                                           (const unsigned char *)password.c_str(), password.length(),
-                                           salt, 16,
-                                           (unsigned int)iterations,
-                                           (uint32_t)32, outKey);
-        mbedtls_md_free(&md_ctx);
-        return rc == 0;
-    }
-
-    // AES-GCM encrypt/decrypt
-    static bool aes_gcm_encrypt(const uint8_t *key, const uint8_t *plaintext, size_t plen,
-                                uint8_t **out_ciphertext, size_t *out_len,
-                                uint8_t nonce[12], uint8_t tag[16])
-    {
-        mbedtls_gcm_context gcm;
-        mbedtls_gcm_init(&gcm);
-        if (mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, 256) != 0)
+        size_t bytes = L / 2;
+        out.clear();
+        out.resize(bytes);
+        for (size_t i = 0; i < bytes; ++i)
         {
-            mbedtls_gcm_free(&gcm);
-            return false;
+            int hi = hexval(s.charAt(i * 2));
+            int lo = hexval(s.charAt(i * 2 + 1));
+            if (hi < 0 || lo < 0)
+                return false;
+            out[i] = (uint8_t)((hi << 4) | lo);
         }
-        random_bytes(nonce, 12);
-        uint8_t *cipher = (uint8_t *)malloc(plen);
-        if (!cipher)
-        {
-            mbedtls_gcm_free(&gcm);
-            return false;
-        }
-        if (mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT,
-                                      plen, nonce, 12,
-                                      nullptr, 0,
-                                      plaintext, cipher, 16, tag) != 0)
-        {
-            free(cipher);
-            mbedtls_gcm_free(&gcm);
-            return false;
-        }
-        *out_ciphertext = cipher;
-        *out_len = plen;
-        mbedtls_gcm_free(&gcm);
         return true;
     }
 
-    static bool aes_gcm_decrypt(const uint8_t *key, const uint8_t *ciphertext, size_t clen,
-                                const uint8_t nonce[12], const uint8_t tag[16],
-                                uint8_t **out_plaintext)
+    Buffer deriveKey()
     {
-        mbedtls_gcm_context gcm;
-        mbedtls_gcm_init(&gcm);
-        if (mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, 256) != 0)
-        {
-            mbedtls_gcm_free(&gcm);
-            return false;
-        }
-        uint8_t *plain = (uint8_t *)malloc(clen + 1);
-        if (!plain)
-        {
-            mbedtls_gcm_free(&gcm);
-            return false;
-        }
-        if (mbedtls_gcm_auth_decrypt(&gcm, clen, nonce, 12, nullptr, 0, tag, 16, ciphertext, plain) != 0)
-        {
-            free(plain);
-            mbedtls_gcm_free(&gcm);
-            return false;
-        }
-        *out_plaintext = plain;
-        mbedtls_gcm_free(&gcm);
-        return true;
+        String in = Auth::username + String(":") + Auth::password;
+        Buffer h = sha256(in); // 32 bytes
+        Buffer key(32);
+        memcpy(key.data(), h.data(), 32);
+        return key;
     }
 
     // ---------- Path helpers ----------
@@ -172,399 +114,329 @@ namespace ENC_FS
     Path str2Path(const String &s)
     {
         Path p;
-        if (s.length() == 0)
+        if (s.length() == 0 || s == "/")
             return p;
-        String tmp = s;
-        if (tmp[0] == '/')
-            tmp = tmp.substring(1);
-        int start = 0;
-        for (int i = 0; i <= tmp.length(); ++i)
+        String t = s;
+        while (t.startsWith("/"))
+            t = t.substring(1);
+        while (t.endsWith("/"))
+            t = t.substring(0, t.length() - 1);
+        if (t.length() == 0)
+            return p;
+        int idx = 0;
+        while (idx < t.length())
         {
-            if (i == tmp.length() || tmp[i] == '/')
+            int j = t.indexOf('/', idx);
+            if (j == -1)
             {
-                String part = tmp.substring(start, i);
-                if (part.length() > 0)
-                    p.push_back(part);
-                start = i + 1;
+                p.push_back(t.substring(idx));
+                break;
             }
+            p.push_back(t.substring(idx, j));
+            idx = j + 1;
         }
+        if (!p.empty() && p[0] == Auth::username)
+            p.erase(p.begin());
         return p;
     }
 
-    String path2Str(const Path &s)
+    String path2Str(const Path &p)
     {
-        String out = "/";
-        for (size_t i = 0; i < s.size(); ++i)
-        {
-            out += s[i];
-            if (i + 1 < s.size())
-                out += "/";
-        }
+        String out = p.size() ? "" : "/";
+        for (const String &part : p)
+            out += "/" + part;
         return out;
     }
 
-    // Convert a plain directory path to physical encrypted SD path
-    static String encryptedDirPath(const Path &plainDir)
-    {
-        if (plainDir.empty()) // root folder
-            return g_rootFolder;
+    // ---------- Robust segment encryption/decryption (hex + AES-ECB + 2-byte length) ----------
+    // Plain: [2-byte BE length][data bytes], padded with zeros to 16B blocks.
+    // Ciphertext encoded using hex (2 chars per byte).
 
-        String cur = g_rootFolder;
-        for (const auto &part : plainDir)
+    String encryptSegment(const String &seg)
+    {
+        Buffer key = deriveKey();
+
+        // length (big-endian) + data
+        size_t L = seg.length();
+        if (L > 0xFFFF)
+            L = 0xFFFF; // truncate if absurdly long
+
+        Buffer in;
+        in.reserve(2 + L);
+        in.push_back((uint8_t)((L >> 8) & 0xFF));
+        in.push_back((uint8_t)(L & 0xFF));
+        for (size_t i = 0; i < L; ++i)
+            in.push_back((uint8_t)seg[i]);
+
+        // pad with zeros to 16 bytes
+        size_t rem = in.size() % 16;
+        if (rem != 0)
         {
-            uint8_t mac[32];
-            hmac_sha256(g_masterKey, sizeof(g_masterKey), (const uint8_t *)part.c_str(), part.length(), mac);
-            String enc = hexEncode(mac, 16);
-            cur += "/" + enc;
+            size_t pad = 16 - rem;
+            in.insert(in.end(), pad, 0x00);
         }
-        return cur;
+
+        if (in.empty())
+            return String("");
+
+        mbedtls_aes_context aes;
+        mbedtls_aes_init(&aes);
+        if (mbedtls_aes_setkey_enc(&aes, key.data(), 256) != 0)
+        {
+            mbedtls_aes_free(&aes);
+            return String("");
+        }
+
+        Buffer outbuf;
+        outbuf.resize(in.size());
+        uint8_t in_block[16];
+        uint8_t out_block[16];
+
+        for (size_t off = 0; off < in.size(); off += 16)
+        {
+            memcpy(in_block, in.data() + off, 16);
+            mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, in_block, out_block);
+            memcpy(outbuf.data() + off, out_block, 16);
+        }
+
+        mbedtls_aes_free(&aes);
+
+        return base64url_encode(outbuf.data(), outbuf.size()); // hex string
     }
 
-    // metadata file path inside a directory
-    static String metaFilePathForDir(const String &encDir)
+    bool decryptSegment(const String &enc, String &outSeg)
     {
-        return encDir + "/.meta";
-    }
+        Buffer key = deriveKey();
+        Buffer encbuf;
+        if (!base64url_decode(enc, encbuf))
+            return false;
+        if (encbuf.empty())
+        {
+            outSeg = String("");
+            return true;
+        }
+        if (encbuf.size() % 16 != 0)
+            return false;
 
-    // metadata format (plaintext before encryption): line-based entries:
-    // encName|nameHex|isDir|size\n
-
-    static String encodeNameHex(const String &name)
-    {
-        // convert UTF8 String to bytes and hex encode
-        const char *c = name.c_str();
-        size_t l = strlen(c);
-        return hexEncode((const uint8_t *)c, l);
-    }
-
-    static String decodeNameHex(const String &hex)
-    {
-        size_t len = hex.length() / 2;
-        uint8_t *buf = (uint8_t *)malloc(len + 1);
-        hexDecode(hex, buf, len);
-        buf[len] = 0;
-        String s((const char *)buf);
-        free(buf);
-        return s;
-    }
-
-    struct DirEntryPlain
-    {
-        String encName;
-        String name;
-        bool isDir;
-        long size;
-    };
-
-    static std::vector<DirEntryPlain> readDirMeta(const String &encDir)
-    {
-        std::vector<DirEntryPlain> ret;
-        String metaPath = metaFilePathForDir(encDir);
-        if (!SD.exists(metaPath))
-            return ret; // empty
-        File f = SD.open(metaPath, FILE_READ);
-        if (!f)
-            return ret;
-        // read encrypted blob
-        size_t total = f.size();
-        if (total < 12 + 16)
+        mbedtls_aes_context aes;
+        mbedtls_aes_init(&aes);
+        if (mbedtls_aes_setkey_dec(&aes, key.data(), 256) != 0)
         {
-            f.close();
-            return ret;
-        }
-        uint8_t nonce[12];
-        if (f.read(nonce, 12) != 12)
-        {
-            f.close();
-            return ret;
-        }
-        size_t cipherlen = total - 12 - 16;
-        uint8_t *cipher = (uint8_t *)malloc(cipherlen);
-        if (f.read(cipher, cipherlen) != (int)cipherlen)
-        {
-            free(cipher);
-            f.close();
-            return ret;
-        }
-        uint8_t tag[16];
-        if (f.read(tag, 16) != 16)
-        {
-            free(cipher);
-            f.close();
-            return ret;
-        }
-        f.close();
-        uint8_t *plain;
-        if (!aes_gcm_decrypt(g_masterKey, cipher, cipherlen, nonce, tag, &plain))
-        {
-            free(cipher);
-            return ret; // decryption failed -> treat directory as empty
-        }
-        free(cipher);
-        String pdata((char *)plain, cipherlen); // decrypted content
-        free(plain);
-        // parse lines
-        int start = 0;
-        for (int i = 0; i <= pdata.length(); ++i)
-        {
-            if (i == pdata.length() || pdata[i] == '\n')
-            {
-                String line = pdata.substring(start, i);
-                start = i + 1;
-                if (line.length() == 0)
-                    continue;
-                int p1 = line.indexOf('|');
-                int p2 = line.indexOf('|', p1 + 1);
-                int p3 = line.indexOf('|', p2 + 1);
-                if (p1 < 0 || p2 < 0 || p3 < 0)
-                    continue;
-                DirEntryPlain e;
-                e.encName = line.substring(0, p1);
-                String nameHex = line.substring(p1 + 1, p2);
-                e.name = decodeNameHex(nameHex);
-                e.isDir = line.substring(p2 + 1, p3) == "1";
-                e.size = line.substring(p3 + 1).toInt();
-                ret.push_back(e);
-            }
-        }
-        return ret;
-    }
-
-    static bool writeDirMeta(const String &encDir, const std::vector<DirEntryPlain> &entries)
-    {
-        // build plaintext meta
-        String pdata;
-        for (const auto &e : entries)
-        {
-            pdata += e.encName + "|" + encodeNameHex(e.name) + "|" + (e.isDir ? "1" : "0") + "|" + String(e.size) + "\n";
-        }
-        // encrypt
-        uint8_t *cipher = nullptr;
-        size_t cipherlen = 0;
-        uint8_t nonce[12];
-        uint8_t tag[16];
-        if (!aes_gcm_encrypt(g_masterKey, (const uint8_t *)pdata.c_str(), pdata.length(), &cipher, &cipherlen, nonce, tag))
-        {
+            mbedtls_aes_free(&aes);
             return false;
         }
-        String metaPath = metaFilePathForDir(encDir);
-        File f = SD.open(metaPath, FILE_WRITE);
-        if (!f)
+
+        Buffer ptxt;
+        ptxt.resize(encbuf.size());
+        uint8_t in_block[16];
+        uint8_t out_block[16];
+
+        for (size_t off = 0; off < encbuf.size(); off += 16)
         {
-            free(cipher);
+            memcpy(in_block, encbuf.data() + off, 16);
+            mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_DECRYPT, in_block, out_block);
+            memcpy(ptxt.data() + off, out_block, 16);
+        }
+
+        mbedtls_aes_free(&aes);
+
+        if (ptxt.size() < 2)
             return false;
-        }
-        f.write(nonce, 12);
-        f.write(cipher, cipherlen);
-        f.write(tag, 16);
-        f.close();
-        free(cipher);
-        return true;
-    }
+        uint16_t len = ((uint16_t)ptxt[0] << 8) | (uint16_t)ptxt[1];
+        if ((size_t)len > ptxt.size() - 2)
+            return false;
 
-    // Ensure directory exists on SD (encrypted path). Also create .meta if not exists.
-    static bool ensureEncryptedDirExists(const String &encDir)
-    {
-        if (!SD.exists(encDir))
-        {
-            // create the directory itself
-            if (!SD.mkdir(encDir))
-                return false;
-        }
-
-        // check .meta
-        String metaPath = metaFilePathForDir(encDir);
-        if (!SD.exists(metaPath))
-        {
-            std::vector<DirEntryPlain> emptyEntries;
-            if (!writeDirMeta(encDir, emptyEntries))
-                return false;
-        }
+        outSeg.clear();
+        outSeg.reserve(len);
+        for (size_t i = 0; i < len; ++i)
+            outSeg += (char)ptxt[2 + i];
 
         return true;
     }
 
-    // Find entry in directory metadata by plain name
-    static bool findEntryInDir(const String &encDir, const String &plainName, DirEntryPlain &out)
+    String joinEncPath(const Path &plain)
     {
-        auto entries = readDirMeta(encDir);
-        for (auto &e : entries)
+        String r = "/";
+        r += Auth::username;
+        for (size_t i = 0; i < plain.size(); ++i)
         {
-            if (e.name == plainName)
-            {
-                out = e;
-                return true;
-            }
+            r += "/";
+            r += encryptSegment(plain[i]);
         }
-        return false;
+        return r;
     }
 
-    // Add or update entry
-    static bool upsertEntryInDir(const String &encDir, const DirEntryPlain &entry)
+    // ---------- AES-CTR for file contents (unchanged) ----------
+
+    Buffer aes_ctr_crypt_full(const Buffer &in)
     {
-        auto entries = readDirMeta(encDir);
-        bool found = false;
-        for (auto &e : entries)
-        {
-            if (e.encName == entry.encName)
-            {
-                e = entry;
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-            entries.push_back(entry);
-        return writeDirMeta(encDir, entries);
+        Buffer key = deriveKey();
+        Buffer out;
+        out.resize(in.size());
+
+        mbedtls_aes_context aes;
+        mbedtls_aes_init(&aes);
+        mbedtls_aes_setkey_enc(&aes, key.data(), 256);
+
+        size_t nc_off = 0;
+        uint8_t nonce_counter[16];
+        memset(nonce_counter, 0, sizeof(nonce_counter));
+        uint8_t stream_block[16];
+        memset(stream_block, 0, sizeof(stream_block));
+
+        mbedtls_aes_crypt_ctr(&aes, in.size(), &nc_off, nonce_counter, stream_block, in.data(), out.data());
+        mbedtls_aes_free(&aes);
+        return out;
     }
 
-    static bool removeEntryInDir(const String &encDir, const String &encName)
+    Buffer aes_ctr_crypt_offset(const Buffer &in, size_t offset)
     {
-        auto entries = readDirMeta(encDir);
-        bool changed = false;
-        std::vector<DirEntryPlain> newe;
-        for (auto &e : entries)
+        Buffer key = deriveKey();
+        Buffer out;
+        out.resize(in.size());
+        mbedtls_aes_context aes;
+        mbedtls_aes_init(&aes);
+        mbedtls_aes_setkey_enc(&aes, key.data(), 256);
+
+        size_t block_pos = offset / 16;
+        size_t block_off = offset % 16;
+        size_t remaining = in.size();
+        size_t written = 0;
+
+        uint8_t counter[16];
+        uint8_t keystream[16];
+
+        while (remaining)
         {
-            if (e.encName == encName)
+            memset(counter, 0, sizeof(counter));
+            uint64_t bp = (uint64_t)block_pos;
+            for (int i = 0; i < 8; i++)
             {
-                changed = true;
-                continue;
+                counter[15 - i] = bp & 0xFF;
+                bp >>= 8;
             }
-            newe.push_back(e);
+            mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, counter, keystream);
+
+            for (size_t i = block_off; i < 16 && remaining; ++i)
+            {
+                out[written] = in[written] ^ keystream[i];
+                ++written;
+                --remaining;
+            }
+            block_off = 0;
+            ++block_pos;
         }
-        if (!changed)
-            return false;
-        return writeDirMeta(encDir, newe);
+
+        mbedtls_aes_free(&aes);
+        return out;
     }
 
-    // ---------- API ----------
-
+    // ---------- API (unchanged) ----------
     bool exists(const Path &p)
     {
-        if (p.empty())
-            return SD.exists(g_rootFolder);
-        Path dir = p;
-        String filename = dir.back();
-        dir.pop_back();
-        String encDir = encryptedDirPath(dir);
-        DirEntryPlain e;
-        return findEntryInDir(encDir, filename, e);
+        String full = joinEncPath(p);
+        return SD.exists(full.c_str());
     }
 
     bool mkDir(const Path &p)
     {
-        if (p.empty())
-            return false;
-        Path dir = p;
-        String newName = dir.back();
-        dir.pop_back();
-        String parentEnc = encryptedDirPath(dir);
-        if (!ensureEncryptedDirExists(parentEnc))
-            return false;
-        // compute encName
-        uint8_t mac[32];
-        hmac_sha256(g_masterKey, sizeof(g_masterKey), (const uint8_t *)newName.c_str(), newName.length(), mac);
-        String enc = hexEncode(mac, 16);
-        String newDirPath = parentEnc + "/" + enc;
-        if (!SD.exists(newDirPath))
+        String accum = "/";
+        accum += Auth::username;
+        for (size_t i = 0; i < p.size(); ++i)
         {
-            if (!SD.mkdir(newDirPath))
-                return false;
+            accum += "/";
+            accum += encryptSegment(p[i]);
+            if (!SD.exists(accum.c_str()))
+                SD.mkdir(accum.c_str());
         }
-        DirEntryPlain e;
-        e.encName = enc;
-        e.name = newName;
-        e.isDir = true;
-        e.size = 0;
-        if (!upsertEntryInDir(parentEnc, e))
-            return false;
-        // create meta in the new dir as well
-        if (!ensureEncryptedDirExists(newDirPath))
-            return false;
         return true;
     }
 
     bool rmDir(const Path &p)
     {
-        if (p.empty())
+        String full = joinEncPath(p);
+        Serial.printf("[rmDir] Called for path: %s\n", full.c_str());
+
+        if (!SD.exists(full.c_str()))
+        {
+            Serial.printf("[rmDir] Path does not exist: %s\n", full.c_str());
             return false;
-        Path dir = p;
-        String name = dir.back();
-        dir.pop_back();
-        String encParent = encryptedDirPath(dir);
-        DirEntryPlain e;
-        if (!findEntryInDir(encParent, name, e))
-            return false;
-        if (!e.isDir)
-            return false;
-        String encFull = encParent + "/" + e.encName;
-        // simple remove: only if empty (no .meta entries)
-        auto childEntries = readDirMeta(encFull);
-        if (!childEntries.empty())
-            return false;
-        // remove directory
-        if (!SD.rmdir(encFull))
-            return false;
-        if (!removeEntryInDir(encParent, e.encName))
-            return false;
-        return true;
+        }
+
+        File f = SD.open(full.c_str());
+        if (!f)
+        {
+            Serial.printf("[rmDir] Failed to open, attempting remove(): %s\n", full.c_str());
+            bool res = SD.remove(full.c_str());
+            Serial.printf("[rmDir] Remove result: %d\n", res);
+            return res;
+        }
+
+        if (!f.isDirectory())
+        {
+            Serial.printf("[rmDir] Not a directory, removing file: %s\n", full.c_str());
+            f.close();
+            bool res = SD.remove(full.c_str());
+            Serial.printf("[rmDir] File remove result: %d\n", res);
+            return res;
+        }
+
+        Serial.printf("[rmDir] Directory found, cleaning contents...\n");
+        File entry = f.openNextFile();
+        while (entry)
+        {
+            String en = String(entry.name());
+            Serial.printf("[rmDir] Found entry: %s\n", en.c_str());
+
+            if (entry.isDirectory())
+            {
+                Serial.printf("[rmDir] Entry is directory, recursing via SD_FS::deleteDir()\n");
+                bool res = SD_FS::deleteDir(en);
+                Serial.printf("[rmDir] SD_FS::deleteDir('%s') => %d\n", en.c_str(), res);
+            }
+            else
+            {
+                bool res = SD.remove(en.c_str());
+                Serial.printf("[rmDir] Removed file %s => %d\n", en.c_str(), res);
+            }
+
+            entry.close();
+            entry = f.openNextFile();
+        }
+
+        f.close();
+        Serial.printf("[rmDir] Directory empty, attempting to remove folder itself: %s\n", full.c_str());
+
+        bool res = SD_FS::deleteDir(full);
+        Serial.printf("[rmDir] Final SD_FS::deleteDir('%s') => %d\n", full.c_str(), res);
+
+        return res;
     }
 
     Buffer readFilePart(const Path &p, long start, long end)
     {
         Buffer empty;
-        if (p.empty())
-            return empty;
-        Path dir = p;
-        String name = dir.back();
-        dir.pop_back();
-        String encDir = encryptedDirPath(dir);
-        DirEntryPlain e;
-        if (!findEntryInDir(encDir, name, e))
-            return empty;
-        if (e.isDir)
-            return empty;
-        String filePath = encDir + "/" + e.encName + ".data";
-        if (!SD.exists(filePath))
-            return empty;
-        File f = SD.open(filePath, FILE_READ);
+        String full = joinEncPath(p);
+        File f = SD.open(full.c_str(), FILE_READ);
         if (!f)
             return empty;
-        size_t total = f.size();
-        if (total < 12 + 16)
-        {
-            f.close();
-            return empty;
-        }
-        uint8_t nonce[12];
-        f.read(nonce, 12);
-        size_t cipherlen = total - 12 - 16;
-        uint8_t *cipher = (uint8_t *)malloc(cipherlen);
-        f.read(cipher, cipherlen);
-        uint8_t tag[16];
-        f.read(tag, 16);
-        f.close();
-        uint8_t *plain;
-        if (!aes_gcm_decrypt(g_masterKey, cipher, cipherlen, nonce, tag, &plain))
-        {
-            free(cipher);
-            return empty;
-        }
-        free(cipher);
-        long plen = cipherlen; // plaintext length equals cipherlen
+        long fsize = f.size();
+        if (end <= 0 || end > fsize)
+            end = fsize;
         if (start < 0)
             start = 0;
-        if (end < 0 || end > plen)
-            end = plen;
-        if (start >= end)
-        {
-            free(plain);
-            return empty;
-        }
-        Buffer out;
-        out.resize(end - start);
-        memcpy(out.data(), plain + start, end - start);
-        free(plain);
+        if (start > end)
+            start = end;
+        long len = end - start;
+        Buffer cbuf;
+        cbuf.resize(len);
+        f.seek(start);
+        int got = f.read(cbuf.data(), len);
+        f.close();
+        if (got <= 0)
+            return Buffer();
+        cbuf.resize(got);
+        Buffer out = aes_ctr_crypt_offset(cbuf, (size_t)start);
         return out;
     }
 
@@ -575,245 +447,163 @@ namespace ENC_FS
 
     String readFileString(const Path &p)
     {
-        auto buf = readFile(p);
-        if (buf.empty())
-            return String();
-        String s;
-        s.reserve(buf.size());
-        for (size_t i = 0; i < buf.size(); ++i)
-            s += (char)buf[i];
-        return s;
+        Buffer b = readFile(p, 0, -1);
+        if (b.empty())
+            return String("");
+        return String((const char *)b.data(), b.size());
     }
 
     bool writeFile(const Path &p, long start, long end, const Buffer &data)
     {
-        if (p.empty())
-            return false;
+        String full = joinEncPath(p);
 
-        Path dir = p;
-        String name = dir.back();
-        dir.pop_back();
-
-        String encDir = encryptedDirPath(dir);
-        if (!ensureEncryptedDirExists(encDir))
-            return false;
-
-        uint8_t mac[32];
-        hmac_sha256(g_masterKey, sizeof(g_masterKey), (const uint8_t *)name.c_str(), name.length(), mac);
-        String enc = hexEncode(mac, 16);
-        String filePath = encDir + "/" + enc + ".data";
-
-        // read existing file if present
-        DirEntryPlain e;
-        Buffer oldPlain;
-        if (findEntryInDir(encDir, name, e) && !e.isDir)
+        String accum = "/";
+        accum += Auth::username;
+        for (size_t i = 0; i + 1 < p.size(); ++i)
         {
-            String existingPath = encDir + "/" + e.encName + ".data";
-            File ef = SD.open(existingPath, FILE_READ);
-            if (ef)
-            {
-                size_t total = ef.size();
-                if (total >= 12 + 16)
-                {
-                    uint8_t nonce[12];
-                    ef.read(nonce, 12);
-                    size_t cipherlen = total - 12 - 16;
-                    uint8_t *cipher = (uint8_t *)malloc(cipherlen);
-                    ef.read(cipher, cipherlen);
-                    uint8_t tag[16];
-                    ef.read(tag, 16);
-                    ef.close();
-
-                    uint8_t *plain = nullptr;
-                    if (aes_gcm_decrypt(g_masterKey, cipher, cipherlen, nonce, tag, &plain))
-                    {
-                        oldPlain.resize(cipherlen);
-                        memcpy(oldPlain.data(), plain, cipherlen);
-                        free(plain);
-                    }
-                    free(cipher);
-                }
-                else
-                    ef.close();
-            }
+            accum += "/";
+            accum += encryptSegment(p[i]);
+            if (!SD.exists(accum.c_str()))
+                SD.mkdir(accum.c_str());
         }
 
-        // compute new plaintext buffer
-        size_t oldSize = oldPlain.size();
-        size_t s = start < 0 ? 0 : (size_t)start;
-        size_t epos = end < 0 ? oldSize : (size_t)end;
-        if (s > oldSize)
-            s = oldSize;
-        if (epos > oldSize)
-            epos = oldSize;
-
-        size_t newSize = s + data.size() + ((oldSize > epos) ? (oldSize - epos) : 0);
-        Buffer newPlain;
-        newPlain.resize(newSize);
-
-        if (s > 0 && oldSize > 0)
-            memcpy(newPlain.data(), oldPlain.data(), s);
-        if (!data.empty())
-            memcpy(newPlain.data() + s, data.data(), data.size());
-        if (oldSize > epos)
-            memcpy(newPlain.data() + s + data.size(), oldPlain.data() + epos, oldSize - epos);
-
-        // encrypt and write
-        uint8_t *cipher = nullptr;
-        size_t cipherlen = 0;
-        uint8_t nonce[12];
-        uint8_t tag[16];
-        if (!aes_gcm_encrypt(g_masterKey, newPlain.data(), newPlain.size(), &cipher, &cipherlen, nonce, tag))
-            return false;
-
-        File f = SD.open(filePath, FILE_WRITE);
-        if (!f)
+        Buffer plaintext;
+        if (start == 0 && end == 0)
         {
-            free(cipher);
-            return false;
+            plaintext = data;
         }
-        f.write(nonce, 12);
-        f.write(cipher, cipherlen);
-        f.write(tag, 16);
-        f.close();
-        free(cipher);
+        else
+        {
+            Buffer existing = readFile(p, 0, -1);
+            long existingLen = existing.size();
+            if (start < 0)
+                start = 0;
+            if (end < 0)
+                end = start + (long)data.size();
+            long writeLen = end - start;
+            long needLen = max((long)existingLen, start + writeLen);
+            plaintext = existing;
+            plaintext.resize(needLen, 0);
+            for (long i = 0; i < writeLen; ++i)
+                plaintext[start + i] = data[i];
+        }
 
-        // update metadata
-        DirEntryPlain ne;
-        ne.encName = enc;
-        ne.name = name;
-        ne.isDir = false;
-        ne.size = newPlain.size();
-        if (!upsertEntryInDir(encDir, ne))
+        Buffer cipher = aes_ctr_crypt_full(plaintext);
+
+        if (SD.exists(full.c_str()))
+            SD.remove(full.c_str());
+        File fw = SD.open(full.c_str(), "w+");
+        if (!fw)
             return false;
-
+        if (!cipher.empty())
+            fw.write(cipher.data(), cipher.size());
+        fw.close();
         return true;
     }
 
     bool appendFile(const Path &p, const Buffer &data)
     {
-        // append == writeFile with start = current size
-        if (p.empty())
+        String full = joinEncPath(p);
+        File f = SD.open(full.c_str(), FILE_WRITE);
+        if (!f)
             return false;
-        Path dir = p;
-        String name = dir.back();
-        dir.pop_back();
-        String encDir = encryptedDirPath(dir);
-        DirEntryPlain e;
-        long cursize = 0;
-        if (findEntryInDir(encDir, name, e) && !e.isDir)
-            cursize = e.size;
-        return writeFile(p, cursize, cursize, data);
+        long pos = f.size();
+        f.close();
+        return writeFile(p, pos, pos + (long)data.size(), data);
     }
 
     bool writeFileString(const Path &p, const String &s)
     {
-        Buffer b(s.length());
+        Buffer b;
+        b.reserve(s.length());
         for (size_t i = 0; i < s.length(); ++i)
-            b[i] = (uint8_t)s[i];
-        // write replacing whole file
-        return writeFile(p, 0, -1, b);
+            b.push_back((uint8_t)s[i]);
+        return writeFile(p, 0, 0, b);
     }
 
     bool deleteFile(const Path &p)
     {
-        if (p.empty())
+        String full = joinEncPath(p);
+        if (!SD.exists(full.c_str()))
             return false;
-        Path dir = p;
-        String name = dir.back();
-        dir.pop_back();
-        String encDir = encryptedDirPath(dir);
-        DirEntryPlain e;
-        if (!findEntryInDir(encDir, name, e))
-            return false;
-        if (e.isDir)
-            return false;
-        String filePath = encDir + "/" + e.encName + ".data";
-        if (SD.exists(filePath))
-            SD.remove(filePath);
-        if (!removeEntryInDir(encDir, e.encName))
-            return false;
-        return true;
+        return SD.remove(full.c_str());
     }
 
     long getFileSize(const Path &p)
     {
-        if (p.empty())
+        String full = joinEncPath(p);
+        File f = SD.open(full.c_str(), FILE_READ);
+        if (!f)
             return -1;
-        Path dir = p;
-        String name = dir.back();
-        dir.pop_back();
-        String encDir = encryptedDirPath(dir);
-        DirEntryPlain e;
-        if (!findEntryInDir(encDir, name, e))
-            return -1;
-        return e.size;
+        long s = f.size();
+        f.close();
+        return s;
     }
 
     Metadata getMetadata(const Path &p)
     {
         Metadata m;
-        m.size = -1;
-        m.encryptedName = "";
-        m.decryptedName = "";
-        m.isDirectory = false;
-        if (p.empty())
+        String full = joinEncPath(p);
+        File f = SD.open(full.c_str());
+        if (!f)
         {
-            m.isDirectory = true;
-            m.decryptedName = "/";
-            m.encryptedName = g_rootFolder;
+            m.size = -1;
+            m.encryptedName = "";
+            m.decryptedName = "";
+            m.isDirectory = false;
             return m;
         }
-        Path dir = p;
-        String name = dir.back();
-        dir.pop_back();
-        String encDir = encryptedDirPath(dir);
-        DirEntryPlain e;
-        if (!findEntryInDir(encDir, name, e))
-            return m;
-        m.size = e.size;
-        m.encryptedName = e.encName;
-        m.decryptedName = e.name;
-        m.isDirectory = e.isDir;
+        m.size = f.size();
+        m.encryptedName = String(f.name());
+        m.isDirectory = f.isDirectory();
+        int lastSlash = m.encryptedName.lastIndexOf('/');
+        String last = (lastSlash >= 0) ? m.encryptedName.substring(lastSlash + 1) : m.encryptedName;
+        String dec;
+        if (decryptSegment(last, dec))
+            m.decryptedName = dec;
+        else
+            m.decryptedName = String("<enc>");
+        f.close();
         return m;
     }
 
     std::vector<String> readDir(const Path &plainDir)
     {
-        String encDir = encryptedDirPath(plainDir);
-        std::vector<String> ret;
-        auto entries = readDirMeta(encDir);
-        for (auto &e : entries)
-            ret.push_back(e.name);
-        return ret;
+        std::vector<String> out;
+        String encPath = joinEncPath(plainDir);
+        File dir = SD.open(encPath.c_str());
+        if (!dir || !dir.isDirectory())
+            return out;
+        File e = dir.openNextFile();
+        while (e)
+        {
+            String en = String(e.name());
+            int lastSlash = en.lastIndexOf('/');
+            String nameOnly = (lastSlash >= 0) ? en.substring(lastSlash + 1) : en;
+            String dec;
+            if (decryptSegment(nameOnly, dec))
+                out.push_back(dec);
+            e.close();
+            e = dir.openNextFile();
+        }
+        dir.close();
+        return out;
     }
 
     void lsDirSerial(const Path &plainDir)
     {
-        auto items = readDir(plainDir);
-        for (auto &s : items)
-        {
+        auto v = readDir(plainDir);
+        for (auto &s : v)
             Serial.println(s);
-        }
     }
 
     Path storagePath(const String &appId, const String &key)
     {
-        // map to /programms/<appId>/data/<sha256(key)>.data
-        // we implement path as: /programms/<appId>/data/<hex(sha256(key))>
-        uint8_t sha[32];
-        mbedtls_sha256_context ctx;
-        mbedtls_sha256_init(&ctx);
-        mbedtls_sha256_starts_ret(&ctx, 0);
-        mbedtls_sha256_update_ret(&ctx, (const unsigned char *)key.c_str(), key.length());
-        mbedtls_sha256_finish_ret(&ctx, sha);
-        mbedtls_sha256_free(&ctx);
-        String keyHex = hexEncode(sha, 32);
         Path p;
-        p.push_back("programms");
+        p.push_back(String("programms"));
         p.push_back(appId);
-        p.push_back("data");
-        p.push_back(keyHex);
+        p.push_back(String("data"));
+        p.push_back(Crypto::HASH::sha256String(key) + ".data");
         return p;
     }
 
@@ -822,91 +612,53 @@ namespace ENC_FS
         Buffer get(const String &appId, const String &key, long start, long end)
         {
             Path p = storagePath(appId, key);
-            return readFile(p, start, end);
+            return ENC_FS::readFile(p, (start < 0 ? 0 : start), end);
         }
+
         bool del(const String &appId, const String &key)
         {
             Path p = storagePath(appId, key);
-            return deleteFile(p);
+            return ENC_FS::deleteFile(p);
         }
+
         bool set(const String &appId, const String &key, const Buffer &data)
         {
             Path p = storagePath(appId, key);
-            return writeFile(p, 0, -1, data);
+            return ENC_FS::writeFile(p, 0, 0, data);
         }
     }
 
     void copyFileFromSPIFFS(const char *spiffsPath, const Path &sdPath)
     {
-        File s = SPIFFS.open(spiffsPath, FILE_READ);
-        if (!s)
+        File src = SPIFFS.open(spiffsPath, FILE_READ);
+        if (!src || src.isDirectory())
             return;
-        Buffer b;
-        b.resize(s.size());
-        s.read(b.data(), b.size());
-        s.close();
-        writeFile(sdPath, 0, -1, b);
-    }
 
-    void init(String rootFolder, String password)
-    {
-        g_rootFolder = rootFolder;
-        if (g_rootFolder.endsWith("/"))
-            g_rootFolder.remove(g_rootFolder.length() - 1);
-
-        // initialize SD
-        if (!SD.begin())
+        File dest = SD.open(path2Str(sdPath), FILE_WRITE);
+        if (!dest)
         {
-            Serial.println("SD.begin() failed");
+            src.close();
             return;
         }
 
-        // create root folder if missing
-        if (!SD.exists(g_rootFolder))
-            SD.mkdir(g_rootFolder);
+        constexpr size_t bufSize = 1024;
+        uint8_t buffer[bufSize];
 
-        // read or create salt
-        String saltPath = g_rootFolder + "/.salt";
-        if (SD.exists(saltPath))
+        while (true)
         {
-            File f = SD.open(saltPath, FILE_READ);
-            String hex;
-            hex.reserve(f.size());
-            while (f.available())
-                hex += (char)f.read();
-            f.close();
-            hexDecode(hex, g_salt, 16);
-        }
-        else
-        {
-            random_bytes(g_salt, 16);
-            File f = SD.open(saltPath, FILE_WRITE);
-            if (f)
+            size_t bytesRead = src.read(buffer, bufSize);
+            if (bytesRead == 0)
+                break;
+            if (dest.write(buffer, bytesRead) != bytesRead)
             {
-                String hex = hexEncode(g_salt, 16);
-                f.print(hex);
-                f.close();
+                dest.close();
+                src.close();
+                SD.remove(path2Str(sdPath));
+                return;
             }
         }
 
-        // derive master key
-        if (!derive_master_key(password, g_salt, g_kdfIterations, g_masterKey))
-        {
-            Serial.println("KDF failed");
-            return;
-        }
-
-        // ensure root metadata exists
-        String rootMeta = g_rootFolder + "/.meta";
-        if (!SD.exists(rootMeta))
-        {
-            writeDirMeta(g_rootFolder, {}); // empty root directory
-        }
+        dest.close();
+        src.close();
     }
-
-    void setKdfIterations(uint32_t it)
-    {
-        g_kdfIterations = it;
-    }
-
 } // namespace ENC_FS

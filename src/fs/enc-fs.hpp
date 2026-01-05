@@ -1,26 +1,38 @@
 #pragma once
-/*
-  enc-fs.hpp
-
-  ENC_FS - Virtuelles, verschlüsseltes Dateisystem für ESP32
-  Vereinfachte, funktionierende Implementierung (Header).
-  Implementierung in enc-fs.cpp
-*/
 
 #include <Arduino.h>
-#include <vector>
-#include <SD.h>
-#include <FS.h>
 #include <SPIFFS.h>
+#include <SD.h>
+#include <vector>
+
+#include "../auth/auth.hpp"
+#include "../utils/crypto.hpp"
 
 namespace ENC_FS
 {
     using Path = std::vector<String>;
     using Buffer = std::vector<uint8_t>;
 
+    // ---------- Helpers ----------
+    Buffer sha256(const String &s);
+    void pkcs7_pad(Buffer &b);
+    bool pkcs7_unpad(Buffer &b);
+
+    String base64url_encode(const uint8_t *data, size_t len);
+    bool base64url_decode(const String &s, Buffer &out);
+
+    Buffer deriveKey();
+
     // ---------- Path helpers ----------
     Path str2Path(const String &s);
     String path2Str(const Path &s);
+    String encryptSegment(const String &seg);
+    bool decryptSegment(const String &enc, String &outSeg);
+    String joinEncPath(const Path &plain);
+
+    // ---------- AES-CTR ----------
+    Buffer aes_ctr_crypt_full(const Buffer &in);
+    Buffer aes_ctr_crypt_offset(const Buffer &in, size_t offset);
 
     // ---------- API ----------
     bool exists(const Path &p);
@@ -51,8 +63,6 @@ namespace ENC_FS
     std::vector<String> readDir(const Path &plainDir);
     void lsDirSerial(const Path &plainDir);
 
-    // storagePath as specified by the user
-    // to path { programms, appId, data, CryptoHelper::sha256(key) + ".data" }
     Path storagePath(const String &appId, const String &key);
 
     namespace Storage
@@ -63,9 +73,4 @@ namespace ENC_FS
     }
 
     void copyFileFromSPIFFS(const char *spiffsPath, const Path &sdPath);
-
-    void init(String rootFolder, String password);
-
-    void setKdfIterations(uint32_t it); // iterations for password -> master_key (dangerous to change at runtime)
-
-} // namespace ENC_FS
+}
