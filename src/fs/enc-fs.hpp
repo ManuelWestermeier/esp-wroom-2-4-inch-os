@@ -63,6 +63,7 @@ namespace ENC_FS
     std::vector<String> readDir(const Path &plainDir);
     void lsDirSerial(const Path &plainDir);
 
+    // to path { programms, appId, data, CryptoHelper::sha256(key) + ".data" }
     Path storagePath(const String &appId, const String &key);
 
     namespace Storage
