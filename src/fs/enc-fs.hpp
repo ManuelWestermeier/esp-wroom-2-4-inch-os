@@ -4,7 +4,6 @@
 #include <SPIFFS.h>
 #include <SD.h>
 #include <vector>
-#include <map>
 
 #include "../auth/auth.hpp"
 #include "../utils/crypto.hpp"
@@ -19,31 +18,21 @@ namespace ENC_FS
     void pkcs7_pad(Buffer &b);
     bool pkcs7_unpad(Buffer &b);
 
-    String base64url_encode(const uint8_t *data, size_t len); // hex encode
-    bool base64url_decode(const String &s, Buffer &out);      // hex decode
+    String base64url_encode(const uint8_t *data, size_t len);
+    bool base64url_decode(const String &s, Buffer &out);
 
-    // master key derived from username:password + device salt
-    Buffer deriveMasterKey();
-    // per-folder key derived from master + folder name (caching)
-    Buffer deriveFolderKey(const String &folder);
-
-    void secureZero(Buffer &b);
-    void secureZero(uint8_t *buf, size_t len);
+    Buffer deriveKey();
 
     // ---------- Path helpers ----------
     Path str2Path(const String &s);
     String path2Str(const Path &s);
-    bool isValidSegment(const String &seg);
-
-    // ---------- Filename segment encryption ----------
-    String encryptSegment(const String &seg); // AES-ECB + HMAC, hex encoded
+    String encryptSegment(const String &seg);
     bool decryptSegment(const String &enc, String &outSeg);
-
     String joinEncPath(const Path &plain);
 
-    // ---------- AES-CTR for file contents (per-folder keys, per-file nonce) ----------
-    Buffer aes_ctr_crypt_full(const Path &p, const Buffer &in);
-    Buffer aes_ctr_crypt_offset(const Path &p, const Buffer &in, size_t offset);
+    // ---------- AES-CTR ----------
+    Buffer aes_ctr_crypt_full(const Buffer &in);
+    Buffer aes_ctr_crypt_offset(const Buffer &in, size_t offset);
 
     // ---------- API ----------
     bool exists(const Path &p);
@@ -84,4 +73,4 @@ namespace ENC_FS
     }
 
     void copyFileFromSPIFFS(const char *spiffsPath, const Path &sdPath);
-} // namespace ENC_FS
+}
