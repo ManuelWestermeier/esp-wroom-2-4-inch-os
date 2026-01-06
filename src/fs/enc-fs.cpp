@@ -2,6 +2,7 @@
 
 #include <mbedtls/sha256.h>
 #include <mbedtls/aes.h>
+#include <mbedtls/md.h>
 #include <esp_system.h>
 #include "../auth/auth.hpp"
 #include <cstring>
@@ -155,137 +156,178 @@ namespace ENC_FS
         return out;
     }
 
-    // ---------- Robust segment encryption/decryption (hex + AES-ECB + 2-byte length) ----------
-    // Plain: [2-byte BE length][data bytes], padded with zeros to 16B blocks.
-    // Ciphertext encoded using hex (2 chars per byte).
+    // ---------- Name token (deterministic, HMAC-SHA256) ----------
+    // We derive a deterministic token for a filename from: HMAC(key, username + ":" + parentPlain + ":" + name)
+    // This token is used as the on-disk filename (hex). The original plaintext name is stored in a small
+    // metadata sibling file encrypted with the file-content scheme so it remains confidential.
 
-    String encryptSegment(const String &seg)
+    static String makeNameToken(const String &parentPlain, const String &name)
     {
         Buffer key = deriveKey();
 
-        // length (big-endian) + data
-        size_t L = seg.length();
-        if (L > 0xFFFF)
-            L = 0xFFFF; // truncate if absurdly long
+        String input = Auth::username + String(":") + parentPlain + String(":") + name;
+        unsigned char h[32];
 
-        Buffer in;
-        in.reserve(2 + L);
-        in.push_back((uint8_t)((L >> 8) & 0xFF));
-        in.push_back((uint8_t)(L & 0xFF));
-        for (size_t i = 0; i < L; ++i)
-            in.push_back((uint8_t)seg[i]);
+        mbedtls_md_context_t ctx;
+        mbedtls_md_init(&ctx);
+        const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+        mbedtls_md_setup(&ctx, info, 1);
+        mbedtls_md_hmac_starts(&ctx, key.data(), key.size());
+        mbedtls_md_hmac_update(&ctx, (const unsigned char *)input.c_str(), input.length());
+        mbedtls_md_hmac_finish(&ctx, h);
+        mbedtls_md_free(&ctx);
 
-        // pad with zeros to 16 bytes
-        size_t rem = in.size() % 16;
-        if (rem != 0)
-        {
-            size_t pad = 16 - rem;
-            in.insert(in.end(), pad, 0x00);
-        }
-
-        if (in.empty())
-            return String("");
-
-        mbedtls_aes_context aes;
-        mbedtls_aes_init(&aes);
-        if (mbedtls_aes_setkey_enc(&aes, key.data(), 256) != 0)
-        {
-            mbedtls_aes_free(&aes);
-            return String("");
-        }
-
-        Buffer outbuf;
-        outbuf.resize(in.size());
-        uint8_t in_block[16];
-        uint8_t out_block[16];
-
-        for (size_t off = 0; off < in.size(); off += 16)
-        {
-            memcpy(in_block, in.data() + off, 16);
-            mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, in_block, out_block);
-            memcpy(outbuf.data() + off, out_block, 16);
-        }
-
-        mbedtls_aes_free(&aes);
-
-        return base64url_encode(outbuf.data(), outbuf.size()); // hex string
+        return base64url_encode(h, 32); // 64 hex chars
     }
 
-    bool decryptSegment(const String &enc, String &outSeg)
+    // ---------- Metadata (per-name) raw writer/reader ----------
+    // We store a small metadata file alongside each encrypted name: <encName>.namemeta
+    // The metadata file is written directly to SD as ciphertext (AES-CTR using the same per-file nonce scheme)
+    // so it can be recovered by readers who know the key.
+
+    static bool writeNameMetaRaw(const String &parentEncPath, const String &encName, const String &plainName)
     {
-        Buffer key = deriveKey();
-        Buffer encbuf;
-        if (!base64url_decode(enc, encbuf))
-            return false;
-        if (encbuf.empty())
-        {
-            outSeg = String("");
-            return true;
-        }
-        if (encbuf.size() % 16 != 0)
-            return false;
+        // meta file path
+        String metaFull = parentEncPath + String("/") + encName + String(".namemeta");
 
-        mbedtls_aes_context aes;
-        mbedtls_aes_init(&aes);
-        if (mbedtls_aes_setkey_dec(&aes, key.data(), 256) != 0)
-        {
-            mbedtls_aes_free(&aes);
-            return false;
-        }
-
+        // prepare plaintext payload: 2-byte BE length + name bytes
+        size_t L = plainName.length();
+        if (L > 0xFFFF)
+            L = 0xFFFF;
         Buffer ptxt;
-        ptxt.resize(encbuf.size());
-        uint8_t in_block[16];
-        uint8_t out_block[16];
+        ptxt.reserve(2 + L);
+        ptxt.push_back((uint8_t)((L >> 8) & 0xFF));
+        ptxt.push_back((uint8_t)(L & 0xFF));
+        for (size_t i = 0; i < L; ++i)
+            ptxt.push_back((uint8_t)plainName[i]);
 
-        for (size_t off = 0; off < encbuf.size(); off += 16)
+        // derive deterministic nonce for this new meta file version = 1
+        uint64_t version = 1;
+        uint8_t nonce[16];
+        deriveNonceForFullPathVersion(metaFull, version, nonce);
+
+        Buffer cipher = aes_ctr_crypt_full_with_nonce(ptxt, nonce);
+
+        // write raw ciphertext to SD and persist version metadata
+        if (SD.exists(metaFull.c_str()))
+            SD.remove(metaFull.c_str());
+        File f = SD.open(metaFull.c_str(), "w+");
+        if (!f)
+            return false;
+        if (!cipher.empty())
+            f.write(cipher.data(), cipher.size());
+        f.close();
+
+        // persist the version file for this meta
+        writeVersionForFullPath(metaFull, version);
+
+        return true;
+    }
+
+    static bool readNameMetaRaw(const String &parentEncPath, const String &encName, String &outName)
+    {
+        String metaFull = parentEncPath + String("/") + encName + String(".namemeta");
+        File f = SD.open(metaFull.c_str(), FILE_READ);
+        if (!f)
+            return false;
+        long fsize = f.size();
+        if (fsize <= 0)
         {
-            memcpy(in_block, encbuf.data() + off, 16);
-            mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_DECRYPT, in_block, out_block);
-            memcpy(ptxt.data() + off, out_block, 16);
+            f.close();
+            return false;
         }
+        Buffer cbuf;
+        cbuf.resize(fsize);
+        int got = f.read(cbuf.data(), fsize);
+        f.close();
+        if (got <= 0)
+            return false;
+        cbuf.resize(got);
 
-        mbedtls_aes_free(&aes);
+        uint64_t version = readVersionForFullPath(metaFull);
+        if (version == 0)
+            version = 1; // legacy
 
+        uint8_t nonce[16];
+        deriveNonceForFullPathVersion(metaFull, version, nonce);
+
+        Buffer ptxt = aes_ctr_crypt_full_with_nonce(cbuf, nonce);
         if (ptxt.size() < 2)
             return false;
         uint16_t len = ((uint16_t)ptxt[0] << 8) | (uint16_t)ptxt[1];
         if ((size_t)len > ptxt.size() - 2)
             return false;
-
-        outSeg.clear();
-        outSeg.reserve(len);
+        outName.clear();
+        outName.reserve(len);
         for (size_t i = 0; i < len; ++i)
-            outSeg += (char)ptxt[2 + i];
-
+            outName += (char)ptxt[2 + i];
         return true;
+    }
+
+    // ---------- Robust segment encryption/decryption (deterministic token + per-name metadata) ----------
+    // Deterministic token (HMAC) used as on-disk filename. Original plaintext is stored in an encrypted
+    // sibling metadata file so it can be recovered when required.
+
+    // New signature: encryptSegment(segment, parentPlainPath, parentEncPath)
+    String encryptSegment(const String &seg, const String &parentPlain, const String &parentEnc)
+    {
+        if (seg.length() == 0)
+            return String("");
+
+        String token = makeNameToken(parentPlain, seg);
+
+        // ensure metadata exists (if absent, create it)
+        String metaFull = parentEnc + String("/") + token + String(".namemeta");
+        if (!SD.exists(metaFull.c_str()))
+        {
+            // attempt to write metadata; ignore failure (best-effort)
+            writeNameMetaRaw(parentEnc, token, seg);
+        }
+
+        return token;
+    }
+
+    // decryptSegment now requires parentEncPath to find the metadata sibling
+    bool decryptSegment(const String &enc, const String &parentEnc, String &outSeg)
+    {
+        if (enc.length() == 0)
+        {
+            outSeg = String("");
+            return true;
+        }
+
+        // read metadata file and decrypt it
+        if (readNameMetaRaw(parentEnc, enc, outSeg))
+            return true;
+
+        return false;
     }
 
     String joinEncPath(const Path &plain)
     {
         String r = "/";
         r += Auth::username;
+
+        String accumPlain = String("");
+        String accumEnc = r;
+
         for (size_t i = 0; i < plain.size(); ++i)
         {
-            r += "/";
-            r += encryptSegment(plain[i]);
+            String segment = plain[i];
+            String enc = encryptSegment(segment, accumPlain, accumEnc);
+            accumEnc += "/";
+            accumEnc += enc;
+
+            // update plain accum for next iteration
+            if (accumPlain.length() == 0)
+                accumPlain = String("/") + segment;
+            else
+                accumPlain += String("/") + segment;
         }
-        return r;
+        return accumEnc;
     }
 
     // ---------- Deterministic per-file nonce (IV) support ----------
-    // To avoid keystream reuse in AES-CTR, we maintain a small per-file version (uint64)
-    // stored alongside the ciphertext (in a separate ".iv" file). On every overwrite/append
-    // the version is incremented and the nonce is derived deterministically from:
-    //   sha256(username + ":" + encryptedFullPath + ":" + version)
-    // first 16 bytes are used as the 128-bit nonce for CTR.
-    //
-    // This is deterministic (reproducible) but ensures uniqueness per encryption version.
-    // The .iv file is a small binary file containing the 8-byte big-endian version.
-    //
-    // Note: This changes the protocol slightly: readers will derive the nonce from the
-    // stored version; writers increment the version before writing new ciphertext.
-
     static String ivMetaSuffix = String(".ivmeta");
 
     static uint64_t readVersionForFullPath(const String &full)
@@ -436,14 +478,21 @@ namespace ENC_FS
 
     bool mkDir(const Path &p)
     {
-        String accum = "/";
-        accum += Auth::username;
+        String accumPlain = String("");
+        String accumEnc = String("/") + Auth::username;
         for (size_t i = 0; i < p.size(); ++i)
         {
-            accum += "/";
-            accum += encryptSegment(p[i]);
-            if (!SD.exists(accum.c_str()))
-                SD.mkdir(accum.c_str());
+            String seg = p[i];
+            String enc = encryptSegment(seg, accumPlain, accumEnc);
+            accumEnc += String("/") + enc;
+            if (!SD.exists(accumEnc.c_str()))
+                SD.mkdir(accumEnc.c_str());
+
+            // update plain accum
+            if (accumPlain.length() == 0)
+                accumPlain = String("/") + seg;
+            else
+                accumPlain += String("/") + seg;
         }
         return true;
     }
@@ -476,6 +525,10 @@ namespace ENC_FS
             String metaPath = String(full) + ivMetaSuffix;
             if (SD.exists(metaPath.c_str()))
                 SD.remove(metaPath.c_str());
+            // remove namemeta sibling
+            String nameMeta = String(full) + String(".namemeta");
+            if (SD.exists(nameMeta.c_str()))
+                SD.remove(nameMeta.c_str());
             bool res = SD.remove(full.c_str());
             Serial.printf("[rmDir] File remove result: %d\n", res);
             return res;
@@ -500,6 +553,10 @@ namespace ENC_FS
                 String metaPath = en + ivMetaSuffix;
                 if (SD.exists(metaPath.c_str()))
                     SD.remove(metaPath.c_str());
+                // remove namemeta
+                String nameMeta = en + String(".namemeta");
+                if (SD.exists(nameMeta.c_str()))
+                    SD.remove(nameMeta.c_str());
                 bool res = SD.remove(en.c_str());
                 Serial.printf("[rmDir] Removed file %s => %d\n", en.c_str(), res);
             }
@@ -573,14 +630,15 @@ namespace ENC_FS
     {
         String full = joinEncPath(p);
 
-        String accum = "/";
-        accum += Auth::username;
+        String accumPlain = String("");
+        String accumEnc = String("/") + Auth::username;
         for (size_t i = 0; i + 1 < p.size(); ++i)
         {
-            accum += "/";
-            accum += encryptSegment(p[i]);
-            if (!SD.exists(accum.c_str()))
-                SD.mkdir(accum.c_str());
+            accumPlain = (accumPlain.length() == 0) ? String("/") + p[i] : accumPlain + String("/") + p[i];
+            String enc = encryptSegment(p[i], accumPlain, accumEnc);
+            accumEnc += String("/") + enc;
+            if (!SD.exists(accumEnc.c_str()))
+                SD.mkdir(accumEnc.c_str());
         }
 
         Buffer plaintext;
@@ -625,6 +683,27 @@ namespace ENC_FS
         // persist new version
         writeVersionForFullPath(full, newVersion);
 
+        // ensure name meta exists for the file (create sibling .namemeta if missing)
+        // determine parentEnc path
+        int lastSlash = full.lastIndexOf('/');
+        String parentEnc = (lastSlash >= 0) ? full.substring(0, lastSlash) : String("");
+        String encName = (lastSlash >= 0) ? full.substring(lastSlash + 1) : full;
+        // try to write name meta if missing
+        String metaFull = parentEnc + String("/") + encName + String(".namemeta");
+        if (!SD.exists(metaFull.c_str()))
+        {
+            // derive plain parent path from p (reconstruct)
+            String parentPlain = String("");
+            for (size_t i = 0; i + 1 < p.size(); ++i)
+            {
+                if (parentPlain.length() == 0)
+                    parentPlain = String("/") + p[i];
+                else
+                    parentPlain += String("/") + p[i];
+            }
+            writeNameMetaRaw(parentEnc, encName, p.back());
+        }
+
         return true;
     }
 
@@ -657,6 +736,10 @@ namespace ENC_FS
         String metaPath = full + ivMetaSuffix;
         if (SD.exists(metaPath.c_str()))
             SD.remove(metaPath.c_str());
+        // remove name meta sibling
+        String nameMeta = full + String(".namemeta");
+        if (SD.exists(nameMeta.c_str()))
+            SD.remove(nameMeta.c_str());
         return SD.remove(full.c_str());
     }
 
@@ -689,8 +772,11 @@ namespace ENC_FS
         m.isDirectory = f.isDirectory();
         int lastSlash = m.encryptedName.lastIndexOf('/');
         String last = (lastSlash >= 0) ? m.encryptedName.substring(lastSlash + 1) : m.encryptedName;
+
+        // parentEnc path
+        String parentEnc = (lastSlash >= 0) ? m.encryptedName.substring(0, lastSlash) : String("");
         String dec;
-        if (decryptSegment(last, dec))
+        if (decryptSegment(last, parentEnc, dec))
             m.decryptedName = dec;
         else
             m.decryptedName = String("<enc>");
@@ -713,7 +799,7 @@ namespace ENC_FS
             int lastSlash = en.lastIndexOf('/');
             String nameOnly = (lastSlash >= 0) ? en.substring(lastSlash + 1) : en;
             String dec;
-            if (decryptSegment(nameOnly, dec))
+            if (decryptSegment(nameOnly, encPath, dec))
                 out.push_back(dec);
             e.close();
             e = dir.openNextFile();
