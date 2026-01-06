@@ -500,26 +500,26 @@ namespace ENC_FS
     bool rmDir(const Path &p)
     {
         String full = joinEncPath(p);
-        Serial.printf("[rmDir] Called for path: %s\n", full.c_str());
+        // Serial.printf("[rmDir] Called for path: %s\n", full.c_str());
 
         if (!SD.exists(full.c_str()))
         {
-            Serial.printf("[rmDir] Path does not exist: %s\n", full.c_str());
+            // Serial.printf("[rmDir] Path does not exist: %s\n", full.c_str());
             return false;
         }
 
         File f = SD.open(full.c_str());
         if (!f)
         {
-            Serial.printf("[rmDir] Failed to open, attempting remove(): %s\n", full.c_str());
+            // Serial.printf("[rmDir] Failed to open, attempting remove(): %s\n", full.c_str());
             bool res = SD.remove(full.c_str());
-            Serial.printf("[rmDir] Remove result: %d\n", res);
+            // Serial.printf("[rmDir] Remove result: %d\n", res);
             return res;
         }
 
         if (!f.isDirectory())
         {
-            Serial.printf("[rmDir] Not a directory, removing file: %s\n", full.c_str());
+            // Serial.printf("[rmDir] Not a directory, removing file: %s\n", full.c_str());
             f.close();
             // remove associated iv meta as well
             String metaPath = String(full) + ivMetaSuffix;
@@ -530,22 +530,22 @@ namespace ENC_FS
             if (SD.exists(nameMeta.c_str()))
                 SD.remove(nameMeta.c_str());
             bool res = SD.remove(full.c_str());
-            Serial.printf("[rmDir] File remove result: %d\n", res);
+            // Serial.printf("[rmDir] File remove result: %d\n", res);
             return res;
         }
 
-        Serial.printf("[rmDir] Directory found, cleaning contents...\n");
+        // Serial.printf("[rmDir] Directory found, cleaning contents...\n");
         File entry = f.openNextFile();
         while (entry)
         {
             String en = String(entry.name());
-            Serial.printf("[rmDir] Found entry: %s\n", en.c_str());
+            // Serial.printf("[rmDir] Found entry: %s\n", en.c_str());
 
             if (entry.isDirectory())
             {
-                Serial.printf("[rmDir] Entry is directory, recursing via SD_FS::deleteDir()\n");
+                // Serial.printf("[rmDir] Entry is directory, recursing via SD_FS::deleteDir()\n");
                 bool res = SD_FS::deleteDir(en);
-                Serial.printf("[rmDir] SD_FS::deleteDir('%s') => %d\n", en.c_str(), res);
+                // Serial.printf("[rmDir] SD_FS::deleteDir('%s') => %d\n", en.c_str(), res);
             }
             else
             {
@@ -558,7 +558,7 @@ namespace ENC_FS
                 if (SD.exists(nameMeta.c_str()))
                     SD.remove(nameMeta.c_str());
                 bool res = SD.remove(en.c_str());
-                Serial.printf("[rmDir] Removed file %s => %d\n", en.c_str(), res);
+                // Serial.printf("[rmDir] Removed file %s => %d\n", en.c_str(), res);
             }
 
             entry.close();
@@ -566,10 +566,10 @@ namespace ENC_FS
         }
 
         f.close();
-        Serial.printf("[rmDir] Directory empty, attempting to remove folder itself: %s\n", full.c_str());
+        // Serial.printf("[rmDir] Directory empty, attempting to remove folder itself: %s\n", full.c_str());
 
         bool res = SD_FS::deleteDir(full);
-        Serial.printf("[rmDir] Final SD_FS::deleteDir('%s') => %d\n", full.c_str(), res);
+        // Serial.printf("[rmDir] Final SD_FS::deleteDir('%s') => %d\n", full.c_str(), res);
 
         return res;
     }
