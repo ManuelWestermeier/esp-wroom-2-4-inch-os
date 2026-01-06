@@ -3,7 +3,7 @@
 #include "../sys-apps/designer.hpp"
 #include "../styles/global.hpp"
 
-#define HASH_IT 30000
+#define HASH_IT 300
 
 namespace Auth
 {
@@ -32,7 +32,7 @@ namespace Auth
         if (SD_FS::exists(path))
         {
             username = Crypto::HASH::sha256StringMul(user, HASH_IT);
-            password = Crypto::HASH::sha256StringMul(pass, HASH_IT);
+            password = Crypto::HASH::sha256StringMul(pass, HASH_IT * 2);
             name = user;
             applyColorPalette();
             return true;
@@ -104,7 +104,7 @@ namespace Auth
 
         username = Crypto::HASH::sha256StringMul(user, HASH_IT);
         name = user;
-        password = Crypto::HASH::sha256StringMul(pass, HASH_IT);
+        password = Crypto::HASH::sha256StringMul(pass, HASH_IT * 2);
 
         // Bildschirm mit Hintergrundfarbe füllen
         Screen::tft.fillScreen(BG);
