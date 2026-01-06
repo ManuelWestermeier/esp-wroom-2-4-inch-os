@@ -6,6 +6,7 @@
 #include "../auth/auth.hpp"
 #include <cstring>
 #include <cctype>
+#include <algorithm>
 
 namespace ENC_FS
 {
@@ -102,10 +103,16 @@ namespace ENC_FS
 
     Buffer deriveKey()
     {
-        String in = Auth::username + String(":") + Auth::password;
+        static Buffer key(32);
+        static bool created = false;
+        if (created)
+            return key;
+
+        String in = Crypto::HASH::sha256StringMul(Auth::username + String(":") + Auth::password, 10000);
         Buffer h = sha256(in); // 32 bytes
-        Buffer key(32);
         memcpy(key.data(), h.data(), 32);
+
+        created = true;
         return key;
     }
 
@@ -266,9 +273,70 @@ namespace ENC_FS
         return r;
     }
 
-    // ---------- AES-CTR for file contents (unchanged) ----------
+    // ---------- Deterministic per-file nonce (IV) support ----------
+    // To avoid keystream reuse in AES-CTR, we maintain a small per-file version (uint64)
+    // stored alongside the ciphertext (in a separate ".iv" file). On every overwrite/append
+    // the version is incremented and the nonce is derived deterministically from:
+    //   sha256(username + ":" + encryptedFullPath + ":" + version)
+    // first 16 bytes are used as the 128-bit nonce for CTR.
+    //
+    // This is deterministic (reproducible) but ensures uniqueness per encryption version.
+    // The .iv file is a small binary file containing the 8-byte big-endian version.
+    //
+    // Note: This changes the protocol slightly: readers will derive the nonce from the
+    // stored version; writers increment the version before writing new ciphertext.
 
-    Buffer aes_ctr_crypt_full(const Buffer &in)
+    static String ivMetaSuffix = String(".ivmeta");
+
+    static uint64_t readVersionForFullPath(const String &full)
+    {
+        String metaPath = full + ivMetaSuffix;
+        File f = SD.open(metaPath.c_str(), FILE_READ);
+        if (!f)
+            return 0; // 0 indicates missing -> treat as version 0 (will be incremented to 1 on write)
+        uint8_t buf[8];
+        int got = f.read(buf, 8);
+        f.close();
+        if (got != 8)
+            return 0;
+        uint64_t v = 0;
+        for (int i = 0; i < 8; ++i)
+            v = (v << 8) | (uint64_t)buf[i];
+        return v;
+    }
+
+    static bool writeVersionForFullPath(const String &full, uint64_t v)
+    {
+        String metaPath = full + ivMetaSuffix;
+        // overwrite or create
+        if (SD.exists(metaPath.c_str()))
+            SD.remove(metaPath.c_str());
+        File f = SD.open(metaPath.c_str(), "w+");
+        if (!f)
+            return false;
+        uint8_t buf[8];
+        for (int i = 7; i >= 0; --i)
+        {
+            buf[i] = (uint8_t)(v & 0xFF);
+            v >>= 8;
+        }
+        size_t wrote = f.write(buf, 8);
+        f.close();
+        return wrote == 8;
+    }
+
+    static void deriveNonceForFullPathVersion(const String &full, uint64_t version, uint8_t nonce[16])
+    {
+        // input string: username + ":" + full + ":" + decimal(version)
+        String input = Auth::username + String(":") + full + String(":") + String((unsigned long long)version);
+        Buffer h = sha256(input);
+        // copy first 16 bytes
+        memcpy(nonce, h.data(), 16);
+    }
+
+    // ---------- AES-CTR for file contents (updated to use per-file deterministic nonces) ----------
+
+    Buffer aes_ctr_crypt_full_with_nonce(const Buffer &in, const uint8_t nonce[16])
     {
         Buffer key = deriveKey();
         Buffer out;
@@ -280,7 +348,7 @@ namespace ENC_FS
 
         size_t nc_off = 0;
         uint8_t nonce_counter[16];
-        memset(nonce_counter, 0, sizeof(nonce_counter));
+        memcpy(nonce_counter, nonce, 16);
         uint8_t stream_block[16];
         memset(stream_block, 0, sizeof(stream_block));
 
@@ -289,7 +357,7 @@ namespace ENC_FS
         return out;
     }
 
-    Buffer aes_ctr_crypt_offset(const Buffer &in, size_t offset)
+    Buffer aes_ctr_crypt_offset_with_nonce(const Buffer &in, size_t offset, const uint8_t nonce[16])
     {
         Buffer key = deriveKey();
         Buffer out;
@@ -298,23 +366,50 @@ namespace ENC_FS
         mbedtls_aes_init(&aes);
         mbedtls_aes_setkey_enc(&aes, key.data(), 256);
 
+        // CTR counter is nonce || counter. We emulate mbedtls_crypt_ctr behavior by constructing
+        // a counter block where the last 8 bytes are the block counter. We'll copy nonce into
+        // the first 16 bytes (treating it as the initial counter) and then increment the 128-bit
+        // counter as blocks advance. For compatibility with deriveNonceForFullPathVersion
+        // we treat the provided nonce as the initial 16-byte counter value.
         size_t block_pos = offset / 16;
         size_t block_off = offset % 16;
         size_t remaining = in.size();
         size_t written = 0;
 
+        // working counter (16 bytes)
         uint8_t counter[16];
         uint8_t keystream[16];
 
         while (remaining)
         {
-            memset(counter, 0, sizeof(counter));
+            // set counter = nonce + block_pos (add as little-endian to the last 8 bytes)
+            memcpy(counter, nonce, 16);
             uint64_t bp = (uint64_t)block_pos;
-            for (int i = 0; i < 8; i++)
+            // add bp into last 8 bytes little-endian style as CTR often uses LSB side
+            // We'll XOR/ADD in little-endian manner into last 8 bytes.
+            for (int i = 0; i < 8; ++i)
             {
-                counter[15 - i] = bp & 0xFF;
+                uint16_t sum = (uint16_t)counter[15 - i] + (uint16_t)(bp & 0xFF);
+                counter[15 - i] = (uint8_t)(sum & 0xFF);
                 bp >>= 8;
+                if (sum >> 8)
+                {
+                    // carry propagation
+                    uint64_t carry_pos = 1;
+                    while (carry_pos < 16)
+                    {
+                        int idx = 15 - i - carry_pos;
+                        if (idx < 0)
+                            break;
+                        uint16_t s2 = (uint16_t)counter[idx] + 1;
+                        counter[idx] = (uint8_t)(s2 & 0xFF);
+                        if ((s2 >> 8) == 0)
+                            break;
+                        ++carry_pos;
+                    }
+                }
             }
+
             mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, counter, keystream);
 
             for (size_t i = block_off; i < 16 && remaining; ++i)
@@ -331,7 +426,8 @@ namespace ENC_FS
         return out;
     }
 
-    // ---------- API (unchanged) ----------
+    // ---------- API (modified to maintain per-file deterministic nonce version) ----------
+
     bool exists(const Path &p)
     {
         String full = joinEncPath(p);
@@ -376,6 +472,10 @@ namespace ENC_FS
         {
             Serial.printf("[rmDir] Not a directory, removing file: %s\n", full.c_str());
             f.close();
+            // remove associated iv meta as well
+            String metaPath = String(full) + ivMetaSuffix;
+            if (SD.exists(metaPath.c_str()))
+                SD.remove(metaPath.c_str());
             bool res = SD.remove(full.c_str());
             Serial.printf("[rmDir] File remove result: %d\n", res);
             return res;
@@ -396,6 +496,10 @@ namespace ENC_FS
             }
             else
             {
+                // remove associated iv meta if present
+                String metaPath = en + ivMetaSuffix;
+                if (SD.exists(metaPath.c_str()))
+                    SD.remove(metaPath.c_str());
                 bool res = SD.remove(en.c_str());
                 Serial.printf("[rmDir] Removed file %s => %d\n", en.c_str(), res);
             }
@@ -436,7 +540,19 @@ namespace ENC_FS
         if (got <= 0)
             return Buffer();
         cbuf.resize(got);
-        Buffer out = aes_ctr_crypt_offset(cbuf, (size_t)start);
+
+        // obtain version (if missing, treat as 0)
+        uint64_t version = readVersionForFullPath(full);
+        if (version == 0)
+        {
+            // legacy/no-meta: treat as version 1 to be compatible with future writes
+            version = 1;
+        }
+
+        uint8_t nonce[16];
+        deriveNonceForFullPathVersion(full, version, nonce);
+
+        Buffer out = aes_ctr_crypt_offset_with_nonce(cbuf, (size_t)start, nonce);
         return out;
     }
 
@@ -488,7 +604,14 @@ namespace ENC_FS
                 plaintext[start + i] = data[i];
         }
 
-        Buffer cipher = aes_ctr_crypt_full(plaintext);
+        // increment version for this file to avoid keystream reuse
+        uint64_t curVersion = readVersionForFullPath(full);
+        uint64_t newVersion = (curVersion == 0) ? 1 : (curVersion + 1);
+        // derive nonce from newVersion (deterministic)
+        uint8_t nonce[16];
+        deriveNonceForFullPathVersion(full, newVersion, nonce);
+
+        Buffer cipher = aes_ctr_crypt_full_with_nonce(plaintext, nonce);
 
         if (SD.exists(full.c_str()))
             SD.remove(full.c_str());
@@ -498,6 +621,10 @@ namespace ENC_FS
         if (!cipher.empty())
             fw.write(cipher.data(), cipher.size());
         fw.close();
+
+        // persist new version
+        writeVersionForFullPath(full, newVersion);
+
         return true;
     }
 
@@ -526,6 +653,10 @@ namespace ENC_FS
         String full = joinEncPath(p);
         if (!SD.exists(full.c_str()))
             return false;
+        // remove associated iv meta too
+        String metaPath = full + ivMetaSuffix;
+        if (SD.exists(metaPath.c_str()))
+            SD.remove(metaPath.c_str());
         return SD.remove(full.c_str());
     }
 
@@ -564,6 +695,7 @@ namespace ENC_FS
         else
             m.decryptedName = String("<enc>");
         f.close();
+
         return m;
     }
 
