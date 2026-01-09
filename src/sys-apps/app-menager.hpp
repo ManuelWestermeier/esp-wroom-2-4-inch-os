@@ -39,18 +39,21 @@ namespace AppManager
 
     String trimLines(const String &s)
     {
-        // int len = s.length();
-        // int start = 0;
+        int start = 0;
+        int end = s.length() - 1;
 
-        // while (start < len && isspace((unsigned char)s[start]))
-        //     start++;
+        while (start <= end &&
+               (s[start] == '\r' || s[start] == '\n' || isspace((unsigned char)s[start])))
+            start++;
 
-        // int end = len - 1;
-        // while (end >= start && isspace((unsigned char)s[end]))
-        //     end--;
+        while (end >= start &&
+               (s[end] == '\r' || s[end] == '\n' || isspace((unsigned char)s[end])))
+            end--;
 
-        // return (start > end) ? "" : s.substring(start, end + 1);
-        return s;
+        if (start > end)
+            return "";
+
+        return s.substring(start, end + 1);
     }
 
     static String sanitizeFolderName(const String &s)
@@ -550,8 +553,13 @@ namespace AppManager
         performGetWithFallback(base + "version.txt", verBuf);
         performGetWithFallback(base + "icon-20x20.raw", iconBuf);
 
-        String name = nameBuf.ok ? String((const char *)nameBuf.data.data(), nameBuf.data.size()) : "Unknown";
-        String version = verBuf.ok ? String((const char *)verBuf.data.data(), verBuf.data.size()) : "?";
+        String name = nameBuf.ok
+                          ? trimLines(String((const char *)nameBuf.data.data(), nameBuf.data.size()))
+                          : "Unknown";
+
+        String version = verBuf.ok
+                             ? trimLines(String((const char *)verBuf.data.data(), verBuf.data.size()))
+                             : "?";
 
         Serial.println("[Install] App name: " + name);
         Serial.println("[Install] Version: " + version);
