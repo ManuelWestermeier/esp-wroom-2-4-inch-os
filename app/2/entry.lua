@@ -15,5 +15,7 @@ while not WIN_closed(win) do
 
     delay(16) -- ~60 FPS
 
+    WIN_writeText(win, 1, 20, 30, nr, 0xF800)
+
     WIN_finishFrame(win)
 end
