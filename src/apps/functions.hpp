@@ -30,6 +30,7 @@ namespace LuaApps::LuaFunctions
     int lua_RGB(lua_State *L);
     int lua_getTheme(lua_State *L);
     int luaDelay(lua_State *L);
+    int luaMillis(lua_State *L);
     int luaHttpRequest(lua_State *L);
     int luaHttpsRequest(lua_State *L);
     void register_default_functions(lua_State *L);

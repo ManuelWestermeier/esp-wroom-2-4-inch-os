@@ -216,6 +216,12 @@ namespace LuaApps::LuaFunctions
         return 0;
     }
 
+    int luaMillis(lua_State *L)
+    {
+        lua_pushinteger(L, millis());
+        return 1;
+    }
+
     int luaHttpRequest(lua_State *L)
     {
         if (WiFi.status() != WL_CONNECTED)
@@ -392,6 +398,7 @@ namespace LuaApps::LuaFunctions
         lua_register(L, "exec", luaExec);
         lua_register(L, "setLED", setLED);
         lua_register(L, "delay", luaDelay);
+        lua_register(L, "millis", luaMillis);
         lua_register(L, "httpReq", luaHttpRequest);
         lua_register(L, "httpsReq", luaHttpsRequest);
         lua_register(L, "RGB", lua_RGB);
