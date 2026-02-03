@@ -292,11 +292,11 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     else
                     {
                         Screen::tft.fillScreen(BG);
-                        Screen::tft.setTextSize(3);
+                        Screen::tft.setTextSize(2);
                         Screen::tft.setTextColor(TEXT);
                         Screen::tft.setTextDatum(MC_DATUM);
-                        Screen::tft.drawString("Preparing Updates...", 16, 120);
-                        Screen::tft.setTextSize(2);
+                        Screen::tft.drawString("Loading\nUpdates...", 160, 120);
+                        Screen::tft.setTextSize(1);
                         // extract folder name (last part of the path)
                         String folderName;
                         if (app.path.size() > 0)
