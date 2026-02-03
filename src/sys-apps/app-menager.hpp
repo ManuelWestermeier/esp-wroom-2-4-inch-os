@@ -22,14 +22,12 @@ namespace AppManager
     };
 
     // ---------- font sizes ----------
-    // Adjusted for better visibility on 320x240 display
-    static const int TITLE_FONT = 2;   // large title (reduced from 4)
-    static const int HEADING_FONT = 2; // headings / button labels
-    static const int BODY_FONT = 1;    // body text
-    static const int BUTTON_FONT = 1;  // button text (smaller for better fit)
+    static const int TITLE_FONT = 2;
+    static const int HEADING_FONT = 2;
+    static const int BODY_FONT = 1;
+    static const int BUTTON_FONT = 1;
     static const int DEFAULT_FONT = BODY_FONT;
 
-    // Layout margins (use free space safely)
     static const int LEFT_MARGIN = 8;
     static const int RIGHT_MARGIN = 8;
     static const int TOP_MARGIN = 8;
@@ -76,12 +74,10 @@ namespace AppManager
         return out;
     }
 
-    // Clipped string with ellipsis — font selectable
     static void drawClippedString(int x, int y, int maxW, const String &s, int font = DEFAULT_FONT)
     {
         if (s.length() == 0)
             return;
-        // enforce left margin so text never starts outside viewport
         x = std::max(x, LEFT_MARGIN);
         tft.setTextDatum(TL_DATUM);
         const char *cs = s.c_str();
@@ -108,19 +104,10 @@ namespace AppManager
 
     // ---------- UI helpers (320x240 friendly) ----------
 
-    static int screenW()
-    {
-        return Screen::tft.width();
-    }
-    static int screenH()
-    {
-        return Screen::tft.height();
-    }
+    static int screenW() { return Screen::tft.width(); }
+    static int screenH() { return Screen::tft.height(); }
 
-    static void clearScreen(uint16_t color = BG)
-    {
-        Screen::tft.fillScreen(color);
-    }
+    static void clearScreen(uint16_t color = BG) { Screen::tft.fillScreen(color); }
 
     static void drawTitle(const String &title)
     {
@@ -129,7 +116,7 @@ namespace AppManager
         int w = Screen::tft.textWidth(title.c_str(), font);
         int x = (screenW() - w) / 2;
         x = std::max(x, LEFT_MARGIN);
-        x = std::min(x, screenW() - w - RIGHT_MARGIN); // Ensure title doesn't go off right edge
+        x = std::min(x, screenW() - w - RIGHT_MARGIN);
         int y = TOP_MARGIN;
         Screen::tft.drawString(title, x, y, font);
     }
@@ -147,23 +134,19 @@ namespace AppManager
         bool contains(int px, int py) const { return px >= x && px < x + w && py >= y && py < y + h; }
     };
 
-    // Improved button drawing with better text handling
     static void drawButton(const BtnRect &r, const char *label, uint16_t bg = PRIMARY, uint16_t fg = AT, int font = BUTTON_FONT)
     {
-        int radius = std::min(8, r.h / 4); // Smaller radius for smaller buttons
+        int radius = std::min(8, r.h / 4);
         Screen::tft.fillRoundRect(r.x, r.y, r.w, r.h, radius, bg);
         Screen::tft.drawRoundRect(r.x, r.y, r.w, r.h, radius, ACCENT2);
         Screen::tft.setTextColor(fg, bg);
 
-        // Calculate text dimensions
         int textW = Screen::tft.textWidth(label, font);
         int textH = Screen::tft.fontHeight(font);
 
-        // Center text in button
         int tx = r.x + (r.w - textW) / 2;
         int ty = r.y + (r.h - textH) / 2;
 
-        // Ensure text stays within button boundaries
         if (tx < r.x + 4)
             tx = r.x + 4;
         if (tx + textW > r.x + r.w)
@@ -208,9 +191,7 @@ namespace AppManager
         int fillWidth = (progress * innerW) / 100;
 
         if (fillWidth > 0)
-        {
             Screen::tft.fillRoundRect(x + 2, y + 2, fillWidth, height - 4, 2, color);
-        }
 
         String percent = String(progress) + "%";
         Screen::tft.setTextColor(TEXT, BG);
@@ -226,8 +207,8 @@ namespace AppManager
 
     static WiFiClientSecure secureClient; // global reusable
 
-    // Read an HTTP(S) stream reliably in small chunks, with retries for tiny files.
-    static bool performGet(const String &url, Buffer &outBuf)
+    // Core: download into Buffer with size limit and reserve to avoid fragmentation.
+    static bool performGetBuffer(const String &url, Buffer &outBuf, size_t maxSize = 32 * 1024)
     {
         outBuf.data.clear();
         outBuf.ok = false;
@@ -240,10 +221,13 @@ namespace AppManager
         }
 
         HTTPClient http;
-        secureClient.setInsecure();
-        if (!http.begin(secureClient, url))
+        WiFiClientSecure client;
+        client.setInsecure();
+
+        if (!http.begin(client, url))
         {
-            drawError("http.begin failed");
+            Serial.println("[ERROR] http.begin failed");
+            http.end(); // safe
             return false;
         }
 
@@ -258,21 +242,44 @@ namespace AppManager
             return false;
         }
 
+        int contentLen = http.getSize();
+        if (contentLen > 0)
+        {
+            if ((size_t)contentLen > maxSize)
+            {
+                Serial.println("[ERROR] Content-Length exceeds max allowed");
+                http.end();
+                return false;
+            }
+            outBuf.data.reserve(contentLen);
+        }
+        else
+        {
+            outBuf.data.reserve(std::min((size_t)1024, maxSize));
+        }
+
         WiFiClient &stream = http.getStream();
-        outBuf.data.clear();
         const size_t BUF_SZ = 256;
         uint8_t tmp[BUF_SZ];
-        unsigned long start = millis();
+        unsigned long lastData = millis();
 
-        while (stream.connected() || stream.available())
+        while (http.connected())
         {
-            while (stream.available())
+            int avail = stream.available();
+            if (avail > 0)
             {
-                int r = stream.read(tmp, BUF_SZ);
+                int toRead = std::min(avail, (int)BUF_SZ);
+                int r = stream.read(tmp, toRead);
                 if (r > 0)
                 {
+                    if (outBuf.data.size() + (size_t)r > maxSize)
+                    {
+                        Serial.println("[ERROR] Download exceeds maximum allowed size");
+                        http.end();
+                        return false;
+                    }
                     outBuf.data.insert(outBuf.data.end(), tmp, tmp + r);
-                    start = millis();
+                    lastData = millis();
                 }
                 else if (r < 0)
                 {
@@ -281,9 +288,12 @@ namespace AppManager
                     return false;
                 }
             }
-            if (millis() - start > 5000)
-                break;
-            delay(1);
+            else
+            {
+                if (millis() - lastData > 5000)
+                    break;
+                delay(1);
+            }
         }
 
         outBuf.ok = true;
@@ -291,19 +301,50 @@ namespace AppManager
         return true;
     }
 
+    // Convenience: string fetcher (for name, version, etc.)
+    static bool performGetString(const String &url, String &outStr, size_t maxSize = 4096)
+    {
+        Buffer buf;
+        if (!performGetBuffer(url, buf, maxSize))
+            return false;
+        if (!buf.ok)
+            return false;
+        outStr = String((const char *)buf.data.data(), buf.data.size());
+        outStr = trimLines(outStr);
+        return true;
+    }
+
+    // Convenience: image fetcher that enforces an expected fixed size (useful for icons)
+    static bool performGetImageBuffer(const String &url, Buffer &outBuf, size_t expectedSize)
+    {
+        if (expectedSize == 0)
+            return false;
+        // allow small slack but require at least expectedSize
+        const size_t maxSize = expectedSize + 1024;
+        if (!performGetBuffer(url, outBuf, maxSize))
+            return false;
+        if (!outBuf.ok)
+            return false;
+        if (outBuf.data.size() < expectedSize)
+        {
+            Serial.printf("[ERROR] Image too small: got %u expected %u\n", (unsigned)outBuf.data.size(), (unsigned)expectedSize);
+            return false;
+        }
+        // If file is larger than expected, keep it (some servers may append), but caller should handle.
+        return true;
+    }
+
     static bool performGetWithFallback(const String &url, Buffer &buf)
     {
-        return performGet(url, buf);
+        return performGetBuffer(url, buf);
     }
 
     static bool fetchAndWrite(const String &url, const String &path, const String &folderName, bool required, int &progress, int totalFiles, int currentFile)
     {
         Serial.println("[Download] " + url + " -> " + path);
 
-        // Update progress UI using the freed vertical space
         progress = (currentFile * 100) / totalFiles;
         clearScreen();
-        // draw title directly (no wrapper)
         Screen::tft.setTextColor(TEXT, BG);
         {
             const String __t = String("Installing App");
@@ -317,7 +358,6 @@ namespace AppManager
         }
         drawMessage("Downloading files...", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 8, TEXT, BG, HEADING_FONT);
 
-        // Progress bar position adjusted for smaller screen
         int pbX = LEFT_MARGIN;
         int pbW = screenW() - LEFT_MARGIN - RIGHT_MARGIN;
         int pbY = screenH() / 2 - 14;
@@ -375,14 +415,12 @@ namespace AppManager
 
     static void safePush20x20Icon(int x, int y, const Buffer &buf, int scale = 1)
     {
-        // Support scaling (scale==2 -> 40x40)
         const int SRC_W = 20;
         const int SRC_H = 20;
         const size_t SRC_PIX = SRC_W * SRC_H;
         if (!buf.ok || buf.data.size() < 4)
             return;
         const uint8_t *p = buf.data.data() + 4;
-        // extract source pixels
         std::vector<uint16_t> src(SRC_PIX);
         for (size_t i = 0; i < SRC_PIX; ++i)
         {
@@ -405,7 +443,6 @@ namespace AppManager
             for (int sx = 0; sx < SRC_W; ++sx)
             {
                 uint16_t col = src[sy * SRC_W + sx];
-                // replicate into scale x scale block
                 for (int dy = 0; dy < scale; ++dy)
                 {
                     for (int dx = 0; dx < scale; ++dx)
@@ -456,7 +493,6 @@ namespace AppManager
     static bool confirmInstallPrompt(const String &appName, const Buffer &iconBuf, const String &version)
     {
         clearScreen();
-        // draw title directly (no wrapper)
         Screen::tft.setTextColor(TEXT);
         {
             const String __t = String("Install App?");
@@ -469,23 +505,19 @@ namespace AppManager
             Screen::tft.drawString(__t, __x, __y, __font);
         }
 
-        // Render scaled icon on the RIGHT with scale factor 2 (40x40)
         int iconScale = 2;
         int iconW = 20 * iconScale;
         int iconH = 20 * iconScale;
         int iconX = screenW() - RIGHT_MARGIN - iconW;
         int iconY = TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 12;
 
-        // Text area to the LEFT of the icon
         int textX = LEFT_MARGIN;
         int textW = iconX - textX - 8;
-        int nameY = iconY; // align name with top of icon
-        // Make name larger for emphasis
+        int nameY = iconY;
         drawClippedString(textX, nameY, textW, "Name: " + trimLines(appName), HEADING_FONT);
         drawClippedString(textX, nameY + Screen::tft.fontHeight(HEADING_FONT) + 4, textW, "Version: " + trimLines(version), BODY_FONT);
         drawClippedString(textX, nameY + Screen::tft.fontHeight(HEADING_FONT) + Screen::tft.fontHeight(BODY_FONT) + 8, textW, "Install this app to /programs/" + sanitizeFolderName(appName) + "?", BODY_FONT);
 
-        // Buttons centered and sized for touch; use wider buttons to use free space
         int btnW = (screenW() - 32) / 2;
         int btnY = screenH() - BOTTOM_MARGIN - 48;
         BtnRect yes{LEFT_MARGIN, btnY, btnW, 40};
@@ -505,7 +537,6 @@ namespace AppManager
             return true;
 
         clearScreen();
-        // draw title directly (no wrapper)
         Screen::tft.setTextColor(TEXT, BG);
         {
             const String __t = String("Connecting to WiFi");
@@ -548,18 +579,21 @@ namespace AppManager
 
         String folderName = sanitizeFolderName(rawAppId);
 
-        Buffer nameBuf, verBuf, iconBuf;
-        performGetWithFallback(base + "name.txt", nameBuf);
-        performGetWithFallback(base + "version.txt", verBuf);
-        performGetWithFallback(base + "icon-20x20.raw", iconBuf);
+        Buffer iconBuf;
+        String name;
+        String version;
 
-        String name = nameBuf.ok
-                          ? trimLines(String((const char *)nameBuf.data.data(), nameBuf.data.size()))
-                          : "Unknown";
+        // icon expected size: 4 bytes header + 20*20*2 = 804
+        const size_t ICON_EXPECTED = 4 + 20 * 20 * 2;
 
-        String version = verBuf.ok
-                             ? trimLines(String((const char *)verBuf.data.data(), verBuf.data.size()))
-                             : "?";
+        performGetImageBuffer(base + "icon-20x20.raw", iconBuf, ICON_EXPECTED);
+        performGetString(base + "name.txt", name);
+        performGetString(base + "version.txt", version);
+
+        if (name.length() == 0)
+            name = "Unknown";
+        if (version.length() == 0)
+            version = "?";
 
         Serial.println("[Install] App name: " + name);
         Serial.println("[Install] Version: " + version);
@@ -567,7 +601,6 @@ namespace AppManager
         if (!confirmInstallPrompt(name, iconBuf, version))
             return false;
 
-        // core files
         std::vector<std::pair<String, String>> core = {
             {base + "entry.lua", "entry.lua"},
             {base + "icon-20x20.raw", "icon-20x20.raw"},
@@ -586,7 +619,6 @@ namespace AppManager
                 return false;
         }
 
-        // optional pkg.txt
         Buffer pkg;
         if (performGetWithFallback(base + "pkg.txt", pkg))
         {
@@ -600,10 +632,8 @@ namespace AppManager
                 {
                     ENC_FS::writeFile({"programs", folderName, f}, 0, 0, pkg.data);
                 }
-                // Update progress for optional files too
                 progress = (currentFile * 100) / totalFiles;
                 clearScreen();
-                // draw title directly (no wrapper)
                 Screen::tft.setTextColor(TEXT, BG);
                 {
                     const String __t = String("Installing App");
@@ -624,9 +654,7 @@ namespace AppManager
             }
         }
 
-        // Final progress
         clearScreen();
-        // draw title directly (no wrapper)
         Screen::tft.setTextColor(TEXT, BG);
         {
             const String __t = String("Installing App");
@@ -651,7 +679,6 @@ namespace AppManager
     static void showInstaller()
     {
         clearScreen();
-        // draw title directly (no wrapper)
         Screen::tft.setTextColor(TEXT, BG);
         {
             const String __t = String("App Manager");
@@ -664,7 +691,6 @@ namespace AppManager
             Screen::tft.drawString(__t, __x, __y, __font);
         }
 
-        // Use appropriately sized buttons for 320x240 screen
         int btnW = screenW() - LEFT_MARGIN - RIGHT_MARGIN;
         int btnH = 36;
         int btnSpacing = 12;
@@ -681,7 +707,6 @@ namespace AppManager
             return;
 
         clearScreen();
-        // draw title directly (no wrapper)
         Screen::tft.setTextColor(TEXT, BG);
         {
             const String __t = String("Enter App ID");
@@ -705,7 +730,6 @@ namespace AppManager
         }
 
         clearScreen();
-        // draw title directly (no wrapper)
         Screen::tft.setTextColor(TEXT, BG);
         {
             const String __t = String("Preparing Installation");
