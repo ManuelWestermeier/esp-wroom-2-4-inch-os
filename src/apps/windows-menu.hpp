@@ -311,7 +311,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                         Serial.println("Updating app: id=" + app.id + " folder=" + folderName);
 
                         // call installer (synchronous assumption)
-                        AppManager::installApp(app.id, folderName, true, false);
+                        AppManager::installApp(app.id, folderName, true);
                         Screen::tft.fillScreen(BG);
                         Screen::tft.setTextSize(2);
                         Screen::tft.setTextColor(TEXT);
