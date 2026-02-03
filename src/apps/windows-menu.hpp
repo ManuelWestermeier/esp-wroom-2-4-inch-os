@@ -77,8 +77,8 @@ struct AppRenderData
         {
             for (int i = 0; i < 20; i++)
             {
-                int hi = data.at(bI++);
                 int lo = data.at(bI++);
+                int hi = data.at(bI++);
                 icon[j * 20 + i] = (hi < 0 || lo < 0)
                                        ? bgColor
                                        : (uint16_t)((hi << 8) | lo);
@@ -394,7 +394,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     {
                         appManager();
                         Screen::tft.fillScreen(BG);
-                        Screen::tft.setTextSize(3);
+                        Screen::tft.setTextSize(2);
                         Screen::tft.setTextColor(TEXT);
                         Screen::tft.setTextDatum(MC_DATUM);
                         Screen::tft.drawString("Finished Updates...", 160, 120);

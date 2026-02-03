@@ -43,8 +43,6 @@ namespace Windows
         {
             apps[idx]->closed = true;
             apps.erase(apps.begin() + idx);
-            // z-order changed / windows removed -> need redraw
-            markAllNeedRedraw();
         }
     }
 
@@ -82,8 +80,6 @@ namespace Windows
         WindowPtr tmp = std::move(*it);
         apps.erase(it);
         apps.push_back(std::move(tmp));
-        // z-order changed -> all windows need redraw
-        markAllNeedRedraw();
     }
 
     void drawWindows(Vec pos, Vec move, MouseState state)
@@ -214,7 +210,6 @@ namespace Windows
                 auto area = Rect{w.off + Vec{-1, -13}, w.size + Vec{12 + 2, 14}};
                 Screen::tft.fillRect(area.pos.x, area.pos.y, area.dimensions.x, area.dimensions.y, BG);
                 // area cleared -> all windows need redraw
-                markAllNeedRedraw();
             }
         }
         else
