@@ -44,13 +44,13 @@ Each application consists of several required files hosted on a web server:
 
 Use [this converter](https://manuelwestermeier.github.io/to-16-bit/video-audio) to convert videos with audio to the required 16-bit format.
 
-https://manuelwestermeier.github.io/to-16-bit/ (iamges)
+<!-- Use [this converter](https://manuelwestermeier.github.io/to-16-bit/video-audio) to convert videos with audio to the required 16-bit format. -->
 
-<!-- Use [this converter](https://manuelwestermeier.github.io/to-16-bit/image) to convert images to the required 16-bit RAW format. -->
+Use [this converter](https://manuelwestermeier.github.io/to-16-bit/) to convert images to the required 16-bit RAW format.
 
-<!-- Use [this converter](https://manuelwestermeier.github.io/to-16-bit/video) to convert videos to the required 16-bit RAW format. -->
+Use [this converter](https://manuelwestermeier.github.io/to-16-bit/video) to convert videos to the required 16-bit RAW format.
 
-<!-- Use [this converter](https://manuelwestermeier.github.io/to-16-bit/audio) to convert audio to the required RAW format. -->
+Use [this converter](https://manuelwestermeier.github.io/to-16-bit/audio) to convert audio to the required RAW format.
 
 ---
 
@@ -178,20 +178,23 @@ local color = RGB(red, green, blue) -- all from 0-255
 local win = createWindow(50, 50, 200, 150)
 WIN_setName(win, "Hello World")
 
+local lastR = WIN_lastChanged()
+print("Last Rendered: " .. tostring(lastR))
+
 while not WIN_closed(win) do
     local pressed, state, x, y, mx, my, wc, nr = WIN_getLastEvent(win, 1)
-    
-    if nr then
+
+    if nr or state > 0 then
+        WIN_finishFrame(win)
+
         WIN_fillBg(win, 1, 0xFFFF)
         WIN_writeText(win, 1, 10, 10, "Hello World", 2, 0x0000)
-    end
 
-    if pressed then
-        WIN_writeText(win, 1, 10, 30, "Clicked at: " .. x .. "," .. y, 1, 0xF800)
+        if state > 0 then
+            WIN_writeText(win, 1, 10, 30, "Clicked at: " .. x .. "," .. y, 1, 0xF800)
+        end
     end
 
     delay(16) -- ~60 FPS
-
-    WIN_finishFrame(win)
 end
 ```
