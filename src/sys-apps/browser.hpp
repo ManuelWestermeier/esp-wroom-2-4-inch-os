@@ -198,7 +198,7 @@ namespace Browser
     void ReRender()
     {
         // Full Rerender based on state (not between sessions)
-        // Layout: tob Bar: 20px heigh, input filed, return, go back/forward, settings, history
+        // Layout: tob Bar: 20px heigh, input filed, return, go back/forward, settings, history, exitBtn
         // Pages: View, HistoryPage, Settings Page, Manage Sessions Page (delete), default credential page, ...
     }
 
