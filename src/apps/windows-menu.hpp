@@ -292,7 +292,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     else
                     {
                         Screen::tft.fillScreen(BG);
-                        Screen::tft.setTextSize(3);
+                        Screen::tft.setTextSize(2);
                         Screen::tft.setTextColor(TEXT);
                         Screen::tft.setTextDatum(MC_DATUM);
                         Screen::tft.drawString("Loading Updates...", 160, 120);
@@ -313,7 +313,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                         // call installer (synchronous assumption)
                         AppManager::installApp(app.id, folderName, true);
                         Screen::tft.fillScreen(BG);
-                        Screen::tft.setTextSize(3);
+                        Screen::tft.setTextSize(2);
                         Screen::tft.setTextColor(TEXT);
                         Screen::tft.setTextDatum(MC_DATUM);
                         Screen::tft.drawString("Finished Updates...", 160, 120);

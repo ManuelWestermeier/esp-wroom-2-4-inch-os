@@ -128,7 +128,7 @@ void startWindowRender()
     BaseType_t res = xTaskCreate(
         AppRenderTask,
         "AppRenderTask",
-        8172, // etwas größerer Stack
+        16383, // etwas größerer Stack
         NULL,
         2, // etwas höhere Prio als App-Tasks
         &WindowAppRenderHandle);
