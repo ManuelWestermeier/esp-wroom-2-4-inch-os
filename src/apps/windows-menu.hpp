@@ -292,10 +292,10 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     else
                     {
                         Screen::tft.fillScreen(BG);
-                        Screen::tft.setTextSize(2);
+                        Screen::tft.setTextSize(3);
                         Screen::tft.setTextColor(TEXT);
                         Screen::tft.setTextDatum(MC_DATUM);
-                        Screen::tft.drawString("Loading\nUpdates...", 160, 120);
+                        Screen::tft.drawString("Loading Updates...", 160, 120);
                         Screen::tft.setTextSize(1);
                         // extract folder name (last part of the path)
                         String folderName;
@@ -312,6 +312,13 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
                         // call installer (synchronous assumption)
                         AppManager::installApp(app.id, folderName, true);
+                        Screen::tft.fillScreen(BG);
+                        Screen::tft.setTextSize(3);
+                        Screen::tft.setTextColor(TEXT);
+                        Screen::tft.setTextDatum(MC_DATUM);
+                        Screen::tft.drawString("Finished Updates...", 160, 120);
+                        Screen::tft.setTextSize(1);
+                        delay(1000);
 
                         // refresh metadata/icon for this app only
                         if (app.loadMetaData())
@@ -386,6 +393,13 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     else if (shortCut.name == "Apps")
                     {
                         appManager();
+                        Screen::tft.fillScreen(BG);
+                        Screen::tft.setTextSize(3);
+                        Screen::tft.setTextColor(TEXT);
+                        Screen::tft.setTextDatum(MC_DATUM);
+                        Screen::tft.drawString("Finished Updates...", 160, 120);
+                        Screen::tft.setTextSize(1);
+                        delay(1000);
                         updateAppList(apps, lastPaths, appsChanged);
                         return;
                     }

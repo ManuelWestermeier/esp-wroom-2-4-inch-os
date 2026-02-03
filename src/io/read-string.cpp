@@ -196,7 +196,7 @@ static std::vector<KeyRect> buildKeyboardLayout(KbMode mode)
     { // NUMSYM
         addRow("1234567890", y);
         y += KEY_H + KEY_SP;
-        addRow("!@#$%^&*()", y);
+        addRow("!@#$%/&*()", y);
         y += KEY_H + KEY_SP;
         addRow("?[]{};:,.'\"", y, 0, 26, 4);
         y += KEY_H + KEY_SP;
