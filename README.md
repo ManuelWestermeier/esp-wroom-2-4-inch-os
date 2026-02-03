@@ -62,7 +62,7 @@ https://manuelwestermeier.github.io/to-16-bit/ (iamges)
 local windowId = createWindow(50, 50, 200, 150)
 WIN_setName(windowId, "My App")
 local x, y, width, height = WIN_getRect(windowId)
-local pressed, state, posX, posY, moveX, moveY, wasClicked = WIN_getLastEvent(windowId, 1)
+local pressed, state, posX, posY, moveX, moveY, wasClicked, needRedraw = WIN_getLastEvent(windowId, 1)
 local isClosed = WIN_closed(windowId)
 WIN_close(windowId)
 ```
@@ -174,13 +174,16 @@ local color = RGB(red, green, blue) -- all from 0-255
 
 ```lua
 local win = createWindow(50, 50, 200, 150)
-WIN_setName(win, "My App")
+WIN_setName(win, "Hello World")
 
 while not WIN_closed(win) do
-    WIN_fillBg(win, 1, 0xFFFF)
-    WIN_writeText(win, 1, 10, 10, "Hello World", 2, 0x0000)
+    local pressed, state, x, y, mx, my, wc, nr = WIN_getLastEvent(win, 1)
+    
+    if nr then
+        WIN_fillBg(win, 1, 0xFFFF)
+        WIN_writeText(win, 1, 10, 10, "Hello World", 2, 0x0000)
+    end
 
-    local pressed, state, x, y = WIN_getLastEvent(win, 1)
     if pressed then
         WIN_writeText(win, 1, 10, 30, "Clicked at: " .. x .. "," .. y, 1, 0xF800)
     end
