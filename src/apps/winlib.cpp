@@ -175,7 +175,7 @@ namespace LuaApps::WinLib
         lua_pushinteger(L, ev.move.y);
         lua_pushboolean(L, w->wasClicked);
 
-        return 6;
+        return 7;
     }
 
     int lua_WIN_closed(lua_State *L)
