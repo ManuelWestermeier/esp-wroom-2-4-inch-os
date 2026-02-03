@@ -10,7 +10,7 @@ namespace Windows
     unsigned long lastRendered = 0;
 
     // Helper to mark all windows as needing redraw
-    void markAllNeedRedraw(bool val = true)
+    void markAllNeedRedraw()
     {
         lastRendered = millis();
 
@@ -18,7 +18,7 @@ namespace Windows
         for (auto &p : apps)
         {
             if (p)
-                p->needRedraw = val;
+                p->needRedraw = true;
         }
     }
 
@@ -34,7 +34,7 @@ namespace Windows
         Serial.println("Filling screen with background color...");
         Screen::tft.fillScreen(BG);
         // screen was cleared -> all windows need redraw
-        markAllNeedRedraw(true);
+        markAllNeedRedraw();
         Serial.println("=== Window::init completed ===");
         canAccess = true;
     }
@@ -46,7 +46,7 @@ namespace Windows
             apps[idx]->closed = true;
             apps.erase(apps.begin() + idx);
             // z-order changed / windows removed -> need redraw
-            markAllNeedRedraw(true);
+            markAllNeedRedraw();
         }
     }
 
@@ -72,7 +72,7 @@ namespace Windows
 
         Screen::tft.fillScreen(BG);
         // screen was cleared -> all windows need redraw
-        markAllNeedRedraw(true);
+        markAllNeedRedraw();
         canAccess = true;
     }
 
@@ -85,7 +85,7 @@ namespace Windows
         apps.erase(it);
         apps.push_back(std::move(tmp));
         // z-order changed -> all windows need redraw
-        markAllNeedRedraw(true);
+        markAllNeedRedraw();
     }
 
     void drawWindows(Vec pos, Vec move, MouseState state)
@@ -162,10 +162,9 @@ namespace Windows
                 {
                     w.off = proposedOff;
                     // this window moved -> it needs redraw
-                    w.needRedraw = true;
                     Screen::tft.fillScreen(BG);
                     // screen cleared -> all windows need redraw
-                    markAllNeedRedraw(true);
+                    markAllNeedRedraw();
                 }
             }
 
@@ -204,10 +203,9 @@ namespace Windows
                 {
                     w.size = proposedSize;
                     // this window resized -> it needs redraw
-                    w.needRedraw = true;
                     Screen::tft.fillScreen(BG);
                     // screen cleared -> all windows need redraw
-                    markAllNeedRedraw(true);
+                    markAllNeedRedraw();
                 }
             }
 
@@ -218,7 +216,7 @@ namespace Windows
                 auto area = Rect{w.off + Vec{-1, -13}, w.size + Vec{12 + 2, 14}};
                 Screen::tft.fillRect(area.pos.x, area.pos.y, area.dimensions.x, area.dimensions.y, BG);
                 // area cleared -> all windows need redraw
-                markAllNeedRedraw(true);
+                markAllNeedRedraw();
             }
         }
         else
@@ -228,13 +226,12 @@ namespace Windows
                 Window &w = *p;
                 w.off += move;
                 // each window moved -> needs redraw
-                w.needRedraw = true;
             }
             if (move.x != 0 || move.y != 0)
             {
                 Screen::tft.fillScreen(BG);
                 // screen cleared -> all windows need redraw
-                markAllNeedRedraw(true);
+                markAllNeedRedraw();
                 drawTime();
             }
         }
@@ -243,6 +240,7 @@ namespace Windows
         for (auto &p : apps)
         {
             Window &w = *p;
+            Serial.println(w.name + " |REDRAW| " + w.needRedraw);
             if (Rect{0, 0, 320, 240}.intersects(Rect{w.off + Vec{-1, -13}, w.size + Vec{12 + 2, 13}}))
             {
                 // Only redraw title/resize/time if window intersects screen.
@@ -286,7 +284,7 @@ namespace Windows
             Screen::tft.fillScreen(BG);
             isRendering = !isRendering;
             // isRendering changed -> all windows need redraw
-            markAllNeedRedraw(true);
+            markAllNeedRedraw();
         }
         lastBtnVal = btnClick;
 
