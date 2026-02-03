@@ -1,15 +1,15 @@
 local win = createWindow(50, 50, 200, 150)
 WIN_setName(win, "Hello World")
 
-local lasR = WIN_lastChanged()
-print("Last Rendered: " .. lastR)
+local lastR = WIN_lastChanged()
+print("Last Rendered: " .. tostring(lastR))
 
 while not WIN_closed(win) do
     local pressed, state, x, y, mx, my, wc, nr = WIN_getLastEvent(win, 1)
 
     if nr or pressed then
         WIN_finishFrame(win)
-        
+
         WIN_fillBg(win, 1, 0xFFFF)
         WIN_writeText(win, 1, 10, 10, "Hello World", 2, 0x0000)
 
@@ -17,7 +17,7 @@ while not WIN_closed(win) do
             WIN_writeText(win, 1, 10, 30, "Clicked at: " .. x .. "," .. y, 1, 0xF800)
         end
     end
-    
+
     if nr then
         WIN_writeText(win, 1, 20, 30, "R", 1, 0xF800)
     else

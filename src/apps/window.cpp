@@ -17,7 +17,6 @@ Rect Window::resizeArea() const
 
 void Window::init(const String &windowName, Vec position, Vec dimensions, uint16_t *_icon)
 {
-    needRedraw = true;
     // name
     name = windowName;
     // Constrain size
