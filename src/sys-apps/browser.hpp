@@ -160,7 +160,7 @@ namespace ENC_FS
 /**
 Do the protocol like:
 // init
-Client: MWOSP-v1 sessionId
+Client: MWOSP-v1 sessionId VIEWPORTX VIEWPORTY
 Server: MWOSP-v1 OK
 
 then:
@@ -181,6 +181,7 @@ Server: GetState RETURNID
 => Client: GetBackState RETURNID DATA
 Server: GetText RETURNID
 => Client: GetBackText RETURNID TEXT 
+
 */
 
 namespace Browser
