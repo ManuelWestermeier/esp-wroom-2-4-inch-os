@@ -502,7 +502,16 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
             {
                 tft.setTextSize(1);
                 tft.setTextDatum(CC_DATUM);
-                tft.drawString(app.id, updateRect.pos.x + updateRect.dimensions.x / 2, updateRect.pos.y + (updateRect.dimensions.y / 2) + 10);
+                String clippedId = app.id;
+                if (clippedId.length() > 14)
+                {
+                    int start = (clippedId.length() - 14) / 2;
+                    clippedId = clippedId.substring(start, start + 14);
+                }
+
+                tft.drawString(clippedId,
+                               updateRect.pos.x + updateRect.dimensions.x / 2,
+                               updateRect.pos.y + (updateRect.dimensions.y / 2) + 10);
                 tft.setTextSize(2);
                 tft.setTextDatum(TL_DATUM);
             }
