@@ -110,7 +110,7 @@ end
 while not WIN_closed(win) do
     drawTasks()
 
-    local pressed, state, x, y, moveX, moveY, wasClicked = WIN_getLastEvent(win, 1)
+    local pressed, state, x, y, moveX, moveY, wasClicked, nr = WIN_getLastEvent(win, 1)
 
     if pressed then
         if state == 1 then
@@ -133,5 +133,6 @@ while not WIN_closed(win) do
         end
     end
 
+    WIN_finishFrame(win)
     delay(16)
 end
