@@ -1045,8 +1045,9 @@ namespace AppManager
             drawProgressBar(pbX, pbY, pbW, 24, progress);
             drawClippedString(pbX, pbY + 30, pbW, "Downloading: " + f, BODY_FONT);
         }
+
         // write the appId to id.txt in the app folder
-        ENC_FS::writeFile({"programs", folderName, "id.txt"}, 0, 0, std::vector<uint8_t>(appId.begin(), appId.end()));
+        ENC_FS::writeFile({"programs", folderName, "id.txt"}, 0, 0, std::vector<uint8_t>(rawAppId.begin(), rawAppId.end()));
 
         // Finalize
         clearScreen();
