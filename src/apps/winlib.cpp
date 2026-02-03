@@ -131,9 +131,7 @@ namespace LuaApps::WinLib
             return nullptr;
         }
 
-        auto w = it->second.get();
-
-        return w;
+        return it->second.get();
     }
 
     int lua_WIN_setName(lua_State *L)
