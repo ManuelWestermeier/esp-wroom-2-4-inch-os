@@ -7,7 +7,7 @@ namespace Windows
     bool isUsingKeyBoard = false;
     bool canAccess = true;
     Rect timeButton{{320 - 42 - 5, 240 - 16 - 5}, {42, 16}};
-    extern unsigned long lastRendered;
+    unsigned long lastRendered = 0;
 
     // Helper to mark all windows as needing redraw
     void markAllNeedRedraw(bool val = true)
