@@ -7,6 +7,7 @@
 #include "../sys-apps/file-picker.hpp"
 #include "../sys-apps/app-menager.hpp"
 #include "../sys-apps/settings.hpp"
+#include "../sys-apps/browser.hpp"
 
 #include "../icons/index.hpp"
 
@@ -160,6 +161,7 @@ static std::vector<ShortCut> shortCuts = {
     {"Settings", SVG::settings},
     {"WiFi", SVG::wifi},
     {"Apps", SVG::apps},
+    {"Browser", SVG::browser},
     {"Folders", SVG::folder},
 };
 
@@ -402,6 +404,10 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                         delay(1000);
                         updateAppList(apps, lastPaths, appsChanged);
                         return;
+                    }
+                    else if (shortCut.name == "Browser")
+                    {
+                        return openBrowser();
                     }
                     break;
                 }

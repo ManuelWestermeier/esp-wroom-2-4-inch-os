@@ -8,6 +8,7 @@ namespace SVG
     extern String wifi;
     extern String design;
     extern String folder;
+    extern String browser;
     extern String shutdown;
     extern String login;
     extern String signin;
