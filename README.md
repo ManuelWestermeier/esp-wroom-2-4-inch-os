@@ -63,6 +63,7 @@ local windowId = createWindow(50, 50, 200, 150)
 WIN_setName(windowId, "My App")
 local x, y, width, height = WIN_getRect(windowId)
 local pressed, state, posX, posY, moveX, moveY, wasClicked, needRedraw = WIN_getLastEvent(windowId, 1)
+WIN_finishFrame(win) -- call at frame and, to set needRedraw to false => wait for new redraw event
 local isClosed = WIN_closed(windowId)
 WIN_close(windowId)
 ```
@@ -189,5 +190,7 @@ while not WIN_closed(win) do
     end
 
     delay(16) -- ~60 FPS
+
+    WIN_finishFrame(win)
 end
 ```
