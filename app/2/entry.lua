@@ -4,8 +4,9 @@ WIN_setName(win, "Hello World")
 while not WIN_closed(win) do
     local pressed, state, x, y, mx, my, wc, nr = WIN_getLastEvent(win, 1)
 
-    print(string.format("pressed=%s, state=%s, x=%d, y=%d, mx=%d, my=%d, wc=%s, nr=%s", tostring(pressed),
-        tostring(state), x, y, mx, my, tostring(wc), tostring(nr)))
+    if nr then
+        WIN_finishFrame(win)
+    end
 
     if nr then
         WIN_fillBg(win, 1, 0xFFFF)
@@ -23,6 +24,4 @@ while not WIN_closed(win) do
     else
         WIN_writeText(win, 1, 20, 30, "N", 1, 0xF800)
     end
-
-    -- WIN_finishFrame(win)
 end
