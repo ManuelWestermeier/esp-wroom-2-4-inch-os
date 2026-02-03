@@ -15,17 +15,43 @@ extern bool executeApplication(const std::vector<String> &args);
 struct AppRenderData
 {
     String name;
+    String id; // new: stores appId from appId/id.txt
     ENC_FS::Path path;
     uint16_t icon[20 * 20];
     bool hasIcon = false;
 
     bool loadMetaData()
     {
+        // load name
         auto namePath = path;
         namePath.push_back("name.txt");
         name = ENC_FS::readFileString(namePath).substring(0, 16);
         name.replace("\n", "");
         name.trim();
+
+        // load id from appId/id.txt (if present)
+        id = "";
+        auto idPath = path;
+        idPath.push_back("appId");
+        idPath.push_back("id.txt");
+        if (ENC_FS::exists(idPath))
+        {
+            id = ENC_FS::readFileString(idPath);
+            id.replace("\n", "");
+            id.trim();
+        }
+        else
+        {
+            // fallback: try id.txt at root of app folder
+            auto idPath2 = path;
+            idPath2.push_back("id.txt");
+            if (ENC_FS::exists(idPath2))
+            {
+                id = ENC_FS::readFileString(idPath2);
+                id.replace("\n", "");
+                id.trim();
+            }
+        }
 
         auto iconPath = path;
         iconPath.push_back("icon-20x20.raw");
@@ -193,7 +219,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     bool topRedraw = false, bottomRedraw = false;
 
     // periodic directory check (only every 10s)
-    if (menuUpdateTime == 0 || millis() - menuUpdateTime > 10000)
+    if (menuUpdateTime == 0 || millis() - menuUpdateTime > 25000)
     {
         menuUpdateTime = millis();
         updateAppList(apps, lastPaths, appsChanged);
@@ -246,8 +272,63 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                 Rect appRect = {{10, (scrollYOff + (i + 1) * itemHeight)}, {itemWidth, itemHeight}};
                 if (!appRect.intersects(programsView))
                     continue;
+
+                // define update button area on the right side of the app card
+                const int btnW = 60;
+                Rect updateRect = {{appRect.pos.x + appRect.dimensions.x - btnW - 5, appRect.pos.y + 5}, {btnW, appRect.dimensions.y - 10}};
+
+                // skip if not visible in programsView
+                if (!appRect.intersects(programsView))
+                    continue;
+
+                // check update button click first
+                if (updateRect.isIn(pos))
+                {
+                    // If no id present, log and skip
+                    if (app.id.length() == 0)
+                    {
+                        Serial.println("No app id found for update: " + ENC_FS::path2Str(app.path));
+                    }
+                    else
+                    {
+                        // extract folder name (last part of the path)
+                        String folderName;
+                        if (app.path.size() > 0)
+                        {
+                            folderName = app.path.back();
+                        }
+                        else
+                        {
+                            folderName = ENC_FS::path2Str(app.path);
+                        }
+
+                        Serial.println("Updating app: id=" + app.id + " folder=" + folderName);
+
+                        // call installer (synchronous assumption)
+                        AppManager::installApp(app.id, folderName, true);
+
+                        // refresh metadata/icon for this app only
+                        if (app.loadMetaData())
+                        {
+                            // trigger redraw of only bottom
+                            needRedraw = bottomRedraw = true;
+                        }
+                        else
+                        {
+                            Serial.println("Failed to reload app metadata after update: " + folderName);
+                        }
+                    }
+
+                    // consumed click
+                    break;
+                }
+
+                // otherwise check whole app card click (open app)
                 if (appRect.isIn(pos))
                 {
+                    // refresh metadata on entry to the app (only this app)
+                    app.loadMetaData();
+
                     bool suceed = executeApplication({ENC_FS::path2Str(app.path)});
                     if (!suceed)
                     {
@@ -387,6 +468,24 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
             // app name
             tft.setCursor(appRect.pos.x + 30, appRect.pos.y + 5);
             tft.print(app.name);
+
+            // draw update button on the right
+            const int btnW = 50;
+            Rect updateRect = {{appRect.pos.x + appRect.dimensions.x - btnW - 5, appRect.pos.y + 5}, {btnW, appRect.dimensions.y - 20}};
+            tft.fillRoundRect(updateRect.pos.x, updateRect.pos.y, updateRect.dimensions.x, updateRect.dimensions.y, 3, PH);
+            tft.setTextSize(1);
+            tft.setTextDatum(CC_DATUM);
+            tft.drawString("Update", updateRect.pos.x + updateRect.dimensions.x / 2, updateRect.pos.y + (updateRect.dimensions.y / 2));
+
+            // optionally show id under the name if present (small text)
+            if (app.id.length() > 0)
+            {
+                tft.setTextSize(1);
+                tft.setTextDatum(CC_DATUM);
+                tft.drawString(app.id, updateRect.pos.x + updateRect.dimensions.x / 2, updateRect.pos.y + (updateRect.dimensions.y / 2) + 10);
+                tft.setTextSize(2);
+                tft.setTextDatum(TL_DATUM);
+            }
         }
 
         Screen::tft.resetViewport();
