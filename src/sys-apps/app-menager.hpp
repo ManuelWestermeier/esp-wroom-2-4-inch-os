@@ -190,7 +190,7 @@ namespace AppManager
     static void drawSuccess(const String &msg)
     {
         clearScreen(PRIMARY);
-        Screen::tft.setTextColor(AT, PRIMARY);
+        Screen::tft.setTextColor(AT, TEXT);
         int maxW = screenW() - LEFT_MARGIN - RIGHT_MARGIN;
         int y = (screenH() - Screen::tft.fontHeight(HEADING_FONT)) / 2;
         drawClippedString(LEFT_MARGIN, y, maxW, msg, HEADING_FONT);
@@ -1045,6 +1045,8 @@ namespace AppManager
             drawProgressBar(pbX, pbY, pbW, 24, progress);
             drawClippedString(pbX, pbY + 30, pbW, "Downloading: " + f, BODY_FONT);
         }
+        // write the appId to id.txt in the app folder
+        ENC_FS::writeFile({"programs", folderName, "id.txt"}, 0, 0, std::vector<uint8_t>(appId.begin(), appId.end()));
 
         // Finalize
         clearScreen();
