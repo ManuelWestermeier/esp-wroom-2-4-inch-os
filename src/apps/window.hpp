@@ -30,6 +30,7 @@ struct Window
     MouseEvent lastEventRightSprite{MouseState::Up, {0, 0}, {0, 0}};
     bool closed = false;
     bool wasClicked = false;
+    bool needRedraw = false;
 
 #include "icon.hpp"
 

@@ -107,7 +107,7 @@ namespace LuaApps::WinLib
 
     // Centralized getWindow: checks id validity AND that current app owns the id.
     // Returns shared_ptr -> raw pointer (non-owning). On error it raises Lua error.
-    static Window *getWindow(lua_State *L, int index)
+    static Window *getWindow(lua_State *L, int index, bool change = true)
     {
         int id = luaL_checkinteger(L, index);
         App *app = getApp(L);
@@ -131,7 +131,14 @@ namespace LuaApps::WinLib
             return nullptr;
         }
 
-        return it->second.get();
+        auto w = it->second.get();
+
+        if (w != nullptr && change)
+        {
+            w->needRedraw = false;
+        }
+
+        return w;
     }
 
     int lua_WIN_setName(lua_State *L)
@@ -155,12 +162,13 @@ namespace LuaApps::WinLib
         lua_pushinteger(L, w->off.y);
         lua_pushinteger(L, w->size.x);
         lua_pushinteger(L, w->size.y);
+
         return 4;
     }
 
     int lua_WIN_getLastEvent(lua_State *L)
     {
-        Window *w = getWindow(L, 1);
+        Window *w = getWindow(L, 1, false);
         if (!w)
             return 0;
 
@@ -174,8 +182,9 @@ namespace LuaApps::WinLib
         lua_pushinteger(L, ev.move.x);
         lua_pushinteger(L, ev.move.y);
         lua_pushboolean(L, w->wasClicked);
+        lua_pushboolean(L, w->needRedraw);
 
-        return 7;
+        return 8;
     }
 
     int lua_WIN_closed(lua_State *L)

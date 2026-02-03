@@ -8,6 +8,16 @@ namespace Windows
     bool canAccess = true;
     Rect timeButton{{320 - 42 - 5, 240 - 16 - 5}, {42, 16}};
 
+    // Helper to mark all windows as needing redraw
+    void markAllNeedRedraw(bool val = true)
+    {
+        for (auto &p : apps)
+        {
+            if (p)
+                p->needRedraw = val;
+        }
+    }
+
     void add(WindowPtr w)
     {
         while (!canAccess)
@@ -19,15 +29,21 @@ namespace Windows
         apps.push_back(std::move(w));
         Serial.println("Filling screen with background color...");
         Screen::tft.fillScreen(BG);
+        // screen was cleared -> all windows need redraw
+        markAllNeedRedraw(true);
         Serial.println("=== Window::init completed ===");
         canAccess = true;
     }
 
     void removeAt(int idx)
     {
-        apps[idx]->closed = true;
         if (idx >= 0 && idx < (int)apps.size())
+        {
+            apps[idx]->closed = true;
             apps.erase(apps.begin() + idx);
+            // z-order changed / windows removed -> need redraw
+            markAllNeedRedraw(true);
+        }
     }
 
     void remove(Window *win)
@@ -51,6 +67,8 @@ namespace Windows
         }
 
         Screen::tft.fillScreen(BG);
+        // screen was cleared -> all windows need redraw
+        markAllNeedRedraw(true);
         canAccess = true;
     }
 
@@ -62,6 +80,8 @@ namespace Windows
         WindowPtr tmp = std::move(*it);
         apps.erase(it);
         apps.push_back(std::move(tmp));
+        // z-order changed -> all windows need redraw
+        markAllNeedRedraw(true);
     }
 
     void drawWindows(Vec pos, Vec move, MouseState state)
@@ -137,7 +157,11 @@ namespace Windows
                 if (!collides)
                 {
                     w.off = proposedOff;
+                    // this window moved -> it needs redraw
+                    w.needRedraw = true;
                     Screen::tft.fillScreen(BG);
+                    // screen cleared -> all windows need redraw
+                    markAllNeedRedraw(true);
                 }
             }
 
@@ -175,7 +199,11 @@ namespace Windows
                 if (!collides)
                 {
                     w.size = proposedSize;
+                    // this window resized -> it needs redraw
+                    w.needRedraw = true;
                     Screen::tft.fillScreen(BG);
+                    // screen cleared -> all windows need redraw
+                    markAllNeedRedraw(true);
                 }
             }
 
@@ -185,6 +213,8 @@ namespace Windows
                 removeAt((int)apps.size() - 1);
                 auto area = Rect{w.off + Vec{-1, -13}, w.size + Vec{12 + 2, 14}};
                 Screen::tft.fillRect(area.pos.x, area.pos.y, area.dimensions.x, area.dimensions.y, BG);
+                // area cleared -> all windows need redraw
+                markAllNeedRedraw(true);
             }
         }
         else
@@ -193,10 +223,14 @@ namespace Windows
             {
                 Window &w = *p;
                 w.off += move;
+                // each window moved -> needs redraw
+                w.needRedraw = true;
             }
             if (move.x != 0 || move.y != 0)
             {
                 Screen::tft.fillScreen(BG);
+                // screen cleared -> all windows need redraw
+                markAllNeedRedraw(true);
                 drawTime();
             }
         }
@@ -207,6 +241,8 @@ namespace Windows
             Window &w = *p;
             if (Rect{0, 0, 320, 240}.intersects(Rect{w.off + Vec{-1, -13}, w.size + Vec{12 + 2, 13}}))
             {
+                // Only redraw title/resize/time if window intersects screen.
+                // mark per-window redraw was already set where appropriate.
                 drawTitleBar(w);
                 drawResizeBox(w);
                 drawTime();
@@ -238,13 +274,15 @@ namespace Windows
         Vec move = (state != MouseState::Up) ? touch.move : Vec{0, 0};
         lastState = state;
 
-        // time button toglls rendering
+        // time button toggles rendering
         static bool lastBtnVal = HIGH;
         bool btnClick = digitalRead(0);
         if ((timeButton.isIn(pos) && state == MouseState::Down) || (btnClick == LOW && lastBtnVal != LOW))
         {
             Screen::tft.fillScreen(BG);
             isRendering = !isRendering;
+            // isRendering changed -> all windows need redraw
+            markAllNeedRedraw(true);
         }
         lastBtnVal = btnClick;
 
