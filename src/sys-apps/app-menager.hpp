@@ -54,7 +54,10 @@ namespace AppManager
         return s.substring(start, end + 1);
     }
 
-    static String sanitizeFolderName(const String &s)
+    // sanitize folder name using input id style:
+    // keep a-z A-Z 0-9 _ -, convert '.' and '=' to '-',
+    // other chars to '_', fallback "app"
+    static String sanitizeFolderNameFromInput(const String &s)
     {
         String out;
         out.reserve(s.length());
@@ -65,13 +68,27 @@ namespace AppManager
                 (c >= 'A' && c <= 'Z') ||
                 (c >= '0' && c <= '9') ||
                 c == '-' || c == '_')
+            {
                 out += c;
+            }
+            else if (c == '.' || c == '=')
+            {
+                out += '-';
+            }
             else
+            {
                 out += '_';
+            }
         }
         if (out.length() == 0)
             out = "app";
         return out;
+    }
+
+    // fallback sanitize (keeps same semantics as before but normalized)
+    static String sanitizeFolderName(const String &s)
+    {
+        return sanitizeFolderNameFromInput(s);
     }
 
     static void drawClippedString(int x, int y, int maxW, const String &s, int font = DEFAULT_FONT)
@@ -301,14 +318,15 @@ namespace AppManager
         return true;
     }
 
+    // use secureClient for strings too, reduce memory churn
     static String performGetString(const String &url, const String &fallback = "?")
     {
         if (WiFi.status() != WL_CONNECTED)
             return fallback;
 
         HTTPClient http;
-        // reuse secureClient if you have one; otherwise http.begin(url) is fine
-        if (!http.begin(url))
+        secureClient.setInsecure();
+        if (!http.begin(secureClient, url))
             return fallback;
 
         http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
@@ -447,7 +465,9 @@ namespace AppManager
         return performGetBuffer(url, buf);
     }
 
-    static bool fetchAndWrite(const String &url, const String &path, const String &folderName, bool required, int &progress, int totalFiles, int currentFile)
+    // fetchAndWrite: optionally use already-downloaded buffer (preBuf) to avoid duplicate GETs.
+    // createDirs controls whether to create programs/ folder and app folder.
+    static bool fetchAndWrite(const String &url, const String &path, const String &folderName, bool required, int &progress, int totalFiles, int currentFile, bool createDirs = true, const Buffer *preBuf = nullptr)
     {
         Serial.println("[Download] " + url + " -> " + path);
 
@@ -473,17 +493,40 @@ namespace AppManager
         drawClippedString(pbX, pbY + 30, pbW, "Downloading: " + path, BODY_FONT);
 
         Buffer dataBuf;
-        if (!performGetWithFallback(url, dataBuf))
+
+        if (preBuf != nullptr && preBuf->ok)
         {
-            if (required)
-                drawError("Failed to download " + path);
-            return !required;
+            // use provided pre-fetched buffer
+            dataBuf.data = preBuf->data;
+            dataBuf.ok = true;
+        }
+        else
+        {
+            if (!performGetWithFallback(url, dataBuf))
+            {
+                if (required)
+                    drawError("Failed to download " + path);
+                return !required;
+            }
         }
 
-        if (!ENC_FS::exists({"programs"}))
-            ENC_FS::mkDir({"programs"});
-        if (!ENC_FS::exists({"programs", folderName}))
-            ENC_FS::mkDir({"programs", folderName});
+        if (createDirs)
+        {
+            if (!ENC_FS::exists({"programs"}))
+                ENC_FS::mkDir({"programs"});
+            if (!ENC_FS::exists({"programs", folderName}))
+                ENC_FS::mkDir({"programs", folderName});
+        }
+        else
+        {
+            // if not creating dirs, ensure that folder exists - if it doesn't, this is an error when required
+            if (!ENC_FS::exists({"programs", folderName}))
+            {
+                if (required)
+                    drawError("App folder missing: " + folderName);
+                return !required;
+            }
+        }
 
         bool written = ENC_FS::writeFile({"programs", folderName, path}, 0, 0, dataBuf.data);
         Serial.println("[Write] File " + path + (written ? " OK" : " FAILED"));
@@ -601,12 +644,13 @@ namespace AppManager
         }
     }
 
-    static bool confirmInstallPrompt(const String &appName, const Buffer &iconBuf, const String &version)
+    // confirmInstallPrompt now shows "Update" if isUpdate==true and displays folderName derived from input id.
+    static bool confirmInstallPrompt(const String &appName, const Buffer &iconBuf, const String &version, const String &folderName, bool isUpdate)
     {
         clearScreen();
         Screen::tft.setTextColor(TEXT);
         {
-            const String __t = String("Install App?");
+            const String __t = String(isUpdate ? "Update App?" : "Install App?");
             int __font = TITLE_FONT;
             int __w = Screen::tft.textWidth(__t.c_str(), __font);
             int __x = (screenW() - __w) / 2;
@@ -627,7 +671,7 @@ namespace AppManager
         int nameY = iconY;
         drawClippedString(textX, nameY, textW, "Name: " + trimLines(appName), HEADING_FONT);
         drawClippedString(textX, nameY + Screen::tft.fontHeight(HEADING_FONT) + 4, textW, "Version: " + trimLines(version), BODY_FONT);
-        drawClippedString(textX, nameY + Screen::tft.fontHeight(HEADING_FONT) + Screen::tft.fontHeight(BODY_FONT) + 8, textW, "Install this app to /programs/" + sanitizeFolderName(appName) + "?", BODY_FONT);
+        drawClippedString(textX, nameY + Screen::tft.fontHeight(HEADING_FONT) + Screen::tft.fontHeight(BODY_FONT) + 8, textW, String(isUpdate ? "Update files in /programs/" : "Install to /programs/") + folderName + "?", BODY_FONT);
 
         int btnW = (screenW() - 32) / 2;
         int btnY = screenH() - BOTTOM_MARGIN - 48;
@@ -635,7 +679,7 @@ namespace AppManager
         BtnRect no{screenW() - RIGHT_MARGIN - btnW, btnY, btnW, 40};
 
         safePush20x20Icon(iconX, iconY, iconBuf, iconScale);
-        drawButton(yes, "Install", ACCENT, AT, BUTTON_FONT);
+        drawButton(yes, isUpdate ? "Update" : "Install", ACCENT, AT, BUTTON_FONT);
         drawButton(no, "Cancel", DANGER, AT, BUTTON_FONT);
 
         char c = waitForTwoButtonChoice(yes, no);
@@ -672,7 +716,9 @@ namespace AppManager
         return false;
     }
 
-    static bool installApp(const String &rawAppId)
+    // installApp now takes the original inputId and the sanitized folderName derived from that input.
+    // if isUpdate==true, existing folder will be used and no directories will be created.
+    static bool installApp(const String &rawAppId, const String &inputFolderName, bool isUpdate)
     {
         if (!ensureWiFiConnected(10000))
             return false;
@@ -688,30 +734,34 @@ namespace AppManager
 
         Serial.println("[Install] Base URL: " + base);
 
-        String folderName = sanitizeFolderName(rawAppId);
+        String folderName = inputFolderName; // already sanitized from user input
 
         Buffer iconBuf;
-        String name;
-        String version;
+        Buffer nameBuf;
+        Buffer versionBuf;
+        String name = "Unknown";
+        String version = "?";
 
         // icon expected size: 4 bytes header + 20*20*2 = 804
         const size_t ICON_EXPECTED = 4 + 20 * 20 * 2;
 
+        // Fetch icon, name.txt and version.txt once each and keep buffers to avoid re-downloads.
         performGetImageBuffer(base + "icon-20x20.raw", iconBuf, ICON_EXPECTED);
-        name = performGetString(base + "name.txt", "Unknown");
+         name = performGetString(base + "name.txt", "Unknown");
         version = performGetString(base + "version.txt", "?");
 
         if (name.length() == 0)
             name = "Unknown";
         if (version.length() == 0)
             version = "?";
-
+            
         Serial.println("[Install] App name: " + name);
         Serial.println("[Install] Version: " + version);
 
-        if (!confirmInstallPrompt(name, iconBuf, version))
+        if (!confirmInstallPrompt(name, iconBuf, version, folderName, isUpdate))
             return false;
 
+        // core files - we will use pre-fetched buffers where available to avoid re-downloading.
         std::vector<std::pair<String, String>> core = {
             {base + "entry.lua", "entry.lua"},
             {base + "icon-20x20.raw", "icon-20x20.raw"},
@@ -720,32 +770,53 @@ namespace AppManager
         };
 
         int progress = 0;
-        int totalFiles = core.size();
+        int totalFiles = (int)core.size();
         int currentFile = 0;
 
+        // get pkg list first to adjust totalFiles if present (but do not download extras yet)
+        Buffer pkgListBuf;
+        std::vector<String> extras;
+        if (performGetBuffer(base + "pkg.txt", pkgListBuf, 64 * 1024))
+        {
+            extras = parsePkgTxt(pkgListBuf);
+            totalFiles += extras.size();
+            // free pkgListBuf now (we will download each extra individually later)
+            std::vector<uint8_t>().swap(pkgListBuf.data);
+        }
+
+        // Download/write core files. Use pre-fetched buffers for icon/name/version.
         for (auto &p : core)
         {
             currentFile++;
-            if (!fetchAndWrite(p.first, p.second, folderName, true, progress, totalFiles, currentFile))
+            const String &url = p.first;
+            const String &path = p.second;
+
+            const Buffer *preBuf = nullptr;
+            if (path == "icon-20x20.raw" && iconBuf.ok)
+                preBuf = &iconBuf;
+            else if (path == "name.txt" && nameBuf.ok)
+                preBuf = &nameBuf;
+            else if (path == "version.txt" && versionBuf.ok)
+                preBuf = &versionBuf;
+
+            if (!fetchAndWrite(url, path, folderName, true, progress, totalFiles, currentFile, !isUpdate, preBuf))
                 return false;
         }
 
-        Buffer pkg;
-        if (performGetWithFallback(base + "pkg.txt", pkg))
+        // download extras one by one; when updating, do not create folder - only overwrite files.
+        Buffer extraBuf;
+        for (size_t i = 0; i < extras.size(); ++i)
         {
-            auto extras = parsePkgTxt(pkg);
-            totalFiles += extras.size();
-
-            for (auto &f : extras)
+            currentFile++;
+            const String &f = extras[i];
+            String url = base + f;
+            if (!performGetWithFallback(url, extraBuf))
             {
-                currentFile++;
-                if (performGetWithFallback(base + f, pkg))
-                {
-                    ENC_FS::writeFile({"programs", folderName, f}, 0, 0, pkg.data);
-                    // free pkg buffer to return heap
-                    std::vector<uint8_t>().swap(pkg.data);
-                }
+                // if an extra is optional, continue, otherwise consider required? Keep behavior conservative: if cannot download extras, warn but continue.
+                Serial.println("[WARN] failed to download extra: " + f);
+                std::vector<uint8_t>().swap(extraBuf.data);
                 progress = (currentFile * 100) / totalFiles;
+                // update screen
                 clearScreen();
                 Screen::tft.setTextColor(TEXT, BG);
                 {
@@ -764,13 +835,41 @@ namespace AppManager
                 int pbY = screenH() / 2 - 14;
                 drawProgressBar(pbX, pbY, pbW, 24, progress);
                 drawClippedString(pbX, pbY + 30, pbW, "Downloading: " + f, BODY_FONT);
+                continue;
             }
+            // write file (no dir creation if updating)
+            if (!ENC_FS::writeFile({"programs", folderName, f}, 0, 0, extraBuf.data))
+            {
+                Serial.println("[ERROR] failed to write extra: " + f);
+            }
+            std::vector<uint8_t>().swap(extraBuf.data);
+
+            progress = (currentFile * 100) / totalFiles;
+            clearScreen();
+            Screen::tft.setTextColor(TEXT, BG);
+            {
+                const String __t = String("Installing App");
+                int __font = TITLE_FONT;
+                int __w = Screen::tft.textWidth(__t.c_str(), __font);
+                int __x = (screenW() - __w) / 2;
+                __x = std::max(__x, LEFT_MARGIN);
+                __x = std::min(__x, screenW() - __w - RIGHT_MARGIN);
+                int __y = TOP_MARGIN;
+                Screen::tft.drawString(__t, __x, __y, __font);
+            }
+            drawMessage("Downloading additional files...", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 8, TEXT, BG, HEADING_FONT);
+            int pbX = LEFT_MARGIN;
+            int pbW = screenW() - LEFT_MARGIN - RIGHT_MARGIN;
+            int pbY = screenH() / 2 - 14;
+            drawProgressBar(pbX, pbY, pbW, 24, progress);
+            drawClippedString(pbX, pbY + 30, pbW, "Downloading: " + f, BODY_FONT);
         }
 
+        // Finalize
         clearScreen();
         Screen::tft.setTextColor(TEXT, BG);
         {
-            const String __t = String("Installing App");
+            const String __t = String(isUpdate ? "Updating App" : "Installing App");
             int __font = TITLE_FONT;
             int __w = Screen::tft.textWidth(__t.c_str(), __font);
             int __x = (screenW() - __w) / 2;
@@ -779,12 +878,17 @@ namespace AppManager
             int __y = TOP_MARGIN;
             Screen::tft.drawString(__t, __x, __y, __font);
         }
-        drawMessage("Finalizing installation...", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 8, TEXT, BG, HEADING_FONT);
+        drawMessage("Finalizing...", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 8, TEXT, BG, HEADING_FONT);
         int pbX = LEFT_MARGIN;
         int pbW = screenW() - LEFT_MARGIN - RIGHT_MARGIN;
         int pbY = screenH() / 2 - 14;
         drawProgressBar(pbX, pbY, pbW, 24, 100);
         delay(500);
+
+        // free pre-fetched buffers
+        std::vector<uint8_t>().swap(iconBuf.data);
+        std::vector<uint8_t>().swap(nameBuf.data);
+        std::vector<uint8_t>().swap(versionBuf.data);
 
         return true;
     }
@@ -842,10 +946,16 @@ namespace AppManager
             return;
         }
 
+        // Derive folder name from the input id (not from fetched name). This ensures input-based folder naming behavior.
+        String folderName = sanitizeFolderNameFromInput(appId);
+
+        // If programs/folderName exists, treat this as an update
+        bool folderExists = ENC_FS::exists({"programs", folderName});
+
         clearScreen();
         Screen::tft.setTextColor(TEXT, BG);
         {
-            const String __t = String("Preparing Installation");
+            const String __t = String(folderExists ? "Prepare Update" : "Preparing Installation");
             int __font = TITLE_FONT;
             int __w = Screen::tft.textWidth(__t.c_str(), __font);
             int __x = (screenW() - __w) / 2;
@@ -856,12 +966,12 @@ namespace AppManager
         }
         drawMessage("Please wait...", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 8, TEXT, BG, HEADING_FONT);
 
-        bool res = installApp(appId);
+        bool res = installApp(appId, folderName, folderExists);
 
         if (res)
-            drawSuccess("Installed successfully");
+            drawSuccess(folderExists ? "Updated successfully" : "Installed successfully");
         else
-            drawError("Install failed");
+            drawError(folderExists ? "Update failed" : "Install failed");
     }
 
 } // namespace AppManager
