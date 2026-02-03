@@ -197,7 +197,7 @@ namespace LuaApps::WinLib
             return 0;
 
         int screenId = luaL_checkinteger(L, 2);
-        const MouseEvent &ev = (screenId == 2) ? w->lastEventRightSprite : w->lastEvent;
+        MouseEvent &ev = (screenId == 2) ? w->lastEventRightSprite : w->lastEvent;
 
         lua_pushboolean(L, ev.state != MouseState::Up);
         lua_pushinteger(L, (int)ev.state);
@@ -207,6 +207,8 @@ namespace LuaApps::WinLib
         lua_pushinteger(L, ev.move.y);
         lua_pushboolean(L, w->wasClicked);
         lua_pushboolean(L, w->needRedraw);
+
+        ev.state = MouseState::Up;
 
         return 8;
     }
