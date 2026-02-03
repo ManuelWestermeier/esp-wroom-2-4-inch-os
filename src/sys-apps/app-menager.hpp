@@ -899,7 +899,7 @@ namespace AppManager
 
     // installApp now takes the original inputId and the sanitized folderName derived from that input.
     // if isUpdate==true, existing folder will be used and no directories will be created.
-    static bool installApp(const String &rawAppId, const String &inputFolderName, bool isUpdate)
+    static bool installApp(const String &rawAppId, const String &inputFolderName, bool isUpdate, bool needPrompt = true)
     {
         if (!ensureWiFiConnected(10000))
             return false;
@@ -939,8 +939,9 @@ namespace AppManager
         Serial.println("[Install] App name: " + name);
         Serial.println("[Install] Version: " + version);
 
-        if (!confirmInstallPrompt(name, iconBuf, version, folderName, isUpdate))
-            return false;
+        if (needPrompt)
+            if (!confirmInstallPrompt(name, iconBuf, version, folderName, isUpdate))
+                return false;
 
         // core files - we will use pre-fetched buffers where available to avoid re-downloading.
         std::vector<std::pair<String, String>> core = {
