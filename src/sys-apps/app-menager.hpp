@@ -221,10 +221,10 @@ namespace AppManager
         }
 
         HTTPClient http;
-        WiFiClientSecure client;
-        client.setInsecure();
+        // Reuse global secureClient to reduce heap churn
+        secureClient.setInsecure();
 
-        if (!http.begin(client, url))
+        if (!http.begin(secureClient, url))
         {
             Serial.println("[ERROR] http.begin failed");
             http.end(); // safe
@@ -301,17 +301,125 @@ namespace AppManager
         return true;
     }
 
-    // Convenience: string fetcher (for name, version, etc.)
-    static bool performGetString(const String &url, String &outStr, size_t maxSize = 4096)
+    static String performGetString(const String &url, const String &fallback = "?")
     {
-        Buffer buf;
-        if (!performGetBuffer(url, buf, maxSize))
-            return false;
-        if (!buf.ok)
-            return false;
-        outStr = String((const char *)buf.data.data(), buf.data.size());
-        outStr = trimLines(outStr);
-        return true;
+        if (WiFi.status() != WL_CONNECTED)
+            return fallback;
+
+        HTTPClient http;
+        // reuse secureClient if you have one; otherwise http.begin(url) is fine
+        if (!http.begin(url))
+            return fallback;
+
+        http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+        int code = http.GET();
+        if (code != HTTP_CODE_OK)
+        {
+            http.end();
+            return fallback;
+        }
+
+        // read full stream (skip CR)
+        String raw;
+        WiFiClient &stream = http.getStream();
+        unsigned long lastData = millis();
+        const size_t BUF_SZ = 128;
+        uint8_t buf[BUF_SZ];
+        while (http.connected() || stream.available())
+        {
+            while (stream.available())
+            {
+                int r = stream.read(buf, BUF_SZ);
+                if (r > 0)
+                {
+                    for (int i = 0; i < r; ++i)
+                    {
+                        if (buf[i] != '\r')
+                            raw += (char)buf[i];
+                    }
+                    lastData = millis();
+                }
+            }
+            if (millis() - lastData > 5000)
+                break;
+            delay(1);
+        }
+        http.end();
+
+        raw.trim();
+        if (raw.length() == 0)
+            return fallback;
+
+        // try to decode chunked encoding if raw starts with a hex chunk-size line
+        String decoded;
+        int pos = 0;
+        bool chunkedDetected = false;
+        while (pos < raw.length())
+        {
+            int nl = raw.indexOf('\n', pos);
+            if (nl == -1)
+            { // no newline - can't be chunk header
+                break;
+            }
+            String line = raw.substring(pos, nl);
+            line.trim();
+            // check if line is only hex digits (chunk size)
+            bool isHex = line.length() > 0;
+            for (size_t i = 0; i < (size_t)line.length() && isHex; ++i)
+            {
+                char c = line[i];
+                if (!isxdigit((unsigned char)c))
+                    isHex = false;
+            }
+            if (!isHex)
+                break;
+
+            // parse chunk size
+            unsigned long chunkSize = strtoul(line.c_str(), NULL, 16);
+            chunkedDetected = true;
+            pos = nl + 1; // move after chunk-size line
+            if (chunkSize == 0)
+            {
+                // end of chunks
+                break;
+            }
+            // append available bytes up to chunkSize (clamp if stream truncated)
+            int available = raw.length() - pos;
+            int take = (int)std::min<unsigned long>(chunkSize, (unsigned long)std::max(0, available));
+            if (take > 0)
+            {
+                decoded += raw.substring(pos, pos + take);
+                pos += take;
+            }
+            // skip a single LF that follows chunk payload if present
+            if (pos < raw.length() && raw[pos] == '\n')
+                pos++;
+        }
+
+        String finalBody = chunkedDetected ? decoded : raw;
+        finalBody.trim();
+        if (finalBody.length() == 0)
+            return fallback;
+
+        // return first non-empty line (most config files put name on first line)
+        int firstNL = finalBody.indexOf('\n');
+        if (firstNL == -1)
+            return finalBody;
+        // find first non-empty trimmed line
+        int start = 0;
+        while (start <= finalBody.length())
+        {
+            int nl2 = finalBody.indexOf('\n', start);
+            String line = (nl2 == -1) ? finalBody.substring(start) : finalBody.substring(start, nl2);
+            line.trim();
+            if (line.length() > 0)
+                return line;
+            if (nl2 == -1)
+                break;
+            start = nl2 + 1;
+        }
+
+        return fallback;
     }
 
     // Convenience: image fetcher that enforces an expected fixed size (useful for icons)
@@ -379,6 +487,9 @@ namespace AppManager
 
         bool written = ENC_FS::writeFile({"programs", folderName, path}, 0, 0, dataBuf.data);
         Serial.println("[Write] File " + path + (written ? " OK" : " FAILED"));
+
+        // free the buffer memory immediately to return heap
+        std::vector<uint8_t>().swap(dataBuf.data);
 
         if (!written && required)
             drawError("Failed to save " + path);
@@ -587,8 +698,8 @@ namespace AppManager
         const size_t ICON_EXPECTED = 4 + 20 * 20 * 2;
 
         performGetImageBuffer(base + "icon-20x20.raw", iconBuf, ICON_EXPECTED);
-        performGetString(base + "name.txt", name);
-        performGetString(base + "version.txt", version);
+        name = performGetString(base + "name.txt", "Unknown");
+        version = performGetString(base + "version.txt", "?");
 
         if (name.length() == 0)
             name = "Unknown";
@@ -631,6 +742,8 @@ namespace AppManager
                 if (performGetWithFallback(base + f, pkg))
                 {
                     ENC_FS::writeFile({"programs", folderName, f}, 0, 0, pkg.data);
+                    // free pkg buffer to return heap
+                    std::vector<uint8_t>().swap(pkg.data);
                 }
                 progress = (currentFile * 100) / totalFiles;
                 clearScreen();
