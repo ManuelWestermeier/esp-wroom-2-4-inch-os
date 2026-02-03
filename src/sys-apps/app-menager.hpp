@@ -493,6 +493,7 @@ namespace AppManager
         drawClippedString(pbX, pbY + 30, pbW, "Downloading: " + path, BODY_FONT);
 
         Buffer dataBuf;
+        dataBuf.ok = false;
 
         if (preBuf != nullptr && preBuf->ok)
         {
@@ -502,14 +503,181 @@ namespace AppManager
         }
         else
         {
-            if (!performGetWithFallback(url, dataBuf))
+            // Perform HTTP GET and fill dataBuf.data (binary-safe), handling chunked transfer encoding
+            if (WiFi.status() != WL_CONNECTED)
             {
                 if (required)
-                    drawError("Failed to download " + path);
+                    drawError("No WiFi connection for " + path);
                 return !required;
             }
-        }
 
+            HTTPClient http;
+            secureClient.setInsecure();
+            if (!http.begin(secureClient, url))
+            {
+                if (required)
+                    drawError("Failed to begin HTTP for " + path);
+                return !required;
+            }
+
+            http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+            int code = http.GET();
+            if (code != HTTP_CODE_OK)
+            {
+                http.end();
+                if (required)
+                    drawError("HTTP error " + String(code) + " for " + path);
+                return !required;
+            }
+
+            // Decide whether response is chunked
+            String transferEncoding = http.header("Transfer-Encoding");
+            long contentLength = http.getSize(); // -1 if unknown (often chunked)
+
+            WiFiClient &stream = http.getStream();
+            unsigned long lastData = millis();
+            const size_t BUF_SZ = 512;
+            uint8_t buf[BUF_SZ];
+            std::vector<uint8_t> out;
+            bool chunked = transferEncoding.length() && transferEncoding.indexOf("chunked") >= 0;
+            if (!chunked && contentLength == -1)
+            {
+                // Some servers do not set Transfer-Encoding but also don't provide size -> treat as chunked-style fallback
+                chunked = true;
+            }
+
+            if (!chunked)
+            {
+                // Read raw bytes until contentLength reached or stream closed
+                size_t readTotal = 0;
+                while ((http.connected() || stream.available()) && (contentLength == -1 || readTotal < (size_t)contentLength))
+                {
+                    while (stream.available())
+                    {
+                        int r = stream.read(buf, BUF_SZ);
+                        if (r > 0)
+                        {
+                            out.insert(out.end(), buf, buf + r);
+                            readTotal += r;
+                            lastData = millis();
+                        }
+                    }
+                    if (millis() - lastData > 5000)
+                        break;
+                    delay(1);
+                }
+            }
+            else
+            {
+                // Decode chunked transfer encoding
+                // State machine: read chunk-size line (ASCII hex + optional extensions), parse size, then read exactly size bytes, skip CRLF, repeat until size==0.
+                String lineBuf; // accumulate ASCII for chunk size lines
+                bool readingSizeLine = true;
+                unsigned long currentChunkSize = 0;
+                size_t remainingInChunk = 0;
+
+                // We'll read byte-by-byte from stream but in buffered blocks for efficiency.
+                while (http.connected() || stream.available())
+                {
+                    // read available into local buffer
+                    while (stream.available())
+                    {
+                        int r = stream.read(buf, BUF_SZ);
+                        if (r <= 0)
+                            break;
+
+                        for (int i = 0; i < r; ++i)
+                        {
+                            uint8_t b = buf[i];
+                            lastData = millis();
+
+                            if (readingSizeLine)
+                            {
+                                // accumulate until '\n'
+                                lineBuf += (char)b;
+                                if (b == '\n')
+                                {
+                                    // lineBuf may contain CRLF; trim whitespace
+                                    lineBuf.trim();
+                                    // extract only hex prefix (stop at first non-hex)
+                                    String hexPart;
+                                    for (size_t j = 0; j < lineBuf.length(); ++j)
+                                    {
+                                        char c = lineBuf[j];
+                                        if (isxdigit((unsigned char)c))
+                                            hexPart += c;
+                                        else
+                                            break;
+                                    }
+                                    if (hexPart.length() == 0)
+                                    {
+                                        // malformed chunk-size -> abort
+                                        lineBuf = "";
+                                        http.end();
+                                        if (required)
+                                            drawError("Malformed chunk size for " + path);
+                                        return !required;
+                                    }
+                                    currentChunkSize = strtoul(hexPart.c_str(), nullptr, 16);
+                                    if (currentChunkSize == 0)
+                                    {
+                                        // end of chunks -> stop reading further (there may be trailing headers which we can ignore)
+                                        readingSizeLine = false;
+                                        remainingInChunk = 0;
+                                        // consume rest of stream briefly then break outer loops
+                                        // break out by setting connected false after a short drain
+                                        // We won't try to read trailer headers; finish.
+                                        i = r; // move to outer
+                                        goto CHUNKED_DONE;
+                                    }
+                                    remainingInChunk = (size_t)currentChunkSize;
+                                    readingSizeLine = false;
+                                    lineBuf = "";
+                                }
+                            }
+                            else
+                            {
+                                // reading chunk payload
+                                if (remainingInChunk > 0)
+                                {
+                                    out.push_back(b);
+                                    remainingInChunk--;
+                                }
+                                else
+                                {
+                                    // We're at the CR/LF after chunk payload. Skip until we hit '\n' then switch to reading size line.
+                                    if (b == '\n')
+                                    {
+                                        readingSizeLine = true;
+                                        lineBuf = "";
+                                    }
+                                    // else keep skipping CR or any bytes until LF
+                                }
+                            }
+                        } // for r
+                    } // while stream.available()
+
+                    if (millis() - lastData > 5000)
+                        break;
+                    delay(1);
+                }
+            CHUNKED_DONE:;
+            }
+
+            http.end();
+
+            if (out.empty())
+            {
+                if (required)
+                    drawError("Empty download for " + path);
+                return !required;
+            }
+
+            dataBuf.data = std::move(out);
+            dataBuf.ok = true;
+        } // end download
+
+        // ensure program folders exist
         if (createDirs)
         {
             if (!ENC_FS::exists({"programs"}))
@@ -519,17 +687,30 @@ namespace AppManager
         }
         else
         {
-            // if not creating dirs, ensure that folder exists - if it doesn't, this is an error when required
             if (!ENC_FS::exists({"programs", folderName}))
             {
                 if (required)
                     drawError("App folder missing: " + folderName);
+                // free buffer
+                std::vector<uint8_t>().swap(dataBuf.data);
                 return !required;
             }
         }
 
-        bool written = ENC_FS::writeFile({"programs", folderName, path}, 0, 0, dataBuf.data);
-        Serial.println("[Write] File " + path + (written ? " OK" : " FAILED"));
+        bool written = false;
+        if (dataBuf.ok)
+        {
+            written = ENC_FS::writeFile({"programs", folderName, path}, 0, 0, dataBuf.data);
+            Serial.println("[Write] File " + path + (written ? " OK" : " FAILED"));
+        }
+        else
+        {
+            if (required)
+                drawError("No data for " + path);
+            // free buffer (defensive)
+            std::vector<uint8_t>().swap(dataBuf.data);
+            return !required;
+        }
 
         // free the buffer memory immediately to return heap
         std::vector<uint8_t>().swap(dataBuf.data);
@@ -747,14 +928,14 @@ namespace AppManager
 
         // Fetch icon, name.txt and version.txt once each and keep buffers to avoid re-downloads.
         performGetImageBuffer(base + "icon-20x20.raw", iconBuf, ICON_EXPECTED);
-         name = performGetString(base + "name.txt", "Unknown");
+        name = performGetString(base + "name.txt", "Unknown");
         version = performGetString(base + "version.txt", "?");
 
         if (name.length() == 0)
             name = "Unknown";
         if (version.length() == 0)
             version = "?";
-            
+
         Serial.println("[Install] App name: " + name);
         Serial.println("[Install] Version: " + version);
 
