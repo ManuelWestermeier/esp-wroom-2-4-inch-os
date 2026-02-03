@@ -24,5 +24,5 @@ while not WIN_closed(win) do
         WIN_writeText(win, 1, 20, 30, "N", 1, 0xF800)
     end
 
-    WIN_finishFrame(win)
+    -- WIN_finishFrame(win)
 end
