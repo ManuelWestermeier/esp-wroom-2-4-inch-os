@@ -13,7 +13,7 @@ while not WIN_closed(win) do
         if pressed then
             WIN_writeText(win, 1, 10, 30, "Clicked at: " .. x .. "," .. y, 1, 0xF800)
         end
-    else
+    end
     
     if nr then
         WIN_writeText(win, 1, 20, 30, "R", 1, 0xF800)
