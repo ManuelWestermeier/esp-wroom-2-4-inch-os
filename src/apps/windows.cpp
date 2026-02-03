@@ -13,8 +13,6 @@ namespace Windows
     void markAllNeedRedraw()
     {
         lastRendered = millis();
-
-        Serial.println("markAllNeedRedraw");
         for (auto &p : apps)
         {
             if (p)
@@ -240,7 +238,6 @@ namespace Windows
         for (auto &p : apps)
         {
             Window &w = *p;
-            Serial.println(w.name + " |REDRAW| " + w.needRedraw);
             if (Rect{0, 0, 320, 240}.intersects(Rect{w.off + Vec{-1, -13}, w.size + Vec{12 + 2, 13}}))
             {
                 // Only redraw title/resize/time if window intersects screen.
