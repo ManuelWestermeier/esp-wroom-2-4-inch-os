@@ -11,6 +11,7 @@ namespace Windows
     // Helper to mark all windows as needing redraw
     void markAllNeedRedraw(bool val = true)
     {
+        Serial.println("markAllNeedRedraw");
         for (auto &p : apps)
         {
             if (p)
