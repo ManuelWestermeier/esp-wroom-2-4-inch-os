@@ -19,9 +19,9 @@ while not WIN_closed(win) do
     delay(16) -- ~60 FPS
 
     if nr then
-        WIN_writeText(win, 1, 20, 30, "R", 0xF800)
+        WIN_writeText(win, 1, 20, 30, "R", 1, 0xF800)
     else
-        WIN_writeText(win, 1, 20, 30, "N", 0xF800)
+        WIN_writeText(win, 1, 20, 30, "N", 1, 0xF800)
     end
 
     WIN_finishFrame(win)
