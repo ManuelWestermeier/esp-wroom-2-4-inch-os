@@ -9,9 +9,9 @@
 
 enum class MouseState
 {
+    Up,
     Down,
-    Held,
-    Up
+    Held
 };
 
 struct MouseEvent

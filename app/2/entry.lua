@@ -7,13 +7,13 @@ print("Last Rendered: " .. tostring(lastR))
 while not WIN_closed(win) do
     local pressed, state, x, y, mx, my, wc, nr = WIN_getLastEvent(win, 1)
 
-    if nr or pressed then
+    if nr or state > 0 then
         WIN_finishFrame(win)
 
         WIN_fillBg(win, 1, 0xFFFF)
         WIN_writeText(win, 1, 10, 10, "Hello World", 2, 0x0000)
 
-        if pressed then
+        if state > 0 then
             WIN_writeText(win, 1, 10, 30, "Clicked at: " .. x .. "," .. y, 1, 0xF800)
         end
     end
