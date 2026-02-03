@@ -22,6 +22,7 @@ namespace Windows
     extern bool isRendering;
     extern bool isUsingKeyBoard;
     extern bool canAccess;
+    extern unsigned long lastRendered;
     extern Rect timeButton;
 
     // core API

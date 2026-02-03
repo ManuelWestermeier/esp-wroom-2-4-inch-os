@@ -1,6 +1,9 @@
 local win = createWindow(50, 50, 200, 150)
 WIN_setName(win, "Hello World")
 
+local lasR = WIN_lastChanged()
+print("Last Rendered: " .. lastR)
+
 while not WIN_closed(win) do
     local pressed, state, x, y, mx, my, wc, nr = WIN_getLastEvent(win, 1)
 

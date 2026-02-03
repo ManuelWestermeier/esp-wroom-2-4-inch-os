@@ -184,6 +184,12 @@ namespace LuaApps::WinLib
         return 0;
     }
 
+    int lua_WIN_lastChanged(lua_State *L)
+    {
+        lua_pushinteger(L, Windows::lastRendered);
+        return 1;
+    }
+
     int lua_WIN_getLastEvent(lua_State *L)
     {
         Window *w = getWindow(L, 1);
@@ -1004,6 +1010,7 @@ namespace LuaApps::WinLib
         lua_register(L, "WIN_getRect", lua_WIN_getRect);
         lua_register(L, "WIN_finishFrame", lua_WIN_finishFrame);
         lua_register(L, "WIN_needRedraw", lua_WIN_needRedraw);
+        lua_register(L, "WIN_lastChanged", lua_WIN_lastChanged);
         lua_register(L, "WIN_getLastEvent", lua_WIN_getLastEvent);
         lua_register(L, "WIN_closed", lua_WIN_closed);
         lua_register(L, "WIN_fillBg", lua_WIN_fillBg);

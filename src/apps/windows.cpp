@@ -7,10 +7,13 @@ namespace Windows
     bool isUsingKeyBoard = false;
     bool canAccess = true;
     Rect timeButton{{320 - 42 - 5, 240 - 16 - 5}, {42, 16}};
+    extern unsigned long lastRendered;
 
     // Helper to mark all windows as needing redraw
     void markAllNeedRedraw(bool val = true)
     {
+        lastRendered = millis();
+
         Serial.println("markAllNeedRedraw");
         for (auto &p : apps)
         {
