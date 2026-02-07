@@ -1,13 +1,15 @@
 #pragma once
 
 #include <Arduino.h>
+#include <vector>
 #include <WebSocketsClient.h>
+
 #include "../screen/index.hpp"
 #include "../io/read-string.hpp"
 #include "../styles/global.hpp"
 #include "../fs/enc-fs.hpp"
-#include "nanosvg.h"
 #include "../utils/time.hpp"
+#include "nanosvg.h"
 
 namespace Browser
 {
@@ -25,7 +27,7 @@ namespace Browser
     extern bool isRunning;
     extern WebSocketsClient webSocket;
 
-    // Core
+    // ---- Core lifecycle ----
     void Start();
     void Update();
     void ReRender();
@@ -33,7 +35,7 @@ namespace Browser
     void OnExit();
     void handleCommand(const String &payload);
 
-    // Utilities
+    // ---- Utilities ----
     void drawText(int x, int y, const String &text, uint16_t color, int size = 2);
     void drawCircle(int x, int y, int r, uint16_t color);
     void drawSVG(const String &svgStr, int x, int y, int w, int h, uint16_t color);
@@ -44,19 +46,19 @@ namespace Browser
     ENC_FS::Buffer loadData(const String &domain);
     void handleTouch();
     void navigate(const String &domain, int port, const String &state);
+
+    // ---- UI ----
     void showSettingsPage();
     void showOSSearchPage();
     void showInputPage();
-
-    // Forward
     void showVisitedSites();
     void showHomeUI();
     void showWebsitePage();
     void renderTopBar();
     void saveVisitedSite(const String &domain);
-
 }
 
+// ---- Blocking browser runner ----
 static inline void openBrowser()
 {
     Browser::isRunning = true;

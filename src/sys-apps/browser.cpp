@@ -377,7 +377,6 @@ namespace Browser
         // left: time display
         // Acquire time from UserTime (if available)
         String timeStr = "XX:XX";
-#ifdef USER_TIME_AVAILABLE
         // If your project defines USER_TIME_AVAILABLE and provides UserTime::get()
         auto time = UserTime::get();
         String hour = String(time.tm_hour);
@@ -390,30 +389,14 @@ namespace Browser
             timeStr = "XX:XX";
         else
             timeStr = hour + ":" + minute;
-#else
-// Try to call UserTime::get() defensively without compile guard if header exists
-#if defined(UserTime_h)
-        auto time = UserTime::get();
-        String hour = String(time.tm_hour);
-        String minute = String(time.tm_min);
-        if (minute.length() < 2)
-            minute = "0" + minute;
-        if (hour.length() < 2)
-            hour = "0" + hour;
-        if (time.tm_year == 0)
-            timeStr = "XX:XX";
-        else
-            timeStr = hour + ":" + minute;
-#endif
-#endif
 
-        drawText(6, 3, timeStr, getThemeColor("accentText"), 2);
+        drawText(6, 3, timeStr, TEXT, 2);
 
         // left label next to time
-        drawText(50, 3, "MW-OS-Browser", getThemeColor("accentText"), 2);
+        drawText(50, 3, "MW-OS-Browser", TEXT, 2);
 
         // close button on top right
-        drawText(SCREEN_W - 22, 3, "X", getThemeColor("danger"), 2);
+        drawText(SCREEN_W - 22, 3, "X", DANGER, 2);
     }
 
     void handleTouch()
