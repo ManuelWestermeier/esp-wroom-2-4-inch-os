@@ -30,6 +30,21 @@ namespace Browser
     static constexpr int VIEWPORT_Y = TOPBAR_H;
     static constexpr int VIEWPORT_H = SCREEN_H - TOPBAR_H;
 
+    // Theme colors storage (can be updated from frontend)
+    static struct Theme
+    {
+        uint16_t bg = Style::Colors::bg;
+        uint16_t text = Style::Colors::text;
+        uint16_t primary = Style::Colors::primary;
+        uint16_t accent = Style::Colors::accent;
+        uint16_t accent2 = Style::Colors::accent2;
+        uint16_t accent3 = Style::Colors::accent3;
+        uint16_t accentText = Style::Colors::accentText;
+        uint16_t pressed = Style::Colors::pressed;
+        uint16_t danger = Style::Colors::danger;
+        uint16_t placeholder = Style::Colors::placeholder;
+    } theme;
+
     // Forward declarations
     void renderTopBar();
     void showHomeUI();
@@ -42,7 +57,7 @@ namespace Browser
     {
         // Render initial UI but do NOT connect the websocket automatically.
         // The remote website connection will be opened only after the user explicitly navigates.
-        Screen::tft.fillScreen(BG);
+        Screen::tft.fillScreen(theme.bg);
         renderTopBar();
         showHomeUI();
         showVisitedSites();
@@ -55,9 +70,24 @@ namespace Browser
             switch (type)
             {
             case WStype_CONNECTED:
-                Serial.println("[Browser] Connected");
-                // Send handshake with sessionId and device resolution (width x height)
-                webSocket.sendTXT("MWOSP-v1 " + Location::sessionId + " " + String(SCREEN_W) + " " + String(SCREEN_H));
+                {
+                    Serial.println("[Browser] Connected");
+                    // Send handshake with sessionId and device resolution (width x height)
+                    webSocket.sendTXT("MWOSP-v1 " + Location::sessionId + " " + String(SCREEN_W) + " " + String(SCREEN_H));
+                    // Send current theme colors to server
+                    String themeMsg = "ThemeColors";
+                    themeMsg += " bg:" + String(theme.bg, HEX);
+                    themeMsg += " text:" + String(theme.text, HEX);
+                    themeMsg += " primary:" + String(theme.primary, HEX);
+                    themeMsg += " accent:" + String(theme.accent, HEX);
+                    themeMsg += " accent2:" + String(theme.accent2, HEX);
+                    themeMsg += " accent3:" + String(theme.accent3, HEX);
+                    themeMsg += " accentText:" + String(theme.accentText, HEX);
+                    themeMsg += " pressed:" + String(theme.pressed, HEX);
+                    themeMsg += " danger:" + String(theme.danger, HEX);
+                    themeMsg += " placeholder:" + String(theme.placeholder, HEX);
+                    webSocket.sendTXT(themeMsg);
+                }
                 break;
             case WStype_TEXT:
                 handleCommand(msg);
@@ -91,15 +121,30 @@ namespace Browser
     // ---- Command handling from server ----
     void handleCommand(const String &payload)
     {
-        // ----------------- TFT Drawing -----------------
+        // ----------------- TFT Drawing with bounds checking -----------------
         if (payload.startsWith("FillRect"))
         {
             int x = 0, y = 0, w = 0, h = 0;
             unsigned int c = 0;
             if (sscanf(payload.c_str(), "FillRect %d %d %d %d %u", &x, &y, &w, &h, &c) == 5)
             {
-                // Guard drawing to visible area to avoid out-of-bounds writes.
-                if (w > 0 && h > 0 && x < SCREEN_W && y < SCREEN_H && x + w > 0 && y + h > 0)
+                // Clip rectangle to screen bounds
+                if (x < 0)
+                {
+                    w += x;
+                    x = 0;
+                }
+                if (y < 0)
+                {
+                    h += y;
+                    y = 0;
+                }
+                if (x + w > SCREEN_W)
+                    w = SCREEN_W - x;
+                if (y + h > SCREEN_H)
+                    h = SCREEN_H - y;
+
+                if (w > 0 && h > 0)
                     Screen::tft.fillRect(x, y, w, h, (uint16_t)c);
             }
         }
@@ -109,7 +154,8 @@ namespace Browser
             unsigned int c = 0;
             if (sscanf(payload.c_str(), "DrawCircle %d %d %d %u", &x, &y, &r, &c) == 4)
             {
-                if (r >= 0 && x >= -r && y >= -r && x <= SCREEN_W + r && y <= SCREEN_H + r)
+                // Clip circle: only draw if any part is visible
+                if (r > 0 && x >= -r && x <= SCREEN_W + r && y >= -r && y <= SCREEN_H + r)
                     drawCircle(x, y, r, (uint16_t)c);
             }
         }
@@ -122,9 +168,29 @@ namespace Browser
             if (sscanf(payload.c_str(), "DrawText %d %d %d %u %[^\n]", &x, &y, &size, &c, buf) >= 5)
             {
                 String text = String(buf);
-                // Ensure y within screen bounds
-                if (y >= 0 && y < SCREEN_H)
-                    drawText(x, y, text, (uint16_t)c, size);
+                // Clip text position
+                if (y < 0)
+                    y = 0;
+                if (y >= SCREEN_H)
+                    return; // Completely off-screen
+                if (x < 0)
+                    x = 0;
+
+                // Truncate text if it would overflow horizontally
+                int textWidth = text.length() * 6 * size; // Approximate width
+                if (x + textWidth > SCREEN_W)
+                {
+                    int maxChars = (SCREEN_W - x) / (6 * size);
+                    if (maxChars > 3)
+                    { // Minimum characters to show
+                        text = text.substring(0, maxChars - 3) + "...";
+                    }
+                    else
+                    {
+                        return; // Not enough space
+                    }
+                }
+                drawText(x, y, text, (uint16_t)c, size);
             }
         }
         else if (payload.startsWith("DrawSVG"))
@@ -151,11 +217,80 @@ namespace Browser
                 if (headerEnd >= 0 && headerEnd + 1 < (int)payload.length())
                 {
                     String svg = payload.substring(headerEnd + 1);
-                    // Ensure svg area intersects the screen
-                    if (w > 0 && h > 0 && x < SCREEN_W && y < SCREEN_H && x + w > 0 && y + h > 0)
+                    // Clip SVG drawing area
+                    if (x < 0)
+                    {
+                        w += x;
+                        x = 0;
+                    }
+                    if (y < 0)
+                    {
+                        h += y;
+                        y = 0;
+                    }
+                    if (x >= SCREEN_W || y >= SCREEN_H)
+                        return;
+                    if (x + w > SCREEN_W)
+                        w = SCREEN_W - x;
+                    if (y + h > SCREEN_H)
+                        h = SCREEN_H - y;
+
+                    if (w > 0 && h > 0)
                         drawSVG(svg, x, y, w, h, (uint16_t)c);
                 }
             }
+        }
+        // ----------------- Theme Colors -----------------
+        else if (payload.startsWith("SetThemeColor"))
+        {
+            // Format: "SetThemeColor bg 0xFFFF" (16-bit color in hex)
+            int idx = payload.indexOf(' ', 13);
+            if (idx > 0)
+            {
+                String colorName = payload.substring(13, idx);
+                String colorValue = payload.substring(idx + 1);
+
+                // Remove "0x" prefix if present
+                if (colorValue.startsWith("0x"))
+                    colorValue = colorValue.substring(2);
+
+                uint16_t color = (uint16_t)strtoul(colorValue.c_str(), NULL, 16);
+
+                // Update theme color
+                if (colorName == "bg")
+                    theme.bg = color;
+                else if (colorName == "text")
+                    theme.text = color;
+                else if (colorName == "primary")
+                    theme.primary = color;
+                else if (colorName == "accent")
+                    theme.accent = color;
+                else if (colorName == "accent2")
+                    theme.accent2 = color;
+                else if (colorName == "accent3")
+                    theme.accent3 = color;
+                else if (colorName == "accentText")
+                    theme.accentText = color;
+                else if (colorName == "pressed")
+                    theme.pressed = color;
+                else if (colorName == "danger")
+                    theme.danger = color;
+                else if (colorName == "placeholder")
+                    theme.placeholder = color;
+
+                // Redraw UI with new colors if needed
+                if (loc.state == "home" || loc.state == "settings")
+                {
+                    ReRender();
+                }
+            }
+        }
+        else if (payload.startsWith("GetThemeColor"))
+        {
+            // Format: "GetThemeColor bg"
+            String colorName = payload.substring(14);
+            uint16_t color = getThemeColor(colorName);
+            webSocket.sendTXT("ThemeColor " + colorName + " " + String(color, HEX));
         }
         // ----------------- Storage -----------------
         else if (payload.startsWith("GetStorage"))
@@ -272,7 +407,7 @@ namespace Browser
     void ReRender()
     {
         // Full redraw according to current loc.state
-        Screen::tft.fillScreen(BG);
+        Screen::tft.fillScreen(theme.bg);
         renderTopBar();
 
         if (loc.state == "home" || loc.state == "")
@@ -304,10 +439,31 @@ namespace Browser
     // ----------------- Utilities -----------------
     void drawText(int x, int y, const String &text, uint16_t color, int size)
     {
+        // Additional clipping for text rendering
+        if (y < 0 || y >= SCREEN_H)
+            return;
+
         Screen::tft.setTextColor(color);
         Screen::tft.setTextSize(size);
         Screen::tft.setCursor(x, y);
-        Screen::tft.print(text);
+
+        // Truncate text if it would overflow
+        String displayText = text;
+        int textWidth = text.length() * 6 * size;
+        if (x + textWidth > SCREEN_W)
+        {
+            int maxChars = (SCREEN_W - x) / (6 * size);
+            if (maxChars > 3)
+            {
+                displayText = text.substring(0, maxChars - 3) + "...";
+            }
+            else
+            {
+                return; // Not enough space
+            }
+        }
+
+        Screen::tft.print(displayText);
     }
 
     void drawCircle(int x, int y, int r, uint16_t color)
@@ -337,25 +493,25 @@ namespace Browser
     uint16_t getThemeColor(const String &name)
     {
         if (name == "bg")
-            return Style::Colors::bg;
+            return theme.bg;
         if (name == "text")
-            return Style::Colors::text;
+            return theme.text;
         if (name == "primary")
-            return Style::Colors::primary;
+            return theme.primary;
         if (name == "accent")
-            return Style::Colors::accent;
+            return theme.accent;
         if (name == "accent2")
-            return Style::Colors::accent2;
+            return theme.accent2;
         if (name == "accent3")
-            return Style::Colors::accent3;
+            return theme.accent3;
         if (name == "accentText")
-            return Style::Colors::accentText;
+            return theme.accentText;
         if (name == "pressed")
-            return Style::Colors::pressed;
+            return theme.pressed;
         if (name == "danger")
-            return Style::Colors::danger;
+            return theme.danger;
         if (name == "placeholder")
-            return Style::Colors::placeholder;
+            return theme.placeholder;
         return TFT_WHITE;
     }
 
@@ -372,7 +528,7 @@ namespace Browser
     void renderTopBar()
     {
         // top bar background
-        Screen::tft.fillRect(0, 0, SCREEN_W, TOPBAR_H, PRIMARY);
+        Screen::tft.fillRect(0, 0, SCREEN_W, TOPBAR_H, theme.primary);
 
         // left: time display
         // Acquire time from UserTime (if available)
@@ -390,13 +546,13 @@ namespace Browser
         else
             timeStr = hour + ":" + minute;
 
-        drawText(6, 3, timeStr, TEXT, 2);
+        drawText(6, 3, timeStr, theme.text, 2);
 
         // left label next to time
-        drawText(50, 3, "MW-OS-Browser", TEXT, 2);
+        drawText(50, 3, "MW-OS-Browser", theme.text, 2);
 
         // close button on top right
-        drawText(SCREEN_W - 22, 3, "X", DANGER, 2);
+        drawText(SCREEN_W - 22, 3, "X", theme.danger, 2);
     }
 
     void handleTouch()
@@ -597,27 +753,27 @@ namespace Browser
         int cardH = 60;
 
         // outer (shadow / primary)
-        Screen::tft.fillRoundRect(cardX, cardY, cardW, cardH, 6, PRIMARY);
+        Screen::tft.fillRoundRect(cardX, cardY, cardW, cardH, 6, theme.primary);
         // inner (floating)
-        Screen::tft.fillRoundRect(cardX + 2, cardY + 2, cardW - 4, cardH - 4, 6, BG);
+        Screen::tft.fillRoundRect(cardX + 2, cardY + 2, cardW - 4, cardH - 4, 6, theme.bg);
 
         int btnW = (cardW - BUTTON_PADDING * 4) / 3;
         int bx = cardX + BUTTON_PADDING;
         int by = cardY + 6;
 
         // Button 0: Search
-        Screen::tft.fillRoundRect(bx, by, btnW, BUTTON_H, 6, ACCENT);
-        drawText(bx + 8, by + 8, "Search", AT, 2);
+        Screen::tft.fillRoundRect(bx, by, btnW, BUTTON_H, 6, theme.accent);
+        drawText(bx + 8, by + 8, "Search", theme.accentText, 2);
 
         // Button 1: Input Url
         bx += btnW + BUTTON_PADDING;
-        Screen::tft.fillRoundRect(bx, by, btnW, BUTTON_H, 6, ACCENT2);
-        drawText(bx + 8, by + 8, "Input URL", AT, 2);
+        Screen::tft.fillRoundRect(bx, by, btnW, BUTTON_H, 6, theme.accent2);
+        drawText(bx + 8, by + 8, "Input URL", theme.accentText, 2);
 
         // Button 2: Settings
         bx += btnW + BUTTON_PADDING;
-        Screen::tft.fillRoundRect(bx, by, btnW, BUTTON_H, 6, ACCENT3);
-        drawText(bx + 8, by + 8, "Settings", AT, 2);
+        Screen::tft.fillRoundRect(bx, by, btnW, BUTTON_H, 6, theme.accent3);
+        drawText(bx + 8, by + 8, "Settings", theme.accentText, 2);
     }
 
     void showVisitedSites()
@@ -625,23 +781,28 @@ namespace Browser
         std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
 
         // heading
-        drawText(10, VISIT_LIST_Y - 18, "Visited Sites", TEXT, 2);
+        drawText(10, VISIT_LIST_Y - 18, "Visited Sites", theme.text, 2);
 
-        // render list items
+        // render list items with vertical clipping
         int xText = 10;
-        for (size_t i = 0; i < sites.size(); ++i)
+        int maxItems = (SCREEN_H - VISIT_LIST_Y) / VISIT_ITEM_H;
+
+        for (size_t i = 0; i < sites.size() && i < (size_t)maxItems; ++i)
         {
             int y = VISIT_LIST_Y + i * VISIT_ITEM_H;
-            // clip vertical list to not draw beyond screen
-            if (y + VISIT_ITEM_H - 2 > SCREEN_H)
-                break;
 
             // background alternating for clarity
-            uint16_t bgColor = (i % 2 == 0) ? Style::Colors::primary : BG;
+            uint16_t bgColor = (i % 2 == 0) ? theme.primary : theme.bg;
             Screen::tft.fillRect(0, y, SCREEN_W, VISIT_ITEM_H - 2, bgColor);
 
-            // domain text
-            drawText(xText, y + 6, sites[i], TEXT, 1);
+            // domain text (truncate if too long)
+            String domain = sites[i];
+            int maxDomainWidth = SCREEN_W - 180; // Leave space for buttons
+            if (domain.length() > maxDomainWidth / 6)
+            { // Approx 6 pixels per char
+                domain = domain.substring(0, maxDomainWidth / 6 - 3) + "...";
+            }
+            drawText(xText, y + 6, domain, theme.text, 1);
 
             // buttons on the right: Delete, ClearData, Open
             int btnW = 56;
@@ -650,25 +811,25 @@ namespace Browser
             int xClear = xOpen - btnGap - btnW;
             int xDelete = xClear - btnGap - btnW;
 
-            Screen::tft.fillRoundRect(xDelete, y + 4, btnW, VISIT_ITEM_H - 10, 4, DANGER);
-            drawText(xDelete + 8, y + 6, "Delete", AT, 1);
+            Screen::tft.fillRoundRect(xDelete, y + 4, btnW, VISIT_ITEM_H - 10, 4, theme.danger);
+            drawText(xDelete + 8, y + 6, "Delete", theme.accentText, 1);
 
-            Screen::tft.fillRoundRect(xClear, y + 4, btnW, VISIT_ITEM_H - 10, 4, PRESSED);
-            drawText(xClear + 6, y + 6, "Clear", AT, 1);
+            Screen::tft.fillRoundRect(xClear, y + 4, btnW, VISIT_ITEM_H - 10, 4, theme.pressed);
+            drawText(xClear + 6, y + 6, "Clear", theme.accentText, 1);
 
-            Screen::tft.fillRoundRect(xOpen, y + 4, btnW, VISIT_ITEM_H - 10, 4, ACCENT);
-            drawText(xOpen + 10, y + 6, "Open", AT, 1);
+            Screen::tft.fillRoundRect(xOpen, y + 4, btnW, VISIT_ITEM_H - 10, 4, theme.accent);
+            drawText(xOpen + 10, y + 6, "Open", theme.accentText, 1);
         }
     }
 
     void showSettingsPage()
     {
-        Screen::tft.fillScreen(BG);
+        Screen::tft.fillScreen(theme.bg);
         renderTopBar();
-        drawText(10, 30, "Visited Sites & Storage", TEXT, 2);
+        drawText(10, 30, "Visited Sites & Storage", theme.text, 2);
 
         // small instruction
-        drawText(10, 56, "Tap a site to open. Use buttons to manage data.", PH, 1);
+        drawText(10, 56, "Tap a site to open. Use buttons to manage data.", theme.placeholder, 1);
 
         // list sites below
         showVisitedSites();
@@ -715,28 +876,29 @@ namespace Browser
     void showWebsitePage()
     {
         // Top bar with title and close button (redraw topbar to show title)
-        Screen::tft.fillRect(0, 0, SCREEN_W, TOPBAR_H, PRIMARY);
+        Screen::tft.fillRect(0, 0, SCREEN_W, TOPBAR_H, theme.primary);
 
         String title = loc.title.length() ? loc.title : loc.domain;
-        // left: time + app name handled in renderTopBar; here override title only if present
-        drawText(6, 3, title, AT, 2);
-        drawText(SCREEN_W - 22, 3, "X", DANGER, 2);
+        // Truncate title if too long
+        if (title.length() > 20)
+        {
+            title = title.substring(0, 17) + "...";
+        }
+        drawText(6, 3, title, theme.accentText, 2);
+        drawText(SCREEN_W - 22, 3, "X", theme.danger, 2);
 
-// Ensure viewport/clipping is set so drawing from server remains inside the page view.
-// Requested viewport (0, TOPBAR_H, SCREEN_W, VIEWPORT_H)
-// Many TFT libraries offer setViewport or setAddrWindow. We call setViewport as requested.
-// If your TFT implementation lacks setViewport, replace this call with the appropriate clipping API.
-#if defined(TFT_ESPI_VERSION) || defined(TFT_eSPI_h)
-        // Best-effort call — if setViewport exists, use it.
-        // NOTE: If your TFT library does not provide setViewport, comment out the next line.
+        // Set viewport for website content (prevents drawing in top bar area)
+        // This creates a clipping region for all drawing operations
         Screen::tft.setViewport(0, VIEWPORT_Y, SCREEN_W, VIEWPORT_H);
-#endif
 
         // Clear website area with bg color (only inside viewport)
-        Screen::tft.fillRect(0, VIEWPORT_Y, SCREEN_W, VIEWPORT_H, BG);
+        Screen::tft.fillRect(0, VIEWPORT_Y, SCREEN_W, VIEWPORT_H, theme.bg);
 
         // Draw a small hint inside the viewport (top-left)
-        drawText(6, VIEWPORT_Y + 4, "Page view", PH, 1);
+        drawText(6, VIEWPORT_Y + 4, "Page view", theme.placeholder, 1);
+
+        // Reset viewport to full screen for other operations
+        Screen::tft.setViewport(0, 0, SCREEN_W, SCREEN_H);
     }
 
 } // namespace Browser
