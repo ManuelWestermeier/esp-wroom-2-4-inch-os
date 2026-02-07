@@ -415,21 +415,40 @@ namespace Browser
 
     void connectToServer()
     {
-        // Parse domain:port
+        // Parse domain:port stored in loc.domain. Accept host:port or host only.
         int colonIdx = loc.domain.indexOf(':');
         String host = loc.domain;
-        int port = 6767; // Default port
+        int port = 80; // default to standard WS/HTTP port
 
         if (colonIdx != -1)
         {
             host = loc.domain.substring(0, colonIdx);
             port = loc.domain.substring(colonIdx + 1).toInt();
+            if (port <= 0)
+                port = 80;
+        }
+        else
+        {
+            // no explicit port provided; use 80 as standard default
+            port = 80;
         }
 
         Serial.printf("Connecting to %s:%d\n", host.c_str(), port);
 
-        // Begin connection
-        webSocket.begin(host.c_str(), port, "/");
+        if (port == 443)
+        {
+            // use secure websocket (wss)
+            webSocket.beginSSL(host.c_str(), port, "/");
+            // If certificate validation fails, either:
+            // - provide CA cert with webSocket.setCACert(...);
+            // - or if library supports it, disable validation for testing (not recommended for production).
+        }
+        else
+        {
+            // plain websocket (ws)
+            webSocket.begin(host.c_str(), port, "/");
+        }
+
         webSocket.onEvent(webSocketEvent);
         webSocket.setReconnectInterval(RECONNECT_INTERVAL);
         webSocket.enableHeartbeat(15000, 3000, 2);
@@ -562,26 +581,63 @@ namespace Browser
     {
         Screen::tft.fillScreen(Style::Colors::bg);
 
-        // Parse URL format: domain:port@state
+        // Parse URL format: [scheme://]domain[:port][@state]
         int atIdx = url.indexOf('@');
-        int colonIdx = url.indexOf(':');
+        String domainPart;
+        String statePart;
 
         if (atIdx != -1)
         {
-            loc.domain = url.substring(0, atIdx);
-            loc.state = url.substring(atIdx + 1);
+            domainPart = url.substring(0, atIdx);
+            statePart = url.substring(atIdx + 1);
         }
         else
         {
-            loc.domain = url;
-            loc.state = "startpage";
+            domainPart = url;
+            statePart = "startpage";
         }
 
-        // Ensure domain has port
-        if (loc.domain.indexOf(':') == -1)
+        domainPart.trim();
+
+        // Detect scheme
+        bool explicitScheme = false;
+        bool schemeIsSSL = false;
+        String lower = domainPart;
+        lower.toLowerCase();
+
+        if (lower.startsWith("wss://") || lower.startsWith("https://"))
         {
-            loc.domain += ":6767";
+            explicitScheme = true;
+            schemeIsSSL = true;
+            int idx = domainPart.indexOf("://");
+            if (idx != -1)
+                domainPart = domainPart.substring(idx + 3);
         }
+        else if (lower.startsWith("ws://") || lower.startsWith("http://"))
+        {
+            explicitScheme = true;
+            schemeIsSSL = false;
+            int idx = domainPart.indexOf("://");
+            if (idx != -1)
+                domainPart = domainPart.substring(idx + 3);
+        }
+
+        domainPart.trim();
+
+        // If scheme was explicit and no port provided, append standard port
+        if (explicitScheme && domainPart.indexOf(':') == -1)
+        {
+            if (schemeIsSSL)
+                domainPart += ":443";
+            else
+                domainPart += ":80";
+        }
+
+        loc.domain = domainPart;
+        loc.state = statePart;
+
+        // If caller didn't specify a port and no explicit scheme, we leave domain without port.
+        // connectToServer() will default to port 80 in that case.
 
         Serial.println("Starting browser with:");
         Serial.println("  Domain: " + loc.domain);
@@ -605,8 +661,8 @@ namespace Browser
 
     void Start()
     {
-        // Default start page (local test server by default)
-        Start("mw-search-server-onrender-app.onrender.com:6767@startpage");
+        // Default start page (no forced custom port)
+        Start("mw-search-server-onrender-app.onrender.com@startpage");
     }
 
     void Exit()

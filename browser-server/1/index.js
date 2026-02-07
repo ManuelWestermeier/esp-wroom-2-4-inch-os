@@ -1,15 +1,19 @@
-// mwosp_test_server.js
 /**
  * MWOSP-v1 Test Server
- * Compatible with the provided Arduino Browser implementation
+ * Render-compatible (WSS via Render TLS)
  */
 
 const WebSocket = require("ws");
 
-const PORT = 6767;
+/* ================= CONFIG ================= */
+
+const PORT = process.env.PORT || 80;
+
+/* ================= WEBSOCKET ================= */
+
 const wss = new WebSocket.Server({ port: PORT });
 
-console.log(`MWOSP test server listening on ws://0.0.0.0:${PORT}`);
+console.log(`MWOSP test server listening (Render TLS) on port ${PORT}`);
 
 wss.on("connection", (ws, req) => {
     console.log("Client connected");
@@ -26,6 +30,7 @@ wss.on("connection", (ws, req) => {
         console.log("RX:", msg);
 
         /* ================= HANDSHAKE ================= */
+
         if (msg.startsWith("MWOSP-v1 ")) {
             const parts = msg.split(" ");
             client.sessionId = parts[1];
@@ -33,7 +38,6 @@ wss.on("connection", (ws, req) => {
             client.height = parseInt(parts[3], 10) || 200;
 
             ws.send("MWOSP-v1 OK");
-            console.log("Handshake OK:", client);
             return;
         }
 
@@ -46,8 +50,6 @@ wss.on("connection", (ws, req) => {
 
         if (msg.startsWith("Click ")) {
             const [, x, y] = msg.split(" ");
-            console.log(`Click at ${x},${y}`);
-
             client.state = "clicked";
             ws.send(`DrawString 10 40 65535 "Clicked at ${x},${y}"`);
             return;
@@ -59,23 +61,17 @@ wss.on("connection", (ws, req) => {
             return;
         }
 
-        if (msg.startsWith("GetBackSession ")) {
-            console.log("Session returned:", msg);
-            return;
-        }
-
-        if (msg.startsWith("GetBackState ")) {
-            console.log("State returned:", msg);
-            return;
-        }
-
-        if (msg.startsWith("GetBackText ")) {
-            console.log("Text returned:", msg);
-            return;
-        }
-
         if (msg === "Refresh") {
             renderPage(ws, client);
+            return;
+        }
+
+        if (
+            msg.startsWith("GetBackSession ") ||
+            msg.startsWith("GetBackState ") ||
+            msg.startsWith("GetBackText ")
+        ) {
+            console.log("Client response:", msg);
             return;
         }
     });
@@ -88,46 +84,29 @@ wss.on("connection", (ws, req) => {
 /* ================= RENDERING ================= */
 
 function renderPage(ws, client) {
-    // Use client's reported size to adapt layout
     const w = client.width || 240;
     const h = client.height || 200;
 
-    // Clear content area
     ws.send("ClearScreen 0");
-
-    // Header
     ws.send(`DrawString 10 10 65535 "MWOSP Test Server"`);
 
-    // Divider line (use client width)
     ws.send(`DrawLine 0 25 ${Math.max(0, w - 1)} 25 65535`);
 
-    // Info box (margins)
     const margin = 5;
     const boxW = Math.max(40, w - margin * 2);
     const boxH = Math.min(80, Math.floor(h * 0.35));
-    ws.send(`DrawRect ${margin} 30 ${boxW} ${boxH} 65535`);
 
+    ws.send(`DrawRect ${margin} 30 ${boxW} ${boxH} 65535`);
     ws.send(`DrawString 10 40 65535 "Session: ${client.sessionId}"`);
     ws.send(`DrawString 10 55 65535 "State: ${client.state}"`);
     ws.send(`DrawString 10 70 65535 "Resolution: ${client.width}x${client.height}"`);
 
-    // Button (size adapts to width)
     const btnW = Math.min(100, Math.max(60, Math.floor(w * 0.3)));
     const btnH = 30;
-    const btnX = 10;
-    const btnY = 90;
-    // Filled button
-    ws.send(`FillRect ${btnX} ${btnY} ${btnW} ${btnH} 2016`);
-    ws.send(`DrawString ${btnX + 10} ${btnY + 20} 65535 "Click Me"`);
 
-    // Ask client for data (test round-trip)
+    ws.send(`FillRect 10 90 ${btnW} ${btnH} 2016`);
+    ws.send(`DrawString 20 110 65535 "Click Me"`);
+
     ws.send("GetSession 1");
     ws.send("GetState 2");
 }
-
-/* ================= SAFETY ================= */
-
-process.on("SIGINT", () => {
-    console.log("Shutting down server");
-    process.exit(0);
-});
