@@ -39,3 +39,5 @@ static inline void openBrowser()
     }
     Browser::OnExit();
 }
+
+// Working prrof of conect Browser
