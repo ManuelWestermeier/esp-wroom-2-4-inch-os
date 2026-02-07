@@ -1,3 +1,4 @@
+// mwosp_test_server.js
 /**
  * MWOSP-v1 Test Server
  * Compatible with the provided Arduino Browser implementation
@@ -28,8 +29,8 @@ wss.on("connection", (ws, req) => {
         if (msg.startsWith("MWOSP-v1 ")) {
             const parts = msg.split(" ");
             client.sessionId = parts[1];
-            client.width = parseInt(parts[2], 10);
-            client.height = parseInt(parts[3], 10);
+            client.width = parseInt(parts[2], 10) || 240;
+            client.height = parseInt(parts[3], 10) || 200;
 
             ws.send("MWOSP-v1 OK");
             console.log("Handshake OK:", client);
@@ -87,31 +88,37 @@ wss.on("connection", (ws, req) => {
 /* ================= RENDERING ================= */
 
 function renderPage(ws, client) {
+    // Use client's reported size to adapt layout
+    const w = client.width || 240;
+    const h = client.height || 200;
+
     // Clear content area
     ws.send("ClearScreen 0");
 
     // Header
-    ws.send('DrawString 10 10 65535 "MWOSP Test Server"');
+    ws.send(`DrawString 10 10 65535 "MWOSP Test Server"`);
 
-    // Divider line
-    ws.send("DrawLine 0 25 240 25 65535");
+    // Divider line (use client width)
+    ws.send(`DrawLine 0 25 ${Math.max(0, w - 1)} 25 65535`);
 
-    // Info box
-    ws.send("DrawRect 5 30 230 70 65535");
+    // Info box (margins)
+    const margin = 5;
+    const boxW = Math.max(40, w - margin * 2);
+    const boxH = Math.min(80, Math.floor(h * 0.35));
+    ws.send(`DrawRect ${margin} 30 ${boxW} ${boxH} 65535`);
 
-    ws.send(
-        `DrawString 10 40 65535 "Session: ${client.sessionId}"`
-    );
-    ws.send(
-        `DrawString 10 55 65535 "State: ${client.state}"`
-    );
-    ws.send(
-        `DrawString 10 70 65535 "Resolution: ${client.width}x${client.height}"`
-    );
+    ws.send(`DrawString 10 40 65535 "Session: ${client.sessionId}"`);
+    ws.send(`DrawString 10 55 65535 "State: ${client.state}"`);
+    ws.send(`DrawString 10 70 65535 "Resolution: ${client.width}x${client.height}"`);
 
-    // Button
-    ws.send("FillRect 10 90 100 30 2016");
-    ws.send('DrawString 20 110 65535 "Click Me"');
+    // Button (size adapts to width)
+    const btnW = Math.min(100, Math.max(60, Math.floor(w * 0.3)));
+    const btnH = 30;
+    const btnX = 10;
+    const btnY = 90;
+    // Filled button
+    ws.send(`FillRect ${btnX} ${btnY} ${btnW} ${btnH} 2016`);
+    ws.send(`DrawString ${btnX + 10} ${btnY + 20} 65535 "Click Me"`);
 
     // Ask client for data (test round-trip)
     ws.send("GetSession 1");

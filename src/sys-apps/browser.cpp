@@ -1,9 +1,17 @@
+// browser.cpp
 #include "browser.hpp"
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
+#include <vector>
+#include <algorithm>
+#include <Arduino.h> // for random(), millis()
+using std::vector;
 
 namespace Browser
 {
+    // Top bar height must be defined before viewport calc
+    const int TOP_BAR_HEIGHT = 20;
+
     String Location::sessionId = String(random(0xFFFFFFFF), HEX);
     Location loc;
     bool isRunning = false;
@@ -14,7 +22,7 @@ namespace Browser
 
     // Screen dimensions
     const int VIEWPORT_WIDTH = TFT_WIDTH;
-    const int VIEWPORT_HEIGHT = TFT_HEIGHT - 20; // Reserve 20px for top bar
+    const int VIEWPORT_HEIGHT = TFT_HEIGHT - TOP_BAR_HEIGHT; // Reserve space for top bar
 
     // Rendering state
     struct PendingResponse
@@ -25,32 +33,37 @@ namespace Browser
     std::vector<PendingResponse> pendingResponses;
 
     // UI Elements
-    const int TOP_BAR_HEIGHT = 20;
     String currentInput = "";
     bool inputActive = false;
     int inputCursorPos = 0;
+
+    // Helper: returns computed URL input area (x, width)
+    static void computeUrlInputArea(int &outX, int &outW)
+    {
+        const int x = 65;
+        // Keep at least 60px width for URL textbox to avoid overlap on narrow screens
+        int w = std::max(VIEWPORT_WIDTH - 140, 60);
+        outX = x;
+        outW = w;
+    }
 
     // Server command handlers
     void handleFillRect(const String &params)
     {
         // Format: FillRect X Y W H COLOR
-        int paramsArray[5];
+        int paramsArray[4];
         int color;
 
         int startIdx = 0;
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 4; i++)
         {
             int spaceIdx = params.indexOf(' ', startIdx);
-            if (i < 4)
-            {
-                paramsArray[i] = params.substring(startIdx, spaceIdx).toInt();
-                startIdx = spaceIdx + 1;
-            }
-            else
-            {
-                color = params.substring(startIdx).toInt();
-            }
+            if (spaceIdx == -1)
+                return; // malformed
+            paramsArray[i] = params.substring(startIdx, spaceIdx).toInt();
+            startIdx = spaceIdx + 1;
         }
+        color = params.substring(startIdx).toInt();
 
         tft.fillRect(paramsArray[0], paramsArray[1] + TOP_BAR_HEIGHT,
                      paramsArray[2], paramsArray[3], color);
@@ -64,6 +77,9 @@ namespace Browser
         int thirdSpace = params.indexOf(' ', secondSpace + 1);
         int quoteStart = params.indexOf('"');
         int quoteEnd = params.lastIndexOf('"');
+
+        if (firstSpace == -1 || secondSpace == -1 || thirdSpace == -1 || quoteStart == -1 || quoteEnd == -1)
+            return; // malformed
 
         int x = params.substring(0, firstSpace).toInt();
         int y = params.substring(firstSpace + 1, secondSpace).toInt();
@@ -86,6 +102,8 @@ namespace Browser
             int spaceIdx = params.indexOf(' ', startIdx);
             if (i < 4)
             {
+                if (spaceIdx == -1)
+                    return; // malformed
                 paramsArray[i] = params.substring(startIdx, spaceIdx).toInt();
                 startIdx = spaceIdx + 1;
             }
@@ -111,6 +129,8 @@ namespace Browser
             int spaceIdx = params.indexOf(' ', startIdx);
             if (i < 4)
             {
+                if (spaceIdx == -1)
+                    return;
                 paramsArray[i] = params.substring(startIdx, spaceIdx).toInt();
                 startIdx = spaceIdx + 1;
             }
@@ -133,6 +153,9 @@ namespace Browser
         int fourthSpace = params.indexOf(' ', thirdSpace + 1);
         int quoteStart = params.indexOf('"');
         int quoteEnd = params.lastIndexOf('"');
+
+        if (firstSpace == -1 || secondSpace == -1 || thirdSpace == -1 || fourthSpace == -1 || quoteStart == -1 || quoteEnd == -1)
+            return;
 
         int x = params.substring(0, firstSpace).toInt();
         int y = params.substring(firstSpace + 1, secondSpace).toInt();
@@ -161,6 +184,8 @@ namespace Browser
     {
         // Format: SetCursor X Y
         int spaceIdx = params.indexOf(' ');
+        if (spaceIdx == -1)
+            return;
         int x = params.substring(0, spaceIdx).toInt();
         int y = params.substring(spaceIdx + 1).toInt();
         tft.setCursor(x, y + TOP_BAR_HEIGHT);
@@ -178,23 +203,25 @@ namespace Browser
         // Draw top bar background
         tft.fillRect(0, 0, VIEWPORT_WIDTH, TOP_BAR_HEIGHT, Style::Colors::primary);
 
-        // Draw back button
+        // Draw back button (triangle pointing left)
         tft.fillTriangle(5, 10, 15, 5, 15, 15, Style::Colors::accentText);
 
-        // Draw forward button
+        // Draw forward button (triangle pointing right)
         tft.fillTriangle(25, 5, 25, 15, 35, 10, Style::Colors::accentText);
 
         // Draw refresh button
         tft.fillCircle(50, 10, 6, Style::Colors::accentText);
 
-        // Draw URL input background
-        tft.fillRect(65, 5, VIEWPORT_WIDTH - 140, 10, Style::Colors::bg);
-        tft.drawRect(65, 5, VIEWPORT_WIDTH - 140, 10, Style::Colors::accent);
+        // URL input background (clamped width)
+        int urlX, urlW;
+        computeUrlInputArea(urlX, urlW);
+        tft.fillRect(urlX, 5, urlW, 10, Style::Colors::bg);
+        tft.drawRect(urlX, 5, urlW, 10, Style::Colors::accent);
 
         // Draw URL text
         tft.setTextColor(Style::Colors::text);
         tft.setTextSize(1);
-        tft.setCursor(67, 7);
+        tft.setCursor(urlX + 2, 7);
         tft.print(loc.domain);
 
         // Draw exit button
@@ -215,44 +242,67 @@ namespace Browser
         // Back button (5-20px)
         if (x >= 5 && x <= 20)
         {
-            // Navigate back in history
+            // Navigate back in history (todo)
         }
         // Forward button (25-40px)
         else if (x >= 25 && x <= 40)
         {
-            // Navigate forward in history
+            // Navigate forward in history (todo)
         }
         // Refresh button (45-55px)
         else if (x >= 45 && x <= 55)
         {
             // Send refresh command
-            webSocket.sendTXT("Refresh");
+            if (wsConnected)
+                webSocket.sendTXT("Refresh");
         }
-        // URL input area (65px to width-140px)
-        else if (x >= 65 && x <= VIEWPORT_WIDTH - 140)
+        // URL input area (computed)
+        else
         {
-            // Activate URL input
-            inputActive = true;
-            currentInput = loc.domain;
-            inputCursorPos = currentInput.length();
-        }
-        // Exit button
-        else if (x >= VIEWPORT_WIDTH - 70 && x <= VIEWPORT_WIDTH - 40)
-        {
-            Exit();
-        }
-        // Settings button
-        else if (x >= VIEWPORT_WIDTH - 35 && x <= VIEWPORT_WIDTH - 25)
-        {
-            // Open settings
+            int urlX, urlW;
+            computeUrlInputArea(urlX, urlW);
+            if (x >= urlX && x <= (urlX + urlW))
+            {
+                // Activate URL input
+                inputActive = true;
+                currentInput = loc.domain;
+                inputCursorPos = currentInput.length();
+                return;
+            }
+
+            // Exit button
+            if (x >= VIEWPORT_WIDTH - 70 && x <= VIEWPORT_WIDTH - 40)
+            {
+                Exit();
+                return;
+            }
+
+            // Settings button (approx)
+            if (x >= VIEWPORT_WIDTH - 35 && x <= VIEWPORT_WIDTH - 25)
+            {
+                // Open settings (todo)
+                return;
+            }
         }
     }
 
     void parseServerCommand(const String &message)
     {
         int spaceIdx = message.indexOf(' ');
-        String command = message.substring(0, spaceIdx);
-        String params = message.substring(spaceIdx + 1);
+        String command;
+        String params;
+
+        if (spaceIdx == -1)
+        {
+            // no params
+            command = message;
+            params = "";
+        }
+        else
+        {
+            command = message.substring(0, spaceIdx);
+            params = message.substring(spaceIdx + 1);
+        }
 
         if (command == "FillRect")
         {
@@ -293,7 +343,7 @@ namespace Browser
         else if (command == "Navigate")
         {
             loc.state = params;
-            // Update display
+            // Update display (server-driven)
         }
         else if (command == "SetSession")
         {
@@ -347,8 +397,9 @@ namespace Browser
             // Check for handshake response
             if (message.startsWith("MWOSP-v1 OK"))
             {
-                // Handshake successful
+                // Handshake successful -> request initial render immediately
                 Serial.println("Handshake successful");
+                ReRender();
             }
             else
             {
@@ -357,14 +408,7 @@ namespace Browser
         }
         break;
 
-        case WStype_ERROR:
-        case WStype_FRAGMENT_TEXT_START:
-        case WStype_FRAGMENT_BIN_START:
-        case WStype_FRAGMENT:
-        case WStype_FRAGMENT_FIN:
-        case WStype_BIN:
-        case WStype_PING:
-        case WStype_PONG:
+        default:
             break;
         }
     }
@@ -399,8 +443,12 @@ namespace Browser
 
             if (pendingResponses[i].type == "session")
             {
-                String sessionData = ENC_FS::readFileString(
-                    ENC_FS::storagePath("browser", loc.domain));
+                String sessionData = "";
+                if (ENC_FS::exists(ENC_FS::storagePath("browser", loc.domain)))
+                {
+                    sessionData = ENC_FS::readFileString(
+                        ENC_FS::storagePath("browser", loc.domain));
+                }
                 response = "GetBackSession " + pendingResponses[i].returnId + " " + sessionData;
             }
             else if (pendingResponses[i].type == "state")
@@ -409,7 +457,7 @@ namespace Browser
             }
             else if (pendingResponses[i].type == "text")
             {
-                // Show input dialog
+                // Show input dialog (blocking)
                 String input = readString("Server requests input:", "");
                 response = "GetBackText " + pendingResponses[i].returnId + " " + input;
             }
@@ -512,7 +560,7 @@ namespace Browser
 
     void Start(const String &url)
     {
-        Screen::tft.fillScreen(BG);
+        Screen::tft.fillScreen(Style::Colors::bg);
 
         // Parse URL format: domain:port@state
         int atIdx = url.indexOf('@');
@@ -557,7 +605,7 @@ namespace Browser
 
     void Start()
     {
-        // Default start page
+        // Default start page (local test server by default)
         Start("mw-search-server-onrender-app.onrender.com:6767@startpage");
     }
 
@@ -568,7 +616,7 @@ namespace Browser
 
     void OnExit()
     {
-        Screen::tft.fillScreen(BG);
+        Screen::tft.fillScreen(Style::Colors::bg);
         // Disconnect WebSocket
         webSocket.disconnect();
         wsConnected = false;
@@ -582,9 +630,9 @@ namespace Browser
         }
 
         Serial.println("Browser closed");
-        Screen::tft.fillScreen(BG);
+        Screen::tft.fillScreen(Style::Colors::bg);
     }
-}
+} // namespace Browser
 
 void openBrowser()
 {
