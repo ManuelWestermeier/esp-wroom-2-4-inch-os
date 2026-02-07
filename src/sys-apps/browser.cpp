@@ -15,22 +15,19 @@ namespace Browser
         tft.setTextColor(TFT_WHITE);
         tft.println("Connecting to MWOSP...");
 
-        // Start WebSocket on port 443
+        // WebSocket SSL
         webSocket.beginSSL(loc.domain.c_str(), loc.port, "/");
-
-        // Use insecure mode to skip certificate fingerprint check for easy deployment
-        // (Render uses Let's Encrypt certificates)
         webSocket.setReconnectInterval(5000);
 
         webSocket.onEvent([](WStype_t type, uint8_t *payload, size_t length)
                           {
             String msg = (payload != nullptr) ? (char *)payload : "";
-            
+
             switch (type)
             {
             case WStype_CONNECTED:
                 Serial.println("[Browser] Connected to Server");
-                webSocket.sendTXT("MWOSP-v1 " + Location::sessionId);
+                webSocket.sendTXT("MWOSP-v1 " + Location::sessionId + " 320 480"); // viewport
                 break;
             case WStype_TEXT:
                 handleCommand(msg);
@@ -41,11 +38,10 @@ namespace Browser
             } });
     }
 
-    void handleCommand(String payload)
+    void handleCommand(const String &payload)
     {
         if (payload.startsWith("FillRect"))
         {
-            // Protocol: FillRect X Y W H COLOR16
             int x, y, w, h;
             uint16_t c;
             if (sscanf(payload.c_str(), "FillRect %d %d %d %d %hu", &x, &y, &w, &h, &c) == 5)
@@ -56,13 +52,31 @@ namespace Browser
         else if (payload.startsWith("Navigate"))
         {
             loc.state = payload.substring(9);
+            ReRender();
         }
         else if (payload.startsWith("GetText"))
         {
             String rid = payload.substring(8);
-            // Example hook for your read-string.hpp:
-            // String input = readString("Input Required", "");
-            // webSocket.sendTXT("GetBackText " + rid + " " + input);
+            String input = readString("Input Required", "");
+            webSocket.sendTXT("GetBackText " + rid + " " + input);
+        }
+        else if (payload.startsWith("SetSession"))
+        {
+            loc.session = payload.substring(11);
+        }
+        else if (payload.startsWith("GetSession"))
+        {
+            String rid = payload.substring(11);
+            webSocket.sendTXT("GetBackSession " + rid + " " + loc.session);
+        }
+        else if (payload.startsWith("SetState"))
+        {
+            loc.state = payload.substring(9);
+        }
+        else if (payload.startsWith("GetState"))
+        {
+            String rid = payload.substring(9);
+            webSocket.sendTXT("GetBackState " + rid + " " + loc.state);
         }
     }
 
@@ -80,6 +94,25 @@ namespace Browser
         }
     }
 
-    void Exit() { isRunning = false; }
-    void OnExit() { webSocket.disconnect(); }
+    void ReRender()
+    {
+        tft.fillScreen(TFT_BLACK);
+        // Top bar
+        tft.fillRect(0, 0, 320, 20, 31);
+        // Render state as text
+        tft.setCursor(5, 5);
+        tft.setTextColor(TFT_WHITE);
+        tft.println(loc.state);
+        // TODO: Add input field, buttons, history, etc.
+    }
+
+    void Exit()
+    {
+        isRunning = false;
+    }
+
+    void OnExit()
+    {
+        webSocket.disconnect();
+    }
 }

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <WebSocketsClient.h>
 #include "../screen/index.hpp"
+#include "../io/read-string.hpp"
 #include "../styles/global.hpp"
 
 namespace Browser
@@ -25,7 +26,7 @@ namespace Browser
     void ReRender();
     void Exit();
     void OnExit();
-    void handleCommand(String payload);
+    void handleCommand(const String &payload);
 }
 
 static inline void openBrowser()
@@ -39,5 +40,3 @@ static inline void openBrowser()
     }
     Browser::OnExit();
 }
-
-// Working prrof of conect Browser
