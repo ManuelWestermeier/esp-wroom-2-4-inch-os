@@ -21,21 +21,20 @@ const VISIT_LIST_Y = 80;
 const VISIT_ITEM_H = 30;
 
 // Default theme colors (16-bit values used by client)
-// These will be overridden by client's actual theme colors
 let THEME_COLORS = {
-    bg: 0,         // black
-    text: 65535,   // white
-    primary: 31,   // dark blue
-    accent: 2016,  // green-ish
-    accent2: 63488,// red-ish
-    accent3: 31,   // reuse primary
+    bg: 0,
+    text: 65535,
+    primary: 31,
+    accent: 2016,
+    accent2: 63488,
+    accent3: 31,
     accentText: 65535,
-    pressed: 1024, // different accent
-    danger: 63488, // red
+    pressed: 1024,
+    danger: 63488,
     placeholder: 8421
 };
 
-// store session, state, username, and per-client storage + meta
+// Per-client session/state
 const clients = new Map();
 
 const server = http.createServer((req, res) => {
@@ -48,15 +47,14 @@ const wss = new WebSocket.Server({ server });
 wss.on('connection', (ws) => {
     console.log('Client connected');
 
-    // Initialize client session
     const clientData = {
-        state: "home",
-        session: "",
-        username: "",
-        storage: {}, // per-domain key/value (visited sites etc)
+        state: 'home',
+        session: '',
+        username: '',
+        storage: {},
         width: SCREEN_W,
         height: SCREEN_H,
-        theme: { ...THEME_COLORS }, // Clone default theme
+        theme: { ...THEME_COLORS },
         viewport: {
             x: 0,
             y: VIEWPORT_Y,
@@ -64,281 +62,163 @@ wss.on('connection', (ws) => {
             h: VIEWPORT_H
         }
     };
+
     clients.set(ws, clientData);
 
     ws.on('message', (msg) => {
         const message = msg.toString().trim();
         if (!message) return;
+
         console.log('Received:', message);
 
-        // --- Handshake: "MWOSP-v1 <session> <w> <h>" ---
+        // --- Handshake ---
         if (message.startsWith('MWOSP-v1')) {
-            const parts = message.split(' ');
-            if (parts.length >= 2) clientData.session = parts[1];
-            if (parts.length >= 4) {
-                clientData.width = parseInt(parts[2]) || SCREEN_W;
-                clientData.height = parseInt(parts[3]) || SCREEN_H;
-            }
+            const p = message.split(' ');
+            clientData.session = p[1] || '';
+            clientData.width = parseInt(p[2]) || SCREEN_W;
+            clientData.height = parseInt(p[3]) || SCREEN_H;
             ws.send('MWOSP-v1 OK');
-            // Don't render UI here - client will send theme colors next
             return;
         }
 
-        // --- Theme Colors from client ---
+        // --- Theme colors ---
         if (message.startsWith('ThemeColors')) {
-            // Parse theme colors: "ThemeColors bg:FFFF text:FFFF primary:001F ..."
             const parts = message.split(' ');
             for (let i = 1; i < parts.length; i++) {
-                const [key, value] = parts[i].split(':');
-                if (key && value) {
-                    const colorValue = parseInt(value, 16);
-                    if (!isNaN(colorValue)) {
-                        clientData.theme[key] = colorValue;
-                    }
-                }
+                const [k, v] = parts[i].split(':');
+                if (!k || !v) continue;
+                const n = parseInt(v, 16);
+                if (!isNaN(n)) clientData.theme[k] = n;
             }
-            console.log('Received theme colors:', clientData.theme);
             renderUI(ws, clientData);
             return;
         }
 
-        // --- GetThemeColor command ---
         if (message.startsWith('GetThemeColor ')) {
-            const colorName = message.substring(14);
-            const colorValue = clientData.theme[colorName] !== undefined ?
-                clientData.theme[colorName] : THEME_COLORS[colorName] || 0xFFFF;
-            ws.send(`ThemeColor ${colorName} ${colorValue.toString(16).toUpperCase()}`);
+            const key = message.substring(14);
+            const val = clientData.theme[key] ?? THEME_COLORS[key] ?? 0;
+            ws.send(`ThemeColor ${key} ${val.toString(16).toUpperCase()}`);
             return;
         }
 
-        // --- SetThemeColor command ---
         if (message.startsWith('SetThemeColor ')) {
-            // Format: "SetThemeColor bg 0xFFFF" or "SetThemeColor bg FFFF"
-            const parts = message.substring(14).split(' ');
-            if (parts.length >= 2) {
-                const colorName = parts[0];
-                let colorValue = parts[1];
-                // Remove 0x prefix if present
-                if (colorValue.startsWith('0x')) {
-                    colorValue = colorValue.substring(2);
-                }
-                const colorInt = parseInt(colorValue, 16);
-                if (!isNaN(colorInt)) {
-                    clientData.theme[colorName] = colorInt;
-                    console.log(`Updated theme color ${colorName} to ${colorValue}`);
-                    // If we're in a state that uses theme colors, re-render
+            const p = message.substring(14).split(' ');
+            if (p.length >= 2) {
+                const key = p[0];
+                let v = p[1];
+                if (v.startsWith('0x')) v = v.slice(2);
+                const n = parseInt(v, 16);
+                if (!isNaN(n)) {
+                    clientData.theme[key] = n;
                     if (clientData.state === 'home' || clientData.state === 'settings') {
-                        setTimeout(() => renderUI(ws, clientData), 100);
+                        renderUI(ws, clientData);
                     }
                 }
             }
             return;
         }
 
-        // Click coordinate: "Click x y"
+        // --- Click ---
         if (message.startsWith('Click')) {
-            const parts = message.split(' ');
-            const x = parseInt(parts[1]) || 0;
-            const y = parseInt(parts[2]) || 0;
-            // visual feedback (in viewport coordinates)
-            const feedbackX = Math.max(0, Math.min(x, SCREEN_W - 10));
-            const feedbackY = Math.max(VIEWPORT_Y, Math.min(y, SCREEN_H - 10));
-            ws.send(`FillRect ${feedbackX - 5} ${feedbackY - 5} 10 10 ${clientData.theme.accent2}`);
-            ws.send(`DrawCircle ${feedbackX} ${feedbackY} 8 ${clientData.theme.accent}`);
-            ws.send(`DrawText ${feedbackX - 10} ${feedbackY - 15} 2 ${clientData.theme.text} Clicked!`);
+            const p = message.split(' ');
+            const x = parseInt(p[1]) || 0;
+            const y = parseInt(p[2]) || 0;
+
+            ws.send(`FillRect ${x - 5} ${y - 5} 10 10 ${clientData.theme.accent2}`);
+            ws.send(`DrawCircle ${x} ${y} 8 ${clientData.theme.accent}`);
             handleClick(ws, clientData, x, y);
             return;
         }
 
-        // Navigation request from client
+        // --- Navigation ---
         if (message.startsWith('Navigate ')) {
-            const navStr = message.substring(9).trim();
-            // support "domain@state" or "domain:port@state" or just "home"/"settings"
-            if (navStr === 'home' || navStr === 'settings' || navStr === 'search' || navStr === 'input') {
-                clientData.state = navStr;
+            const nav = message.substring(9).trim();
+            if (['home', 'settings', 'search', 'input'].includes(nav)) {
+                clientData.state = nav;
                 renderUI(ws, clientData);
                 return;
             }
-            // parse domain & state
-            const atIdx = navStr.indexOf('@');
-            let domainPort = navStr, state = 'startpage';
-            if (atIdx >= 0) {
-                domainPort = navStr.substring(0, atIdx);
-                state = navStr.substring(atIdx + 1) || state;
-            }
-            let domain = domainPort;
+
+            let domain = nav;
             let port = 443;
-            const colon = domainPort.indexOf(':');
-            if (colon >= 0) {
-                domain = domainPort.substring(0, colon);
-                port = parseInt(domainPort.substring(colon + 1)) || 443;
+            let state = 'startpage';
+
+            const at = nav.indexOf('@');
+            if (at >= 0) {
+                domain = nav.slice(0, at);
+                state = nav.slice(at + 1) || state;
             }
-            // set state to website/startpage for rendering
-            clientData.state = state || 'website';
+
+            const c = domain.indexOf(':');
+            if (c >= 0) {
+                port = parseInt(domain.slice(c + 1)) || 443;
+                domain = domain.slice(0, c);
+            }
+
+            clientData.state = state;
             clientData.currentDomain = domain;
             clientData.currentPort = port;
-            // register visited site on server-side storage (timestamp)
             clientData.storage[domain] = String(Date.now());
-            // send Title and some content draws
+
             ws.send(`Title ${domain}`);
-            // Set viewport for website content
             ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${clientData.theme.bg}`);
-            ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 2 ${clientData.theme.text} Loading ${domain}...`);
-            // simulate page content
-            ws.send(`DrawText 10 ${VIEWPORT_Y + 40} 1 ${clientData.theme.text} This is a demo page for ${domain}.`);
-            ws.send(`DrawSVG 140 ${VIEWPORT_Y + 80} 40 40 ${clientData.theme.accent} <svg width="40" height="40"><rect width="40" height="40" fill="red"/></svg>`);
+            ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 1 ${clientData.theme.text} Loading ${domain}...`);
+
             renderUI(ws, clientData);
             return;
         }
 
-        // Session & state helpers
-        if (message.startsWith('SetSession ')) {
-            clientData.session = message.substring(11);
-            return;
-        }
-        if (message.startsWith('GetSession ')) {
-            const rid = message.split(' ')[1] || '';
-            ws.send(`GetBackSession ${rid} ${clientData.session || ''}`);
-            return;
-        }
-        if (message.startsWith('SetState ')) {
-            clientData.state = message.substring(9);
-            renderUI(ws, clientData);
-            return;
-        }
-        if (message.startsWith('GetState ')) {
-            const rid = message.split(' ')[1] || '';
-            ws.send(`GetBackState ${rid} ${clientData.state}`);
-            return;
-        }
-
-        // Clear settings
-        if (message === 'ClearSettings') {
-            clientData.session = "";
-            clientData.state = "home";
-            clientData.username = "";
-            clientData.storage = {};
-            clientData.currentDomain = undefined;
-            // Reset to default theme
-            clientData.theme = { ...THEME_COLORS };
-            ws.send("Navigate home");
-            renderUI(ws, clientData);
-            return;
-        }
-
-        // PromptText result from client: "GetBackText <rid> <text...>"
+        // --- Text input ---
         if (message.startsWith('GetBackText ')) {
             const parts = message.split(' ');
-            const rid = parts[1] || '';
-            const text = parts.slice(2).join(' ') || '';
+            const rid = parts[1];
+            const text = parts.slice(2).join(' ');
+
             if (rid === 'username') {
                 clientData.username = text;
-                // acknowledge and re-render
                 renderUI(ws, clientData);
-            } else if (rid === 'url') {
-                // expected format: domain[:port][@state] or just domain
-                const input = text.trim();
-                if (input.length) {
-                    // mirror device Navigate behavior and store visited
-                    let domainPort = input;
-                    let state = 'startpage';
-                    const at = input.indexOf('@');
-                    if (at >= 0) {
-                        domainPort = input.substring(0, at);
-                        state = input.substring(at + 1) || state;
-                    }
-                    let domain = domainPort;
-                    let port = 443;
-                    const c = domainPort.indexOf(':');
-                    if (c >= 0) {
-                        domain = domainPort.substring(0, c);
-                        port = parseInt(domainPort.substring(c + 1)) || 443;
-                    }
-                    clientData.state = state;
-                    clientData.currentDomain = domain;
-                    clientData.currentPort = port;
-                    clientData.storage[domain] = String(Date.now());
-                    ws.send(`Title ${domain}`);
-                    // Clear viewport area
-                    ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${clientData.theme.bg}`);
-                    ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 1 ${clientData.theme.text} Opened ${domain}`);
-                    renderUI(ws, clientData);
-                }
-            } else if (rid === 'open_site_url') {
-                // helper used when server asked user for an alternative URL to open
-                const theUrl = text.trim();
-                if (theUrl.length) {
-                    let domainPort = theUrl;
-                    let state = 'startpage';
-                    const at = theUrl.indexOf('@');
-                    if (at >= 0) {
-                        domainPort = theUrl.substring(0, at);
-                        state = theUrl.substring(at + 1) || state;
-                    }
-                    let domain = domainPort;
-                    let port = 443;
-                    const c = domainPort.indexOf(':');
-                    if (c >= 0) {
-                        domain = domainPort.substring(0, c);
-                        port = parseInt(domainPort.substring(c + 1)) || 443;
-                    }
-                    clientData.state = state;
-                    clientData.currentDomain = domain;
-                    clientData.currentPort = port;
-                    clientData.storage[domain] = String(Date.now());
-                    ws.send(`Title ${domain}`);
-                    // Clear viewport area
-                    ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${clientData.theme.bg}`);
-                    ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 1 ${clientData.theme.text} Opened ${domain}`);
-                    renderUI(ws, clientData);
-                }
+            }
+
+            if (rid === 'url' || rid === 'open_site_url') {
+                if (!text) return;
+                ws.send(`Navigate ${text}`);
             }
             return;
         }
 
-        // DrawSVG example request from client
-        if (message.startsWith('DrawSVG')) {
-            const exampleSVG = `<svg width="50" height="50"><rect width="50" height="50" fill="red"/></svg>`;
-            // Draw within viewport
-            ws.send(`DrawSVG 50 ${VIEWPORT_Y + 100} 50 50 ${clientData.theme.accent} ${exampleSVG}`);
-            return;
-        }
-
-        // Storage operations from client
+        // --- Storage ---
         if (message.startsWith('SetStorage ')) {
-            const idx = message.indexOf(' ', 11);
-            if (idx >= 11) {
-                const key = message.substring(11, idx);
-                const val = message.substring(idx + 1);
-                clientData.storage[key] = val;
+            const i = message.indexOf(' ', 11);
+            if (i > 0) {
+                const k = message.slice(11, i);
+                const v = message.slice(i + 1);
+                clientData.storage[k] = v;
             }
             return;
         }
+
         if (message.startsWith('GetStorage ')) {
-            const key = message.substring(11);
-            const val = clientData.storage[key] || "";
-            ws.send(`GetBackStorage ${key} ${val}`);
+            const k = message.slice(11);
+            ws.send(`GetBackStorage ${k} ${clientData.storage[k] || ''}`);
             return;
         }
 
-        // GetBackStorage from client
-        if (message.startsWith('GetBackStorage ')) {
-            // store/echo it server-side
-            const parts = message.split(' ');
-            const key = parts[1] || '';
-            const val = parts.slice(2).join(' ') || '';
-            if (key) clientData.storage[key] = val;
+        if (message === 'ClearSettings') {
+            clientData.state = 'home';
+            clientData.session = '';
+            clientData.username = '';
+            clientData.storage = {};
+            clientData.theme = { ...THEME_COLORS };
+            renderUI(ws, clientData);
             return;
         }
 
-        // Exit request from client
         if (message.startsWith('Exit')) {
-            try { ws.close(); } catch (e) { }
+            ws.close();
             return;
         }
 
-        // Unknown messages: log
-        console.log('Unhandled message:', message);
+        console.log('Unhandled:', message);
     });
 
     ws.on('close', () => {
@@ -347,251 +227,60 @@ wss.on('connection', (ws) => {
     });
 });
 
-// ----- Helpers -----
+// ---------------- helpers ----------------
 
-function handleClick(ws, clientData, x, y) {
-    // Top-bar close: x > 275 && y < TOPBAR_H
-    if (y < TOPBAR_H && x > (SCREEN_W - 30)) {
-        // close (in client, close returns to menu/home)
+function handleClick(ws, c, x, y) {
+    if (y < TOPBAR_H && x > SCREEN_W - 30) {
         ws.send('Exit');
         return;
     }
 
-    // Top-left title tapped: go home
     if (y < TOPBAR_H && x < 120) {
-        clientData.state = 'home';
-        renderUI(ws, clientData);
+        c.state = 'home';
+        renderUI(ws, c);
         return;
     }
 
-    // Buttons inside the floating card (three buttons)
-    const cardX = BUTTON_PADDING;
-    const cardY = CARD_Y;
-    const cardW = SCREEN_W - cardX * 2;
-    const btnW = Math.floor((cardW - BUTTON_PADDING * 4) / 3);
-    const by = cardY + 6;
+    const by = CARD_Y + 6;
     if (y >= by && y <= by + BUTTON_H) {
-        // which button?
-        for (let i = 0; i < 3; ++i) {
-            const bx = cardX + BUTTON_PADDING + i * (btnW + BUTTON_PADDING);
+        const cardW = SCREEN_W - BUTTON_PADDING * 2;
+        const btnW = Math.floor((cardW - BUTTON_PADDING * 4) / 3);
+        for (let i = 0; i < 3; i++) {
+            const bx = BUTTON_PADDING + BUTTON_PADDING + i * (btnW + BUTTON_PADDING);
             if (x >= bx && x <= bx + btnW) {
-                if (i === 0) {
-                    // Search -> navigate to known search server
-                    const domain = 'mw-search-server-onrender-app.onrender.com';
-                    clientData.state = 'startpage';
-                    clientData.currentDomain = domain;
-                    clientData.currentPort = 443;
-                    clientData.storage[domain] = String(Date.now());
-                    ws.send(`Title ${domain}`);
-                    // Clear viewport
-                    ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${clientData.theme.bg}`);
-                    ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 1 ${clientData.theme.text} Opened search page`);
-                    renderUI(ws, clientData);
-                } else if (i === 1) {
-                    // Input URL: ask device for URL
-                    ws.send('PromptText url Which page do you want to visit?');
-                } else if (i === 2) {
-                    // Settings
-                    clientData.state = 'settings';
-                    renderUI(ws, clientData);
+                if (i === 0) ws.send('Navigate mw-search-server-onrender-app.onrender.com');
+                if (i === 1) ws.send('PromptText url Which page do you want to visit?');
+                if (i === 2) {
+                    c.state = 'settings';
+                    renderUI(ws, c);
                 }
                 return;
             }
         }
     }
-
-    // Clicks inside visited sites list region
-    if (y >= VISIT_LIST_Y) {
-        const keys = Object.keys(clientData.storage);
-        const idx = Math.floor((y - VISIT_LIST_Y) / VISIT_ITEM_H);
-        if (idx >= 0 && idx < keys.length) {
-            const domain = keys[idx];
-            // compute button X positions (mirrors client layout)
-            const btnW = 56;
-            const btnGap = 4;
-            const xOpen = SCREEN_W - BUTTON_PADDING - btnW;
-            const xClear = xOpen - btnGap - btnW;
-            const xDelete = xClear - btnGap - btnW;
-
-            // Delete
-            if (x >= xDelete && x <= xDelete + btnW) {
-                delete clientData.storage[domain];
-                renderUI(ws, clientData);
-                return;
-            }
-            // ClearData (set empty)
-            if (x >= xClear && x <= xClear + btnW) {
-                clientData.storage[domain] = "";
-                renderUI(ws, clientData);
-                return;
-            }
-            // Open
-            if (x >= xOpen && x <= xOpen + btnW) {
-                // Open directly to the stored domain
-                clientData.state = 'startpage';
-                clientData.currentDomain = domain;
-                clientData.currentPort = 443;
-                ws.send(`Title ${domain}`);
-                // Clear viewport
-                ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${clientData.theme.bg}`);
-                ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 1 ${clientData.theme.text} Opening ${domain}`);
-                renderUI(ws, clientData);
-                return;
-            }
-
-            // Click on text area -> open directly
-            const textAreaW = SCREEN_W - BUTTON_PADDING - (3 * (btnW + btnGap));
-            if (x >= 0 && x <= textAreaW) {
-                clientData.state = 'startpage';
-                clientData.currentDomain = domain;
-                clientData.currentPort = 443;
-                ws.send(`Title ${domain}`);
-                // Clear viewport
-                ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${clientData.theme.bg}`);
-                ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 1 ${clientData.theme.text} Opening ${domain}`);
-                renderUI(ws, clientData);
-                return;
-            }
-        }
-    }
-
-    // Settings page: allow tap top-left area to go back
-    if (clientData.state === 'settings' && y > TOPBAR_H && y < TOPBAR_H + 30 && x < 120) {
-        clientData.state = 'home';
-        renderUI(ws, clientData);
-        return;
-    }
 }
 
-function renderUI(ws, clientData) {
-    const theme = clientData.theme;
+function renderUI(ws, c) {
+    const t = c.theme;
 
-    // Clear screen with BG
-    ws.send(`FillRect 0 0 ${SCREEN_W} ${SCREEN_H} ${theme.bg}`);
+    ws.send(`FillRect 0 0 ${SCREEN_W} ${SCREEN_H} ${t.bg}`);
+    ws.send(`FillRect 0 0 ${SCREEN_W} ${TOPBAR_H} ${t.primary}`);
+    ws.send(`DrawText 6 3 2 ${t.accentText} MW-OS-Browser`);
+    ws.send(`DrawText ${SCREEN_W - 22} 3 2 ${t.danger} X`);
 
-    // Top bar
-    ws.send(`FillRect 0 0 ${SCREEN_W} ${TOPBAR_H} ${theme.primary}`);
-    ws.send(`DrawText 6 3 2 ${theme.accentText} MW-OS-Browser`);
-    ws.send(`DrawText ${SCREEN_W - 22} 3 2 ${theme.danger} X`);
-
-    // Home page
-    if (!clientData.state || clientData.state === 'home') {
-        // floating card
-        const cardX = BUTTON_PADDING;
-        const cardY = CARD_Y;
-        const cardW = SCREEN_W - cardX * 2;
-        const cardH = CARD_H;
-        // outer card (primary)
-        ws.send(`FillRect ${cardX} ${cardY} ${cardW} ${cardH} ${theme.primary}`);
-        // inner floating area (bg)
-        ws.send(`FillRect ${cardX + 2} ${cardY + 2} ${cardW - 4} ${cardH - 4} ${theme.bg}`);
-
-        // draw three buttons
-        const btnW = Math.floor((cardW - BUTTON_PADDING * 4) / 3);
-        let bx = cardX + BUTTON_PADDING;
-        const by = cardY + 6;
-
-        // Button 0: Search
-        ws.send(`FillRect ${bx} ${by} ${btnW} ${BUTTON_H} ${theme.accent}`);
-        ws.send(`DrawText ${bx + 8} ${by + 8} 2 ${theme.accentText} Search`);
-
-        // Button 1: Input URL
-        bx += btnW + BUTTON_PADDING;
-        ws.send(`FillRect ${bx} ${by} ${btnW} ${BUTTON_H} ${theme.accent2}`);
-        ws.send(`DrawText ${bx + 8} ${by + 8} 2 ${theme.accentText} Input URL`);
-
-        // Button 2: Settings
-        bx += btnW + BUTTON_PADDING;
-        ws.send(`FillRect ${bx} ${by} ${btnW} ${BUTTON_H} ${theme.accent3}`);
-        ws.send(`DrawText ${bx + 8} ${by + 8} 2 ${theme.accentText} Settings`);
-
-        // Visited sites header
-        ws.send(`DrawText 10 ${VISIT_LIST_Y - 18} 2 ${theme.text} Visited Sites`);
-
-        // Show prompt or username
-        if (clientData.username) {
-            ws.send(`DrawText 10 160 2 ${theme.text} Hello, ${clientData.username}!`);
-        } else {
-            ws.send(`DrawText 10 160 2 ${theme.placeholder} Please enter your name.`);
-        }
-
-        // list sites
-        const sites = Object.keys(clientData.storage);
-        for (let i = 0; i < sites.length; ++i) {
-            const y = VISIT_LIST_Y + i * VISIT_ITEM_H;
-            const domain = sites[i];
-            // alternating bg
-            const bgColor = (i % 2 === 0) ? theme.primary : theme.bg;
-            ws.send(`FillRect 0 ${y} ${SCREEN_W} ${VISIT_ITEM_H - 2} ${bgColor}`);
-            ws.send(`DrawText 10 ${y + 6} 1 ${theme.text} ${domain}`);
-
-            // right-side buttons: Delete, Clear, Open
-            const btnW = 56;
-            const btnGap = 4;
-            const xOpen = SCREEN_W - BUTTON_PADDING - btnW;
-            const xClear = xOpen - btnGap - btnW;
-            const xDelete = xClear - btnGap - btnW;
-
-            ws.send(`FillRect ${xDelete} ${y + 4} ${btnW} ${VISIT_ITEM_H - 10} ${theme.danger}`);
-            ws.send(`DrawText ${xDelete + 8} ${y + 6} 1 ${theme.accentText} Delete`);
-
-            ws.send(`FillRect ${xClear} ${y + 4} ${btnW} ${VISIT_ITEM_H - 10} ${theme.pressed}`);
-            ws.send(`DrawText ${xClear + 6} ${y + 6} 1 ${theme.accentText} Clear`);
-
-            ws.send(`FillRect ${xOpen} ${y + 4} ${btnW} ${VISIT_ITEM_H - 10} ${theme.accent}`);
-            ws.send(`DrawText ${xOpen + 10} ${y + 6} 1 ${theme.accentText} Open`);
-        }
+    if (c.state === 'home') {
+        ws.send(`DrawText 10 160 2 ${t.text} ${c.username ? 'Hello, ' + c.username : 'Please enter your name.'}`);
         return;
     }
 
-    // Settings page
-    if (clientData.state === 'settings') {
-        ws.send(`DrawText 10 30 2 ${theme.text} Visited Sites & Storage`);
-        ws.send(`DrawText 10 56 1 ${theme.placeholder} Tap a site to open. Use buttons to manage data.`);
-
-        // list keys & values
-        let y = 80;
-        for (const key of Object.keys(clientData.storage)) {
-            ws.send(`DrawText 10 ${y} 1 ${theme.text} ${key}: ${clientData.storage[key]}`);
-            y += 18;
-            if (y > SCREEN_H - 30) break;
-        }
-
-        ws.send(`DrawText 10 ${SCREEN_H - 20} 1 ${theme.placeholder} Press ClearSettings to reset.`);
+    if (c.state === 'settings') {
+        ws.send(`DrawText 10 30 2 ${t.text} Settings`);
         return;
     }
 
-    // Search or website page (simple demo content)
-    if (clientData.state === 'search' || clientData.state === 'startpage' || clientData.state === 'website') {
-        const title = clientData.currentDomain || 'Website';
-        // Top bar title override
-        ws.send(`FillRect 0 0 ${SCREEN_W} ${TOPBAR_H} ${theme.primary}`);
-        ws.send(`DrawText 6 3 2 ${theme.accentText} ${title}`);
-        ws.send(`DrawText ${SCREEN_W - 22} 3 2 ${theme.danger} X`);
-
-        // content area (viewport)
-        ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${theme.bg}`);
-        ws.send(`DrawText 10 ${VIEWPORT_Y + 6} 1 ${theme.text} Welcome to ${title}.`);
-        ws.send(`DrawText 10 ${VIEWPORT_Y + 24} 1 ${theme.text} (Demo page rendered by test server)`);
-        ws.send(`DrawSVG 140 ${VIEWPORT_Y + 40} 40 40 ${theme.accent} <svg width="40" height="40"><circle cx="20" cy="20" r="20" fill="yellow"/></svg>`);
-
-        // Demo: Show current theme colors
-        ws.send(`DrawText 10 ${VIEWPORT_Y + 90} 1 ${theme.text} Current theme colors:`);
-        let colorY = VIEWPORT_Y + 110;
-        Object.keys(theme).forEach((colorName, index) => {
-            if (index < 5) { // Show first 5 colors
-                const colorValue = theme[colorName];
-                ws.send(`FillRect 10 ${colorY} 20 10 ${colorValue}`);
-                ws.send(`DrawText 35 ${colorY} 1 ${theme.text} ${colorName}: 0x${colorValue.toString(16).toUpperCase()}`);
-                colorY += 15;
-            }
-        });
-        return;
-    }
-
-    // fallback to home
-    clientData.state = 'home';
-    renderUI(ws, clientData);
+    ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 1 ${t.text} Demo content`);
 }
 
-server.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+server.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+});
