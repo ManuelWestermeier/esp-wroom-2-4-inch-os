@@ -56,6 +56,10 @@ namespace Browser
     void showWebsitePage();
     void renderTopBar();
     void saveVisitedSite(const String &domain);
+
+    // Viewport helpers
+    void enterViewport(int x, int y, int w, int h);
+    void exitViewport();
 }
 
 // ---- Blocking browser runner ----

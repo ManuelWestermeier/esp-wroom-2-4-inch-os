@@ -1,4 +1,3 @@
-// browser.cpp (fixed)
 #include "browser.hpp"
 
 #include <WiFiClientSecure.h>
@@ -52,12 +51,51 @@ namespace Browser
     static int touchLastY = 0;
     static int touchTotalMove = 0;
 
+    // Viewport tracking (keeps track of current viewport so drawing helpers can clip)
+    static bool viewportActive = false;
+    static int vpX = 0, vpY = 0, vpW = SCREEN_W, vpH = SCREEN_H;
+
     // Forward declarations
     void renderTopBar();
     void showHomeUI();
     void showVisitedSites();
     void showWebsitePage();
     void ReRender();
+
+    // Viewport helpers
+    void enterViewport(int x, int y, int w, int h)
+    {
+        // clamp values
+        if (x < 0)
+            x = 0;
+        if (y < 0)
+            y = 0;
+        if (w <= 0)
+            w = SCREEN_W;
+        if (h <= 0)
+            h = SCREEN_H;
+        if (x + w > SCREEN_W)
+            w = SCREEN_W - x;
+        if (y + h > SCREEN_H)
+            h = SCREEN_H - y;
+
+        vpX = x;
+        vpY = y;
+        vpW = w;
+        vpH = h;
+        viewportActive = true;
+        Screen::tft.setViewport(vpX, vpY, vpW, vpH);
+    }
+
+    void exitViewport()
+    {
+        viewportActive = false;
+        vpX = 0;
+        vpY = 0;
+        vpW = SCREEN_W;
+        vpH = SCREEN_H;
+        Screen::tft.setViewport(0, 0, SCREEN_W, SCREEN_H);
+    }
 
     // ---- Start / lifecycle ----
     void Start()
@@ -175,28 +213,7 @@ namespace Browser
             if (sscanf(payload.c_str(), "DrawText %d %d %d %u %[^\n]", &x, &y, &size, &c, buf) >= 5)
             {
                 String text = String(buf);
-                // Clip text position
-                if (y < 0)
-                    y = 0;
-                if (y >= SCREEN_H)
-                    return; // Completely off-screen
-                if (x < 0)
-                    x = 0;
-
-                // Truncate text if it would overflow horizontally
-                int textWidth = text.length() * 6 * size; // Approximate width
-                if (x + textWidth > SCREEN_W)
-                {
-                    int maxChars = (SCREEN_W - x) / (6 * size);
-                    if (maxChars > 3)
-                    { // Minimum characters to show
-                        text = text.substring(0, maxChars - 3) + "...";
-                    }
-                    else
-                    {
-                        return; // Not enough space
-                    }
-                }
+                // Clip text position (use drawText which is viewport aware)
                 drawText(x, y, text, (uint16_t)c, size);
             }
         }
@@ -446,8 +463,12 @@ namespace Browser
     // ----------------- Utilities -----------------
     void drawText(int x, int y, const String &text, uint16_t color, int size)
     {
-        // Additional clipping for text rendering
-        if (y < 0 || y >= SCREEN_H)
+        // If a viewport is active, coordinates are relative to it; otherwise absolute to screen.
+        int localW = viewportActive ? vpW : SCREEN_W;
+        int localH = viewportActive ? vpH : SCREEN_H;
+
+        // Clip vertical position
+        if (y < 0 || y >= localH)
             return;
 
         Screen::tft.setTextColor(color);
@@ -457,9 +478,9 @@ namespace Browser
         // Truncate text if it would overflow
         String displayText = text;
         int textWidth = text.length() * 6 * size;
-        if (x + textWidth > SCREEN_W)
+        if (x + textWidth > localW)
         {
-            int maxChars = (SCREEN_W - x) / (6 * size);
+            int maxChars = (localW - x) / (6 * size);
             if (maxChars > 3)
             {
                 displayText = text.substring(0, maxChars - 3) + "...";
@@ -819,12 +840,12 @@ namespace Browser
         drawText(10, VISIT_LIST_Y - 18, "Visited Sites", theme.text, 2);
 
         // create clipping viewport for the list area
-        Screen::tft.setViewport(0, VISIT_LIST_Y, SCREEN_W, SCREEN_H - VISIT_LIST_Y);
+        enterViewport(0, VISIT_LIST_Y, SCREEN_W, SCREEN_H - VISIT_LIST_Y);
 
         int xText = 10;
 
         int totalHeight = (int)sites.size() * VISIT_ITEM_H;
-        int visible = SCREEN_H - VISIT_LIST_Y;
+        int visible = vpH; // SCREEN_H - VISIT_LIST_Y;
         int maxOffset = totalHeight > visible ? totalHeight - visible : 0;
         if (visitScrollOffset < 0)
             visitScrollOffset = 0;
@@ -833,46 +854,97 @@ namespace Browser
 
         for (size_t i = 0; i < sites.size(); ++i)
         {
-            int y = VISIT_LIST_Y + (int)i * VISIT_ITEM_H - visitScrollOffset;
+            int localY = (int)i * VISIT_ITEM_H - visitScrollOffset; // relative to viewport
 
             // skip items fully above or below viewport
-            if (y + VISIT_ITEM_H < VISIT_LIST_Y)
+            if (localY + VISIT_ITEM_H < 0)
                 continue;
-            if (y > SCREEN_H)
+            if (localY > vpH)
                 continue;
 
             // background alternating for clarity
             uint16_t bgColor = (i % 2 == 0) ? theme.primary : theme.bg;
-            Screen::tft.fillRect(0, y, SCREEN_W, VISIT_ITEM_H - 2, bgColor);
+
+            // clip background if partially visible
+            int drawY = localY;
+            int drawH = VISIT_ITEM_H - 2;
+            if (drawY < 0)
+            {
+                drawH += drawY; // reduce height
+                drawY = 0;
+            }
+            if (drawY + drawH > vpH)
+                drawH = vpH - drawY;
+
+            if (drawH > 0)
+                Screen::tft.fillRect(0, drawY, vpW, drawH, bgColor);
 
             // domain text (truncate if too long)
             String domain = sites[i];
-            int maxDomainWidth = SCREEN_W - 180; // Leave space for buttons
+            int maxDomainWidth = vpW - 180; // Leave space for buttons
             if (domain.length() > maxDomainWidth / 6)
             { // Approx 6 pixels per char
                 domain = domain.substring(0, maxDomainWidth / 6 - 3) + "...";
             }
-            drawText(xText, y + 6, domain, theme.text, 1);
+
+            int textY = localY + 6;
+            if (textY < 0)
+                textY = 0; // ensure visible
+            drawText(xText, textY, domain, theme.text, 1);
 
             // buttons on the right: Delete, ClearData, Open
             int btnW = 56;
             int btnGap = 4;
-            int xOpen = SCREEN_W - BUTTON_PADDING - btnW;
+            int xOpen = vpW - BUTTON_PADDING - btnW;
             int xClear = xOpen - btnGap - btnW;
             int xDelete = xClear - btnGap - btnW;
 
-            Screen::tft.fillRoundRect(xDelete, y + 4, btnW, VISIT_ITEM_H - 10, 4, theme.danger);
-            drawText(xDelete + 8, y + 6, "Delete", theme.accentText, 1);
+            int btnY = localY + 4;
+            int btnH = VISIT_ITEM_H - 10;
 
-            Screen::tft.fillRoundRect(xClear, y + 4, btnW, VISIT_ITEM_H - 10, 4, theme.pressed);
-            drawText(xClear + 6, y + 6, "Clear", theme.accentText, 1);
+            // ensure button area is within viewport
+            if (btnY < 0)
+            {
+                // partially visible: adjust height and y
+                int visibleBtnH = btnH + btnY;
+                if (visibleBtnH > 0)
+                {
+                    Screen::tft.fillRoundRect(xDelete, 0, btnW, visibleBtnH, 4, theme.danger);
+                    drawText(xDelete + 8, 0 + 2, "Delete", theme.accentText, 1);
+                    Screen::tft.fillRoundRect(xClear, 0, btnW, visibleBtnH, 4, theme.pressed);
+                    drawText(xClear + 6, 0 + 2, "Clear", theme.accentText, 1);
+                    Screen::tft.fillRoundRect(xOpen, 0, btnW, visibleBtnH, 4, theme.accent);
+                    drawText(xOpen + 10, 0 + 2, "Open", theme.accentText, 1);
+                }
+            }
+            else if (btnY + btnH > vpH)
+            {
+                int visibleBtnH = vpH - btnY;
+                if (visibleBtnH > 0)
+                {
+                    Screen::tft.fillRoundRect(xDelete, btnY, btnW, visibleBtnH, 4, theme.danger);
+                    drawText(xDelete + 8, btnY + 2, "Delete", theme.accentText, 1);
+                    Screen::tft.fillRoundRect(xClear, btnY, btnW, visibleBtnH, 4, theme.pressed);
+                    drawText(xClear + 6, btnY + 2, "Clear", theme.accentText, 1);
+                    Screen::tft.fillRoundRect(xOpen, btnY, btnW, visibleBtnH, 4, theme.accent);
+                    drawText(xOpen + 10, btnY + 2, "Open", theme.accentText, 1);
+                }
+            }
+            else
+            {
+                Screen::tft.fillRoundRect(xDelete, btnY, btnW, btnH, 4, theme.danger);
+                drawText(xDelete + 8, btnY + 6, "Delete", theme.accentText, 1);
 
-            Screen::tft.fillRoundRect(xOpen, y + 4, btnW, VISIT_ITEM_H - 10, 4, theme.accent);
-            drawText(xOpen + 10, y + 6, "Open", theme.accentText, 1);
+                Screen::tft.fillRoundRect(xClear, btnY, btnW, btnH, 4, theme.pressed);
+                drawText(xClear + 6, btnY + 6, "Clear", theme.accentText, 1);
+
+                Screen::tft.fillRoundRect(xOpen, btnY, btnW, btnH, 4, theme.accent);
+                drawText(xOpen + 10, btnY + 6, "Open", theme.accentText, 1);
+            }
         }
 
         // reset viewport
-        Screen::tft.setViewport(0, 0, SCREEN_W, SCREEN_H);
+        exitViewport();
     }
 
     void showSettingsPage()
@@ -941,16 +1013,16 @@ namespace Browser
         drawText(SCREEN_W - 22, 3, "X", theme.danger, 2);
 
         // Set viewport for website content (prevents drawing in top bar area)
-        Screen::tft.setViewport(0, VIEWPORT_Y, SCREEN_W, VIEWPORT_H);
+        enterViewport(0, VIEWPORT_Y, SCREEN_W, VIEWPORT_H);
 
-        // Clear website area with bg color (only inside viewport)
-        Screen::tft.fillRect(0, VIEWPORT_Y, SCREEN_W, VIEWPORT_H, theme.bg);
+        // Clear website area with bg color (inside viewport coordinates)
+        Screen::tft.fillRect(0, 0, vpW, vpH, theme.bg);
 
         // Draw a small hint inside the viewport (top-left)
-        drawText(6, VIEWPORT_Y + 4, "Page view", theme.placeholder, 1);
+        drawText(6, 4, "Page view", theme.placeholder, 1);
 
         // Reset viewport to full screen for other operations
-        Screen::tft.setViewport(0, 0, SCREEN_W, SCREEN_H);
+        exitViewport();
     }
 
 } // namespace Browser
