@@ -38,8 +38,15 @@ namespace Browser
     String promptText(const String &question, const String &defaultValue = "");
     void clearSettings();
     uint16_t getThemeColor(const String &name);
-    void storeData(const String &key, const ENC_FS::Buffer &data);
-    ENC_FS::Buffer loadData(const String &key);
+    void storeData(const String &domain, const ENC_FS::Buffer &data);
+    ENC_FS::Buffer loadData(const String &domain);
+    void drawTopBar();
+    void handleTouch();
+    void navigate(const String &domain, int port, const String &state);
+    void showHomeButtons();
+    void showSettingsPage();
+    void showOSSearchPage();
+    void showInputPage();
 }
 
 static inline void openBrowser()
