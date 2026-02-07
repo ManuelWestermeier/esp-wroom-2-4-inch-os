@@ -28,9 +28,9 @@ function parseCookies(req) {
     const list = {};
     const rc = req.headers.cookie;
     if (rc) {
-        rc.split(";").forEach((cookie) => {
+        rc.split(";").forEach(cookie => {
             const parts = cookie.split("=");
-            list[parts.shift().trim()] = decodeURI(parts.join("="));
+            list[parts.shift().trim()] = decodeURIComponent(parts.join("="));
         });
     }
     return list;
@@ -66,10 +66,16 @@ function renderPage(session) {
 function collectPostData(req, callback) {
     let body = "";
     req.on("data", chunk => body += chunk.toString());
-    req.on("end", () => callback(body));
+    req.on("end", () => {
+        try {
+            callback(JSON.parse(body));
+        } catch (e) {
+            callback({});
+        }
+    });
 }
 
-// Create HTTP server
+// HTTP server
 const server = http.createServer((req, res) => {
     const parsedUrl = url.parse(req.url, true);
     const cookies = parseCookies(req);
@@ -92,22 +98,24 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // POST endpoints: /click, /input, /refresh
+    // POST endpoints
     if (req.method === "POST") {
         if (parsedUrl.pathname === "/click") {
-            collectPostData(req, body => {
-                const data = JSON.parse(body);
-                session.lastClick = { x: data.x, y: data.y };
-                session.state = "clicked";
+            collectPostData(req, data => {
+                if (data.x !== undefined && data.y !== undefined) {
+                    session.lastClick = { x: data.x, y: data.y };
+                    session.state = "clicked";
+                }
+                res.writeHead(200, { "Content-Type": "text/plain" });
                 res.end("OK");
             });
             return;
         }
 
         if (parsedUrl.pathname === "/input") {
-            collectPostData(req, body => {
-                const data = JSON.parse(body);
+            collectPostData(req, data => {
                 session.inputText = data.text || "";
+                res.writeHead(200, { "Content-Type": "text/plain" });
                 res.end("OK");
             });
             return;

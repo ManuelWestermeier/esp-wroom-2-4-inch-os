@@ -115,13 +115,10 @@ namespace Browser
     void drawTopBar()
     {
         tft.fillRect(0, 0, VIEWPORT_WIDTH, TOP_BAR_HEIGHT, Style::Colors::primary);
-        // Back button
-        tft.fillTriangle(5, 10, 15, 5, 15, 15, Style::Colors::accentText);
-        // Forward button
-        tft.fillTriangle(25, 5, 25, 15, 35, 10, Style::Colors::accentText);
-        // Refresh
-        tft.fillCircle(50, 10, 6, Style::Colors::accentText);
-        // URL input
+        tft.fillTriangle(5, 10, 15, 5, 15, 15, Style::Colors::accentText);  // Back
+        tft.fillTriangle(25, 5, 25, 15, 35, 10, Style::Colors::accentText); // Forward
+        tft.fillCircle(50, 10, 6, Style::Colors::accentText);               // Refresh
+
         int urlX, urlW;
         computeUrlInputArea(urlX, urlW);
         tft.fillRect(urlX, 5, urlW, 10, Style::Colors::bg);
@@ -129,32 +126,11 @@ namespace Browser
         tft.setTextColor(Style::Colors::text);
         tft.setCursor(urlX + 2, 7);
         tft.print(loc.domain);
-        // Exit button
-        tft.fillRect(VIEWPORT_WIDTH - 70, 5, 30, 10, Style::Colors::danger);
+
+        tft.fillRect(VIEWPORT_WIDTH - 70, 5, 30, 10, Style::Colors::danger); // Exit
         tft.setTextColor(Style::Colors::accentText);
         tft.setCursor(VIEWPORT_WIDTH - 65, 7);
         tft.print("Exit");
-    }
-
-    // --- Touch handling ---
-    void handleTouchInTopBar(int x, int y)
-    {
-        if (y > TOP_BAR_HEIGHT)
-            return;
-        if (x >= 5 && x <= 20)
-        { /* TODO: back */
-        }
-        else if (x >= 25 && x <= 40)
-        { /* TODO: forward */
-        }
-        else if (x >= 45 && x <= 55)
-        {
-            fetchPage(loc.domain);
-        } // refresh
-        else if (x >= VIEWPORT_WIDTH - 70 && x <= VIEWPORT_WIDTH - 40)
-        {
-            Exit();
-        }
     }
 
     // --- Server parser ---
@@ -188,62 +164,63 @@ namespace Browser
     }
 
     // --- HTTP fetch ---
-    void fetchPage(const String &url)
+    String fetchPage(const String &url)
     {
         HTTPClient http;
-        String fullUrl = "http://" + url + "/@state";
-        http.begin(fullUrl);
-
-        if (loc.session.length() > 0)
-        {
-            http.addHeader("Cookie", "sessionId=" + loc.session);
-        }
-
+        http.begin(url);
         int code = http.GET();
+        String payload = "";
         if (code == 200)
         {
-            String payload = http.getString();
-            int newline = 0;
-            while (newline < payload.length())
-            {
-                int next = payload.indexOf('\n', newline);
-                if (next == -1)
-                    next = payload.length();
-                String line = payload.substring(newline, next);
-                parseServerCommand(line);
-                newline = next + 1;
-            }
-
-            // Save session from Set-Cookie
-            String setCookie = http.header("Set-Cookie");
-            if (setCookie.length() > 0)
-            {
-                loc.session = setCookie;
-                SPIFFS.begin();
-                File f = SPIFFS.open("/browser_" + loc.domain, FILE_WRITE);
-                if (f)
-                {
-                    f.print(loc.session);
-                    f.close();
-                }
-            }
+            payload = http.getString();
+        }
+        else
+        {
+            Serial.printf("HTTP GET failed, code: %d\n", code);
         }
         http.end();
+        return payload;
     }
 
-    // --- Touch input ---
+    // --- Top bar touch handling ---
+    void handleTouchInTopBar(int x, int y)
+    {
+        if (y > TOP_BAR_HEIGHT)
+            return;
+
+        // Refresh
+        if (x >= 45 && x <= 55)
+        {
+            String page = fetchPage("http://" + loc.domain + "/@state");
+            int start = 0;
+            int end;
+            while ((end = page.indexOf('\n', start)) != -1)
+            {
+                parseServerCommand(page.substring(start, end));
+                start = end + 1;
+            }
+            return;
+        }
+
+        // Exit
+        if (x >= VIEWPORT_WIDTH - 70 && x <= VIEWPORT_WIDTH - 40)
+        {
+            Exit();
+        }
+
+        // TODO: back / forward
+    }
+
+    // --- Touch input handler ---
     void handleTouchInput()
     {
-        if (!Screen::isTouched())
-            return;
-        Screen::TouchPos t = Screen::getTouchPos();
-        if (t.y <= TOP_BAR_HEIGHT)
-            handleTouchInTopBar(t.x, t.y);
-        else if (t.clicked)
+        Screen::TouchPos pos = Screen::getTouchPos();
+        int x = pos.x;
+        int y = pos.y;
+        // Replace this with your actual touch library call
+        if (pos.clicked)
         {
-            // Send click to server
-            // HTTP is stateless, so clicks just trigger refresh
-            fetchPage(loc.domain);
+            handleTouchInTopBar(x, y);
         }
     }
 
@@ -256,7 +233,6 @@ namespace Browser
             in.trim();
             if (in.length() > 0)
             {
-                // Input dialog to server
                 pendingResponses.push_back({String(random(0xFFFF), HEX), "text"});
             }
         }
@@ -275,7 +251,6 @@ namespace Browser
         loc.domain = url;
         loc.state = "startpage";
 
-        // Load session if exists
         if (SPIFFS.begin())
         {
             File f = SPIFFS.open("/browser_" + loc.domain, FILE_READ);
