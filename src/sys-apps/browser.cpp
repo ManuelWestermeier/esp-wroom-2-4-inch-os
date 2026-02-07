@@ -6,7 +6,7 @@ namespace Browser
     Location loc;
     bool isRunning = false;
     WebSocketsClient webSocket;
-    String Location::sessionId = String(random(1000, 9999));
+    String Location::sessionId = String(random(100000, 999999));
 
     void Start()
     {
@@ -15,18 +15,29 @@ namespace Browser
         tft.setTextColor(TFT_WHITE);
         tft.println("Connecting to MWOSP...");
 
-        // Setup WebSocket
+        // Start WebSocket on port 443
         webSocket.beginSSL(loc.domain.c_str(), loc.port, "/");
+
+        // Use insecure mode to skip certificate fingerprint check for easy deployment
+        // (Render uses Let's Encrypt certificates)
+        webSocket.setReconnectInterval(5000);
+
         webSocket.onEvent([](WStype_t type, uint8_t *payload, size_t length)
                           {
-            String msg = (char*)payload;
-            switch(type) {
-                case WStype_CONNECTED:
-                    webSocket.sendTXT("MWOSP-v1 " + Location::sessionId);
-                    break;
-                case WStype_TEXT:
-                    handleCommand(msg);
-                    break;
+            String msg = (payload != nullptr) ? (char *)payload : "";
+            
+            switch (type)
+            {
+            case WStype_CONNECTED:
+                Serial.println("[Browser] Connected to Server");
+                webSocket.sendTXT("MWOSP-v1 " + Location::sessionId);
+                break;
+            case WStype_TEXT:
+                handleCommand(msg);
+                break;
+            case WStype_DISCONNECTED:
+                Serial.println("[Browser] Disconnected");
+                break;
             } });
     }
 
@@ -34,11 +45,13 @@ namespace Browser
     {
         if (payload.startsWith("FillRect"))
         {
-            // Format: FillRect X Y W H COLOR16
+            // Protocol: FillRect X Y W H COLOR16
             int x, y, w, h;
             uint16_t c;
-            sscanf(payload.c_str(), "FillRect %d %d %d %d %hu", &x, &y, &w, &h, &c);
-            tft.fillRect(x, y, w, h, c);
+            if (sscanf(payload.c_str(), "FillRect %d %d %d %d %hu", &x, &y, &w, &h, &c) == 5)
+            {
+                tft.fillRect(x, y, w, h, c);
+            }
         }
         else if (payload.startsWith("Navigate"))
         {
@@ -47,9 +60,9 @@ namespace Browser
         else if (payload.startsWith("GetText"))
         {
             String rid = payload.substring(8);
-            // This would trigger your readString keyboard UI
-            // String input = readString("Server Query", "");
-            webSocket.sendTXT("GetBackText " + rid + " UserInput");
+            // Example hook for your read-string.hpp:
+            // String input = readString("Input Required", "");
+            // webSocket.sendTXT("GetBackText " + rid + " " + input);
         }
     }
 

@@ -1,8 +1,9 @@
 #pragma once
+
 #include <Arduino.h>
 #include <WebSocketsClient.h>
 #include "../screen/index.hpp"
-#include "../fs/enc-fs.hpp"
+#include "../styles/global.hpp"
 
 namespace Browser
 {

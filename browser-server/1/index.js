@@ -1,45 +1,51 @@
 const WebSocket = require('ws');
 const http = require('http');
 
-const PORT = process.env.PORT || 6767;
+// Render sets the PORT environment variable automatically
+const PORT = process.env.PORT || 3000;
+
 const server = http.createServer((req, res) => {
-    res.writeHead(200);
-    res.end("MWOSP Server Running");
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('MWOSP Server is active\n');
 });
 
 const wss = new WebSocket.Server({ server });
 
 wss.on('connection', (ws) => {
-    console.log('New client connected');
+    console.log('Client connected');
 
     ws.on('message', (message) => {
         const msg = message.toString();
-        console.log('Client:', msg);
+        console.log('Received:', msg);
 
         if (msg.startsWith('MWOSP-v1')) {
             ws.send('MWOSP-v1 OK');
-            // Draw a simple UI on connection
-            renderHome(ws);
+            renderUI(ws);
         }
 
         if (msg.startsWith('Click')) {
-            const [_, x, y] = msg.split(' ');
-            console.log(`User clicked at ${x}, ${y}`);
-            // Feedback: Draw a red square where user clicked
-            ws.send(`FillRect ${x} ${y} 10 10 63488`); // 63488 is Red in RGB565
+            const parts = msg.split(' ');
+            const x = parseInt(parts[1]);
+            const y = parseInt(parts[2]);
+
+            // Draw a red square (63488 is Red in RGB565) where clicked
+            ws.send(`FillRect ${x - 5} ${y - 5} 10 10 63488`);
+            console.log(`Rendered click at ${x},${y}`);
         }
     });
+
+    ws.on('close', () => console.log('Client disconnected'));
 });
 
-function renderHome(ws) {
-    // Clear Screen (Black)
+function renderUI(ws) {
+    // Fill background (Black: 0)
     ws.send("FillRect 0 0 320 480 0");
-    // Draw Header Bar (Blue)
-    ws.send("FillRect 0 0 320 40 31");
-    // Draw a Button (Green)
-    ws.send("FillRect 50 100 220 50 2016");
+    // Draw Top Bar (Blue: 31)
+    ws.send("FillRect 0 0 320 30 31");
+    // Draw a "Button" (Green: 2016)
+    ws.send("FillRect 60 100 200 60 2016");
 }
 
 server.listen(PORT, () => {
-    console.log(`Server started on port ${PORT}`);
+    console.log(`Server listening on port ${PORT}`);
 });
