@@ -558,7 +558,7 @@ namespace Browser
     void Start()
     {
         // Default start page
-        Start("mw-search-server.onrender.app:6767@startpage");
+        Start("mw-search-server-onrender-app.onrender.com:6767@startpage");
     }
 
     void Exit()
