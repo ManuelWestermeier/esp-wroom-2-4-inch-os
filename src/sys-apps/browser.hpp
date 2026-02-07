@@ -1,33 +1,40 @@
 #pragma once
-
 #include <Arduino.h>
-#include <TFT_eSPI.h>
+#include <WebSocketsClient.h>
 #include "../screen/index.hpp"
-#include "../io/read-string.hpp"
-#include "../styles/global.hpp"
 #include "../fs/enc-fs.hpp"
 
 namespace Browser
 {
     struct Location
     {
-        String domain;           // domain:port
-        String state;            // like "lists|1234|edit"
-        String session;          // max 1 KB storable and readable from {"browser", "sites", domain, "session.data"}
-        static String sessionId; // uint32 every newstart random, global
+        String domain = "mw-search-server-onrender-app.onrender.com";
+        int port = 443;
+        String state = "startpage";
+        String session = "";
+        static String sessionId;
     };
 
     extern Location loc;
     extern bool isRunning;
+    extern WebSocketsClient webSocket;
 
-    void ReRender();
-    void Update();
     void Start();
-    void Start(const String& url);
+    void Update();
+    void ReRender();
     void Exit();
     void OnExit();
+    void handleCommand(String payload);
 }
 
-// Main entry point
-void openBrowser();
-void openBrowser(const String& url);
+static inline void openBrowser()
+{
+    Browser::isRunning = true;
+    Browser::Start();
+    while (Browser::isRunning)
+    {
+        Browser::Update();
+        vTaskDelay(5);
+    }
+    Browser::OnExit();
+}
