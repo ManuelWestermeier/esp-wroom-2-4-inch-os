@@ -1,114 +1,131 @@
 /**
- * MWOSP-v1 Test Server
- * Render-compatible (WSS via Render TLS)
+ * MWOSP-v2 HTTP Test Server
+ * Render-compatible (HTTP only)
+ * Plain Node.js http module
  */
 
-const WebSocket = require("ws");
+const http = require("http");
+const url = require("url");
+const crypto = require("crypto");
 
-/* ================= CONFIG ================= */
+const PORT = process.env.PORT || 3000;
 
-const PORT = process.env.PORT || 80;
+// In-memory session store
+const sessions = new Map();
 
-/* ================= WEBSOCKET ================= */
-
-const wss = new WebSocket.Server({ port: PORT });
-
-console.log(`MWOSP test server listening (Render TLS) on port ${PORT}`);
-
-wss.on("connection", (ws, req) => {
-    console.log("Client connected");
-
-    const client = {
-        sessionId: null,
-        width: 0,
-        height: 0,
+function createSession() {
+    return {
         state: "startpage",
+        lastClick: null,
+        inputText: "",
+        width: 240,
+        height: 200,
+        sessionId: crypto.randomBytes(4).toString("hex"),
     };
+}
 
-    ws.on("message", (data) => {
-        const msg = data.toString();
-        console.log("RX:", msg);
+function parseCookies(req) {
+    const list = {};
+    const rc = req.headers.cookie;
+    if (rc) {
+        rc.split(";").forEach((cookie) => {
+            const parts = cookie.split("=");
+            list[parts.shift().trim()] = decodeURI(parts.join("="));
+        });
+    }
+    return list;
+}
 
-        /* ================= HANDSHAKE ================= */
+function renderPage(session) {
+    const w = session.width;
+    const h = session.height;
+    const lines = [];
 
-        if (msg.startsWith("MWOSP-v1 ")) {
-            const parts = msg.split(" ");
-            client.sessionId = parts[1];
-            client.width = parseInt(parts[2], 10) || 240;
-            client.height = parseInt(parts[3], 10) || 200;
-
-            ws.send("MWOSP-v1 OK");
-            return;
-        }
-
-        /* ================= CLIENT REQUESTS ================= */
-
-        if (msg === "NeedRender") {
-            renderPage(ws, client);
-            return;
-        }
-
-        if (msg.startsWith("Click ")) {
-            const [, x, y] = msg.split(" ");
-            client.state = "clicked";
-            ws.send(`DrawString 10 40 65535 "Clicked at ${x},${y}"`);
-            return;
-        }
-
-        if (msg.startsWith("Input ")) {
-            const text = msg.substring(6);
-            ws.send(`DrawString 10 60 65535 "Input: ${text}"`);
-            return;
-        }
-
-        if (msg === "Refresh") {
-            renderPage(ws, client);
-            return;
-        }
-
-        if (
-            msg.startsWith("GetBackSession ") ||
-            msg.startsWith("GetBackState ") ||
-            msg.startsWith("GetBackText ")
-        ) {
-            console.log("Client response:", msg);
-            return;
-        }
-    });
-
-    ws.on("close", () => {
-        console.log("Client disconnected");
-    });
-
-    renderPage(ws, client);
-});
-
-/* ================= RENDERING ================= */
-
-function renderPage(ws, client) {
-    const w = client.width || 240;
-    const h = client.height || 200;
-
-    ws.send("ClearScreen 0");
-    ws.send(`DrawString 10 10 65535 "MWOSP Test Server"`);
-
-    ws.send(`DrawLine 0 25 ${Math.max(0, w - 1)} 25 65535`);
+    lines.push(`ClearScreen: 0`);
+    lines.push(`DrawString: 10 10 65535 "MWOSP HTTP Test Server"`);
+    lines.push(`DrawLine: 0 25 ${w - 1} 25 65535`);
 
     const margin = 5;
     const boxW = Math.max(40, w - margin * 2);
     const boxH = Math.min(80, Math.floor(h * 0.35));
+    lines.push(`DrawRect: ${margin} 30 ${boxW} ${boxH} 65535`);
 
-    ws.send(`DrawRect ${margin} 30 ${boxW} ${boxH} 65535`);
-    ws.send(`DrawString 10 40 65535 "Session: ${client.sessionId}"`);
-    ws.send(`DrawString 10 55 65535 "State: ${client.state}"`);
-    ws.send(`DrawString 10 70 65535 "Resolution: ${client.width}x${client.height}"`);
+    lines.push(`DrawString: 10 40 65535 "Session: ${session.sessionId}"`);
+    lines.push(`DrawString: 10 55 65535 "State: ${session.state}"`);
+    lines.push(`DrawString: 10 70 65535 "Resolution: ${w}x${h}"`);
 
+    // Button
     const btnW = Math.min(100, Math.max(60, Math.floor(w * 0.3)));
     const btnH = 30;
+    lines.push(`FillRect: 10 90 ${btnW} ${btnH} 2016`);
+    lines.push(`DrawString: 20 110 65535 "Click Me"`);
 
-    ws.send(`FillRect 10 90 ${btnW} ${btnH} 2016`);
-    ws.send(`DrawString 20 110 65535 "Click Me"`);
-
-    ws.send("GetSession 1");
-    ws.send("GetState 2");
+    return lines.join("\n");
 }
+
+function collectPostData(req, callback) {
+    let body = "";
+    req.on("data", chunk => body += chunk.toString());
+    req.on("end", () => callback(body));
+}
+
+// Create HTTP server
+const server = http.createServer((req, res) => {
+    const parsedUrl = url.parse(req.url, true);
+    const cookies = parseCookies(req);
+    let sessionId = cookies.sessionId;
+
+    // Ensure session exists
+    if (!sessionId || !sessions.has(sessionId)) {
+        const session = createSession();
+        sessionId = session.sessionId;
+        sessions.set(sessionId, session);
+        res.setHeader("Set-Cookie", `sessionId=${sessionId}; Path=/`);
+    }
+
+    const session = sessions.get(sessionId);
+
+    // GET /@state -> render page
+    if (req.method === "GET" && parsedUrl.pathname === "/@state") {
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.end(renderPage(session));
+        return;
+    }
+
+    // POST endpoints: /click, /input, /refresh
+    if (req.method === "POST") {
+        if (parsedUrl.pathname === "/click") {
+            collectPostData(req, body => {
+                const data = JSON.parse(body);
+                session.lastClick = { x: data.x, y: data.y };
+                session.state = "clicked";
+                res.end("OK");
+            });
+            return;
+        }
+
+        if (parsedUrl.pathname === "/input") {
+            collectPostData(req, body => {
+                const data = JSON.parse(body);
+                session.inputText = data.text || "";
+                res.end("OK");
+            });
+            return;
+        }
+
+        if (parsedUrl.pathname === "/refresh") {
+            res.writeHead(200, { "Content-Type": "text/plain" });
+            res.end(renderPage(session));
+            return;
+        }
+    }
+
+    // Unknown endpoint
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not Found");
+});
+
+// Start server
+server.listen(PORT, () => {
+    console.log(`MWOSP HTTP test server running on port ${PORT}`);
+});
