@@ -1,5 +1,5 @@
 // server.js
-// Updated MWOSP test server - improved UI, navigation parsing, visited-sites actions.
+// Updated MWOSP test server - with theme color support and viewport handling
 // Usage: node server.js
 
 const WebSocket = require('ws');
@@ -11,6 +11,8 @@ const PORT = process.env.PORT || 3000;
 const SCREEN_W = 320;
 const SCREEN_H = 240;
 const TOPBAR_H = 20;
+const VIEWPORT_Y = TOPBAR_H;
+const VIEWPORT_H = SCREEN_H - TOPBAR_H;
 const CARD_Y = 22;
 const CARD_H = 60;
 const BUTTON_H = 36;
@@ -18,18 +20,19 @@ const BUTTON_PADDING = 10;
 const VISIT_LIST_Y = 80;
 const VISIT_ITEM_H = 30;
 
-// Colors (16-bit values used by client)
-const COLORS = {
-    BG: 0,         // black
-    PRIMARY: 31,   // dark blue
-    TEXT: 65535,   // white
-    ACCENT: 2016,  // green-ish
-    ACCENT2: 63488,// red-ish
-    ACCENT3: 31,   // reuse primary
-    PRESSED: 1024, // different accent
-    DANGER: 63488, // red
-    PLACEHOLDER: 8421,
-    ACCENT_TEXT: 65535
+// Default theme colors (16-bit values used by client)
+// These will be overridden by client's actual theme colors
+let THEME_COLORS = {
+    bg: 0,         // black
+    text: 65535,   // white
+    primary: 31,   // dark blue
+    accent: 2016,  // green-ish
+    accent2: 63488,// red-ish
+    accent3: 31,   // reuse primary
+    accentText: 65535,
+    pressed: 1024, // different accent
+    danger: 63488, // red
+    placeholder: 8421
 };
 
 // store session, state, username, and per-client storage + meta
@@ -52,7 +55,14 @@ wss.on('connection', (ws) => {
         username: "",
         storage: {}, // per-domain key/value (visited sites etc)
         width: SCREEN_W,
-        height: SCREEN_H
+        height: SCREEN_H,
+        theme: { ...THEME_COLORS }, // Clone default theme
+        viewport: {
+            x: 0,
+            y: VIEWPORT_Y,
+            w: SCREEN_W,
+            h: VIEWPORT_H
+        }
     };
     clients.set(ws, clientData);
 
@@ -70,7 +80,58 @@ wss.on('connection', (ws) => {
                 clientData.height = parseInt(parts[3]) || SCREEN_H;
             }
             ws.send('MWOSP-v1 OK');
+            // Don't render UI here - client will send theme colors next
+            return;
+        }
+
+        // --- Theme Colors from client ---
+        if (message.startsWith('ThemeColors')) {
+            // Parse theme colors: "ThemeColors bg:FFFF text:FFFF primary:001F ..."
+            const parts = message.split(' ');
+            for (let i = 1; i < parts.length; i++) {
+                const [key, value] = parts[i].split(':');
+                if (key && value) {
+                    const colorValue = parseInt(value, 16);
+                    if (!isNaN(colorValue)) {
+                        clientData.theme[key] = colorValue;
+                    }
+                }
+            }
+            console.log('Received theme colors:', clientData.theme);
             renderUI(ws, clientData);
+            return;
+        }
+
+        // --- GetThemeColor command ---
+        if (message.startsWith('GetThemeColor ')) {
+            const colorName = message.substring(14);
+            const colorValue = clientData.theme[colorName] !== undefined ?
+                clientData.theme[colorName] : THEME_COLORS[colorName] || 0xFFFF;
+            ws.send(`ThemeColor ${colorName} ${colorValue.toString(16).toUpperCase()}`);
+            return;
+        }
+
+        // --- SetThemeColor command ---
+        if (message.startsWith('SetThemeColor ')) {
+            // Format: "SetThemeColor bg 0xFFFF" or "SetThemeColor bg FFFF"
+            const parts = message.substring(14).split(' ');
+            if (parts.length >= 2) {
+                const colorName = parts[0];
+                let colorValue = parts[1];
+                // Remove 0x prefix if present
+                if (colorValue.startsWith('0x')) {
+                    colorValue = colorValue.substring(2);
+                }
+                const colorInt = parseInt(colorValue, 16);
+                if (!isNaN(colorInt)) {
+                    clientData.theme[colorName] = colorInt;
+                    console.log(`Updated theme color ${colorName} to ${colorValue}`);
+                    // If we're in a state that uses theme colors, re-render
+                    if (clientData.state === 'home' || clientData.state === 'settings') {
+                        setTimeout(() => renderUI(ws, clientData), 100);
+                    }
+                }
+            }
             return;
         }
 
@@ -79,16 +140,17 @@ wss.on('connection', (ws) => {
             const parts = message.split(' ');
             const x = parseInt(parts[1]) || 0;
             const y = parseInt(parts[2]) || 0;
-            // visual feedback
-            ws.send(`FillRect ${x - 5} ${y - 5} 10 10 ${COLORS.ACCENT2}`);
-            ws.send(`DrawCircle ${x} ${y} 8 ${COLORS.ACCENT}`);
-            ws.send(`DrawText ${x - 10} ${y - 15} 2 ${COLORS.TEXT} Clicked!`);
+            // visual feedback (in viewport coordinates)
+            const feedbackX = Math.max(0, Math.min(x, SCREEN_W - 10));
+            const feedbackY = Math.max(VIEWPORT_Y, Math.min(y, SCREEN_H - 10));
+            ws.send(`FillRect ${feedbackX - 5} ${feedbackY - 5} 10 10 ${clientData.theme.accent2}`);
+            ws.send(`DrawCircle ${feedbackX} ${feedbackY} 8 ${clientData.theme.accent}`);
+            ws.send(`DrawText ${feedbackX - 10} ${feedbackY - 15} 2 ${clientData.theme.text} Clicked!`);
             handleClick(ws, clientData, x, y);
             return;
         }
 
-        // Navigation request from client (some clients may send a raw "Navigate <domain>@<state>"
-        // or "Navigate <domain>:<port>@<state>" - parse both)
+        // Navigation request from client
         if (message.startsWith('Navigate ')) {
             const navStr = message.substring(9).trim();
             // support "domain@state" or "domain:port@state" or just "home"/"settings"
@@ -119,10 +181,12 @@ wss.on('connection', (ws) => {
             clientData.storage[domain] = String(Date.now());
             // send Title and some content draws
             ws.send(`Title ${domain}`);
-            ws.send(`DrawText 10 30 2 ${COLORS.TEXT} Loading ${domain}...`);
+            // Set viewport for website content
+            ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${clientData.theme.bg}`);
+            ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 2 ${clientData.theme.text} Loading ${domain}...`);
             // simulate page content
-            ws.send(`DrawText 10 60 1 ${COLORS.TEXT} This is a demo page for ${domain}.`);
-            ws.send(`DrawSVG 140 100 40 40 ${COLORS.ACCENT} <svg width="40" height="40"><rect width="40" height="40" fill="red"/></svg>`);
+            ws.send(`DrawText 10 ${VIEWPORT_Y + 40} 1 ${clientData.theme.text} This is a demo page for ${domain}.`);
+            ws.send(`DrawSVG 140 ${VIEWPORT_Y + 80} 40 40 ${clientData.theme.accent} <svg width="40" height="40"><rect width="40" height="40" fill="red"/></svg>`);
             renderUI(ws, clientData);
             return;
         }
@@ -155,6 +219,8 @@ wss.on('connection', (ws) => {
             clientData.username = "";
             clientData.storage = {};
             clientData.currentDomain = undefined;
+            // Reset to default theme
+            clientData.theme = { ...THEME_COLORS };
             ws.send("Navigate home");
             renderUI(ws, clientData);
             return;
@@ -193,7 +259,9 @@ wss.on('connection', (ws) => {
                     clientData.currentPort = port;
                     clientData.storage[domain] = String(Date.now());
                     ws.send(`Title ${domain}`);
-                    ws.send(`DrawText 10 60 1 ${COLORS.TEXT} Opened ${domain}`);
+                    // Clear viewport area
+                    ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${clientData.theme.bg}`);
+                    ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 1 ${clientData.theme.text} Opened ${domain}`);
                     renderUI(ws, clientData);
                 }
             } else if (rid === 'open_site_url') {
@@ -219,7 +287,9 @@ wss.on('connection', (ws) => {
                     clientData.currentPort = port;
                     clientData.storage[domain] = String(Date.now());
                     ws.send(`Title ${domain}`);
-                    ws.send(`DrawText 10 60 1 ${COLORS.TEXT} Opened ${domain}`);
+                    // Clear viewport area
+                    ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${clientData.theme.bg}`);
+                    ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 1 ${clientData.theme.text} Opened ${domain}`);
                     renderUI(ws, clientData);
                 }
             }
@@ -229,13 +299,12 @@ wss.on('connection', (ws) => {
         // DrawSVG example request from client
         if (message.startsWith('DrawSVG')) {
             const exampleSVG = `<svg width="50" height="50"><rect width="50" height="50" fill="red"/></svg>`;
-            ws.send(`DrawSVG 50 150 50 50 ${COLORS.ACCENT} ${exampleSVG}`);
+            // Draw within viewport
+            ws.send(`DrawSVG 50 ${VIEWPORT_Y + 100} 50 50 ${clientData.theme.accent} ${exampleSVG}`);
             return;
         }
 
         // Storage operations from client
-        // Client may send "SetStorage <key> <val>" to ask server to persist something server-side,
-        // or "GetStorage <key>" to request server-value.
         if (message.startsWith('SetStorage ')) {
             const idx = message.indexOf(' ', 11);
             if (idx >= 11) {
@@ -252,8 +321,7 @@ wss.on('connection', (ws) => {
             return;
         }
 
-        // GetBackStorage from client (response to server's earlier GetStorage request)
-        // Format: "GetBackStorage <key> <val...>"
+        // GetBackStorage from client
         if (message.startsWith('GetBackStorage ')) {
             // store/echo it server-side
             const parts = message.split(' ');
@@ -315,7 +383,9 @@ function handleClick(ws, clientData, x, y) {
                     clientData.currentPort = 443;
                     clientData.storage[domain] = String(Date.now());
                     ws.send(`Title ${domain}`);
-                    ws.send(`DrawText 10 60 1 ${COLORS.TEXT} Opened search page`);
+                    // Clear viewport
+                    ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${clientData.theme.bg}`);
+                    ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 1 ${clientData.theme.text} Opened search page`);
                     renderUI(ws, clientData);
                 } else if (i === 1) {
                     // Input URL: ask device for URL
@@ -357,13 +427,14 @@ function handleClick(ws, clientData, x, y) {
             }
             // Open
             if (x >= xOpen && x <= xOpen + btnW) {
-                // Prompt user on device for alt URL or open directly
-                // We'll open directly to the stored domain
+                // Open directly to the stored domain
                 clientData.state = 'startpage';
                 clientData.currentDomain = domain;
                 clientData.currentPort = 443;
                 ws.send(`Title ${domain}`);
-                ws.send(`DrawText 10 60 1 ${COLORS.TEXT} Opening ${domain}`);
+                // Clear viewport
+                ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${clientData.theme.bg}`);
+                ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 1 ${clientData.theme.text} Opening ${domain}`);
                 renderUI(ws, clientData);
                 return;
             }
@@ -375,7 +446,9 @@ function handleClick(ws, clientData, x, y) {
                 clientData.currentDomain = domain;
                 clientData.currentPort = 443;
                 ws.send(`Title ${domain}`);
-                ws.send(`DrawText 10 60 1 ${COLORS.TEXT} Opening ${domain}`);
+                // Clear viewport
+                ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${clientData.theme.bg}`);
+                ws.send(`DrawText 10 ${VIEWPORT_Y + 10} 1 ${clientData.theme.text} Opening ${domain}`);
                 renderUI(ws, clientData);
                 return;
             }
@@ -391,13 +464,15 @@ function handleClick(ws, clientData, x, y) {
 }
 
 function renderUI(ws, clientData) {
+    const theme = clientData.theme;
+
     // Clear screen with BG
-    ws.send(`FillRect 0 0 ${SCREEN_W} ${SCREEN_H} ${COLORS.BG}`);
+    ws.send(`FillRect 0 0 ${SCREEN_W} ${SCREEN_H} ${theme.bg}`);
 
     // Top bar
-    ws.send(`FillRect 0 0 ${SCREEN_W} ${TOPBAR_H} ${COLORS.PRIMARY}`);
-    ws.send(`DrawText 6 3 2 ${COLORS.ACCENT_TEXT} MW-OS-Browser`);
-    ws.send(`DrawText ${SCREEN_W - 22} 3 2 ${COLORS.DANGER} X`);
+    ws.send(`FillRect 0 0 ${SCREEN_W} ${TOPBAR_H} ${theme.primary}`);
+    ws.send(`DrawText 6 3 2 ${theme.accentText} MW-OS-Browser`);
+    ws.send(`DrawText ${SCREEN_W - 22} 3 2 ${theme.danger} X`);
 
     // Home page
     if (!clientData.state || clientData.state === 'home') {
@@ -407,9 +482,9 @@ function renderUI(ws, clientData) {
         const cardW = SCREEN_W - cardX * 2;
         const cardH = CARD_H;
         // outer card (primary)
-        ws.send(`FillRect ${cardX} ${cardY} ${cardW} ${cardH} ${COLORS.PRIMARY}`);
+        ws.send(`FillRect ${cardX} ${cardY} ${cardW} ${cardH} ${theme.primary}`);
         // inner floating area (bg)
-        ws.send(`FillRect ${cardX + 2} ${cardY + 2} ${cardW - 4} ${cardH - 4} ${COLORS.BG}`);
+        ws.send(`FillRect ${cardX + 2} ${cardY + 2} ${cardW - 4} ${cardH - 4} ${theme.bg}`);
 
         // draw three buttons
         const btnW = Math.floor((cardW - BUTTON_PADDING * 4) / 3);
@@ -417,27 +492,27 @@ function renderUI(ws, clientData) {
         const by = cardY + 6;
 
         // Button 0: Search
-        ws.send(`FillRect ${bx} ${by} ${btnW} ${BUTTON_H} ${COLORS.ACCENT}`);
-        ws.send(`DrawText ${bx + 8} ${by + 8} 2 ${COLORS.ACCENT_TEXT} Search`);
+        ws.send(`FillRect ${bx} ${by} ${btnW} ${BUTTON_H} ${theme.accent}`);
+        ws.send(`DrawText ${bx + 8} ${by + 8} 2 ${theme.accentText} Search`);
 
         // Button 1: Input URL
         bx += btnW + BUTTON_PADDING;
-        ws.send(`FillRect ${bx} ${by} ${btnW} ${BUTTON_H} ${COLORS.ACCENT2}`);
-        ws.send(`DrawText ${bx + 8} ${by + 8} 2 ${COLORS.ACCENT_TEXT} Input URL`);
+        ws.send(`FillRect ${bx} ${by} ${btnW} ${BUTTON_H} ${theme.accent2}`);
+        ws.send(`DrawText ${bx + 8} ${by + 8} 2 ${theme.accentText} Input URL`);
 
         // Button 2: Settings
         bx += btnW + BUTTON_PADDING;
-        ws.send(`FillRect ${bx} ${by} ${btnW} ${BUTTON_H} ${COLORS.ACCENT3}`);
-        ws.send(`DrawText ${bx + 8} ${by + 8} 2 ${COLORS.ACCENT_TEXT} Settings`);
+        ws.send(`FillRect ${bx} ${by} ${btnW} ${BUTTON_H} ${theme.accent3}`);
+        ws.send(`DrawText ${bx + 8} ${by + 8} 2 ${theme.accentText} Settings`);
 
         // Visited sites header
-        ws.send(`DrawText 10 ${VISIT_LIST_Y - 18} 2 ${COLORS.TEXT} Visited Sites`);
+        ws.send(`DrawText 10 ${VISIT_LIST_Y - 18} 2 ${theme.text} Visited Sites`);
 
         // Show prompt or username
         if (clientData.username) {
-            ws.send(`DrawText 10 160 2 ${COLORS.TEXT} Hello, ${clientData.username}!`);
+            ws.send(`DrawText 10 160 2 ${theme.text} Hello, ${clientData.username}!`);
         } else {
-            ws.send(`DrawText 10 160 2 ${COLORS.PLACEHOLDER} Please enter your name.`);
+            ws.send(`DrawText 10 160 2 ${theme.placeholder} Please enter your name.`);
         }
 
         // list sites
@@ -446,9 +521,9 @@ function renderUI(ws, clientData) {
             const y = VISIT_LIST_Y + i * VISIT_ITEM_H;
             const domain = sites[i];
             // alternating bg
-            const bgColor = (i % 2 === 0) ? COLORS.PRIMARY : COLORS.BG;
+            const bgColor = (i % 2 === 0) ? theme.primary : theme.bg;
             ws.send(`FillRect 0 ${y} ${SCREEN_W} ${VISIT_ITEM_H - 2} ${bgColor}`);
-            ws.send(`DrawText 10 ${y + 6} 1 ${COLORS.TEXT} ${domain}`);
+            ws.send(`DrawText 10 ${y + 6} 1 ${theme.text} ${domain}`);
 
             // right-side buttons: Delete, Clear, Open
             const btnW = 56;
@@ -457,32 +532,32 @@ function renderUI(ws, clientData) {
             const xClear = xOpen - btnGap - btnW;
             const xDelete = xClear - btnGap - btnW;
 
-            ws.send(`FillRect ${xDelete} ${y + 4} ${btnW} ${VISIT_ITEM_H - 10} ${COLORS.DANGER}`);
-            ws.send(`DrawText ${xDelete + 8} ${y + 6} 1 ${COLORS.ACCENT_TEXT} Delete`);
+            ws.send(`FillRect ${xDelete} ${y + 4} ${btnW} ${VISIT_ITEM_H - 10} ${theme.danger}`);
+            ws.send(`DrawText ${xDelete + 8} ${y + 6} 1 ${theme.accentText} Delete`);
 
-            ws.send(`FillRect ${xClear} ${y + 4} ${btnW} ${VISIT_ITEM_H - 10} ${COLORS.PRESSED}`);
-            ws.send(`DrawText ${xClear + 6} ${y + 6} 1 ${COLORS.ACCENT_TEXT} Clear`);
+            ws.send(`FillRect ${xClear} ${y + 4} ${btnW} ${VISIT_ITEM_H - 10} ${theme.pressed}`);
+            ws.send(`DrawText ${xClear + 6} ${y + 6} 1 ${theme.accentText} Clear`);
 
-            ws.send(`FillRect ${xOpen} ${y + 4} ${btnW} ${VISIT_ITEM_H - 10} ${COLORS.ACCENT}`);
-            ws.send(`DrawText ${xOpen + 10} ${y + 6} 1 ${COLORS.ACCENT_TEXT} Open`);
+            ws.send(`FillRect ${xOpen} ${y + 4} ${btnW} ${VISIT_ITEM_H - 10} ${theme.accent}`);
+            ws.send(`DrawText ${xOpen + 10} ${y + 6} 1 ${theme.accentText} Open`);
         }
         return;
     }
 
     // Settings page
     if (clientData.state === 'settings') {
-        ws.send(`DrawText 10 30 2 ${COLORS.TEXT} Visited Sites & Storage`);
-        ws.send(`DrawText 10 56 1 ${COLORS.PLACEHOLDER} Tap a site to open. Use buttons to manage data.`);
+        ws.send(`DrawText 10 30 2 ${theme.text} Visited Sites & Storage`);
+        ws.send(`DrawText 10 56 1 ${theme.placeholder} Tap a site to open. Use buttons to manage data.`);
 
         // list keys & values
         let y = 80;
         for (const key of Object.keys(clientData.storage)) {
-            ws.send(`DrawText 10 ${y} 1 ${COLORS.TEXT} ${key}: ${clientData.storage[key]}`);
+            ws.send(`DrawText 10 ${y} 1 ${theme.text} ${key}: ${clientData.storage[key]}`);
             y += 18;
             if (y > SCREEN_H - 30) break;
         }
 
-        ws.send(`DrawText 10 ${SCREEN_H - 20} 1 ${COLORS.PLACEHOLDER} Press ClearSettings to reset.`);
+        ws.send(`DrawText 10 ${SCREEN_H - 20} 1 ${theme.placeholder} Press ClearSettings to reset.`);
         return;
     }
 
@@ -490,13 +565,27 @@ function renderUI(ws, clientData) {
     if (clientData.state === 'search' || clientData.state === 'startpage' || clientData.state === 'website') {
         const title = clientData.currentDomain || 'Website';
         // Top bar title override
-        ws.send(`DrawText 6 3 2 ${COLORS.ACCENT_TEXT} ${title}`);
-        ws.send(`DrawText ${SCREEN_W - 22} 3 2 ${COLORS.DANGER} X`);
-        // content area
-        ws.send(`FillRect 0 ${TOPBAR_H} ${SCREEN_W} ${SCREEN_H - TOPBAR_H} ${COLORS.BG}`);
-        ws.send(`DrawText 10 ${TOPBAR_H + 6} 1 ${COLORS.TEXT} Welcome to ${title}.`);
-        ws.send(`DrawText 10 ${TOPBAR_H + 24} 1 ${COLORS.TEXT} (Demo page rendered by test server)`);
-        ws.send(`DrawSVG 140 ${TOPBAR_H + 40} 40 40 ${COLORS.ACCENT} <svg width="40" height="40"><circle cx="20" cy="20" r="20" fill="yellow"/></svg>`);
+        ws.send(`FillRect 0 0 ${SCREEN_W} ${TOPBAR_H} ${theme.primary}`);
+        ws.send(`DrawText 6 3 2 ${theme.accentText} ${title}`);
+        ws.send(`DrawText ${SCREEN_W - 22} 3 2 ${theme.danger} X`);
+
+        // content area (viewport)
+        ws.send(`FillRect 0 ${VIEWPORT_Y} ${SCREEN_W} ${VIEWPORT_H} ${theme.bg}`);
+        ws.send(`DrawText 10 ${VIEWPORT_Y + 6} 1 ${theme.text} Welcome to ${title}.`);
+        ws.send(`DrawText 10 ${VIEWPORT_Y + 24} 1 ${theme.text} (Demo page rendered by test server)`);
+        ws.send(`DrawSVG 140 ${VIEWPORT_Y + 40} 40 40 ${theme.accent} <svg width="40" height="40"><circle cx="20" cy="20" r="20" fill="yellow"/></svg>`);
+
+        // Demo: Show current theme colors
+        ws.send(`DrawText 10 ${VIEWPORT_Y + 90} 1 ${theme.text} Current theme colors:`);
+        let colorY = VIEWPORT_Y + 110;
+        Object.keys(theme).forEach((colorName, index) => {
+            if (index < 5) { // Show first 5 colors
+                const colorValue = theme[colorName];
+                ws.send(`FillRect 10 ${colorY} 20 10 ${colorValue}`);
+                ws.send(`DrawText 35 ${colorY} 1 ${theme.text} ${colorName}: 0x${colorValue.toString(16).toUpperCase()}`);
+                colorY += 15;
+            }
+        });
         return;
     }
 
