@@ -11,10 +11,15 @@ while not WIN_closed(win) do
         WIN_finishFrame(win)
 
         WIN_fillBg(win, 1, 0xFFFF)
+        WIN_fillBg(win, 2, 0xFFFE)
         WIN_writeText(win, 1, 10, 10, "Hello World", 2, 0x0000)
 
         if state > 0 then
-            WIN_writeText(win, 1, 10, 30, "Clicked at: " .. x .. "," .. y, 1, 0xF800)
+            WIN_writeText(win, 1, 10, 30, "Clicked at: " .. x .. "," .. y, 1,
+                          0xF800)
+
+            WIN_fillRect(win, 1, x, y, mx ~= nil and mx or 5,
+                         my ~= nil and my or 5, 0xF800)
         end
     end
 

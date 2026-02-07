@@ -6,9 +6,7 @@ WIN_setName(win, "ToDo App")
 -- Load tasks
 local tasks = {}
 local saved = FS_get("todo_data")
-if saved then
-    tasks = load("return " .. saved)()
-end
+if saved then tasks = load("return " .. saved)() end
 
 -- Colors
 local BG_COLOR = 0xFFFF
@@ -23,17 +21,12 @@ local lastTouchY = nil
 -- Track last drawn tasks to minimize redraw
 local lastDrawn = {}
 
-local function saveTasks()
-    FS_set("todo_data", tostring(tasks))
-end
+local function saveTasks() FS_set("todo_data", tostring(tasks)) end
 
 local function addTask()
     local ok, text = WIN_readText(win, "New task:", "")
     if ok and text ~= "" then
-        table.insert(tasks, {
-            text = text,
-            done = false
-        })
+        table.insert(tasks, {text = text, done = false})
         saveTasks()
     end
 end
@@ -83,17 +76,15 @@ local function drawTasks()
     for i, task in ipairs(tasks) do
         local ty = (i - 1) * lineHeight - scrollY + 25
         if ty >= 25 and ty <= winH - 25 then
-            if not lastDrawn[i] or lastDrawn[i].text ~= task.text or lastDrawn[i].done ~= task.done then
+            if not lastDrawn[i] or lastDrawn[i].text ~= task.text or
+                lastDrawn[i].done ~= task.done then
                 -- Draw background rectangle for task area
                 WIN_fillRect(win, 1, 10, ty, winW - 20, lineHeight, BG_COLOR)
                 local col = task.done and DONE_COLOR or TEXT_COLOR
                 WIN_writeText(win, 1, 10, ty, (i .. ". ") .. task.text, 1, col)
                 WIN_drawRect(win, 1, winW - 60, ty, 50, 16, BUTTON_COLOR)
                 WIN_writeText(win, 1, winW - 55, ty + 3, "Del", 1, 0xFFFF)
-                lastDrawn[i] = {
-                    text = task.text,
-                    done = task.done
-                }
+                lastDrawn[i] = {text = task.text, done = task.done}
             end
         end
     end
@@ -110,25 +101,20 @@ end
 while not WIN_closed(win) do
     drawTasks()
 
-    local pressed, state, x, y, moveX, moveY, wasClicked, nr = WIN_getLastEvent(win, 1)
+    local pressed, state, x, y, moveX, moveY, wasClicked, nr = WIN_getLastEvent(
+                                                                   win, 1)
 
     if pressed then
         if state == 1 then
             lastTouchY = y
         elseif state == 2 and lastTouchY then
             scrollY = scrollY - (y - lastTouchY)
-            if scrollY < 0 then
-                scrollY = 0
-            end
+            if scrollY < 0 then scrollY = 0 end
             local maxScroll = math.max(0, #tasks * 20 - (winH - 50))
-            if scrollY > maxScroll then
-                scrollY = maxScroll
-            end
+            if scrollY > maxScroll then scrollY = maxScroll end
             lastTouchY = y
         elseif state == 3 then
-            if wasClicked then
-                handleClick(x, y)
-            end
+            if wasClicked then handleClick(x, y) end
             lastTouchY = nil
         end
     end
