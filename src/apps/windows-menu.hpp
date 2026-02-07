@@ -69,7 +69,7 @@ struct AppRenderData
             return false;
         }
 
-        auto data = ENC_FS::readFilePart(filename, 4, 804);
+        auto data = ENC_FS::readFile(filename, 4, 804);
         if (data.size() != 800)
             return false;
 
