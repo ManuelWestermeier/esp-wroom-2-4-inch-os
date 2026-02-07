@@ -40,3 +40,4 @@ Thumbs.db
 *.log
 
 OS_DATA.zip
+node_modules/

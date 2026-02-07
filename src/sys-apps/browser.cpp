@@ -512,6 +512,8 @@ namespace Browser
 
     void Start(const String &url)
     {
+        Screen::tft.fillScreen(BG);
+
         // Parse URL format: domain:port@state
         int atIdx = url.indexOf('@');
         int colonIdx = url.indexOf(':');
@@ -556,7 +558,7 @@ namespace Browser
     void Start()
     {
         // Default start page
-        Start("mw-search-server.onrender.com:6767@startpage");
+        Start("mw-search-server.onrender.app:6767@startpage");
     }
 
     void Exit()
@@ -566,6 +568,7 @@ namespace Browser
 
     void OnExit()
     {
+        Screen::tft.fillScreen(BG);
         // Disconnect WebSocket
         webSocket.disconnect();
         wsConnected = false;
@@ -579,6 +582,7 @@ namespace Browser
         }
 
         Serial.println("Browser closed");
+        Screen::tft.fillScreen(BG);
     }
 }
 
