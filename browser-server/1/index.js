@@ -79,6 +79,8 @@ wss.on("connection", (ws, req) => {
     ws.on("close", () => {
         console.log("Client disconnected");
     });
+
+    renderPage(ws, client);
 });
 
 /* ================= RENDERING ================= */

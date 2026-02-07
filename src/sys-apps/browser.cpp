@@ -415,39 +415,21 @@ namespace Browser
 
     void connectToServer()
     {
-        // Parse domain:port stored in loc.domain. Accept host:port or host only.
         int colonIdx = loc.domain.indexOf(':');
         String host = loc.domain;
-        int port = 80; // default to standard WS/HTTP port
+        int port = 443; // Change default to 443 for Render
 
         if (colonIdx != -1)
         {
             host = loc.domain.substring(0, colonIdx);
             port = loc.domain.substring(colonIdx + 1).toInt();
-            if (port <= 0)
-                port = 80;
-        }
-        else
-        {
-            // no explicit port provided; use 80 as standard default
-            port = 80;
         }
 
-        Serial.printf("Connecting to %s:%d\n", host.c_str(), port);
+        Serial.printf("Connecting to %s:%d (Secure)\n", host.c_str(), port);
 
-        if (port == 443)
-        {
-            // use secure websocket (wss)
-            webSocket.beginSSL(host.c_str(), port, "/");
-            // If certificate validation fails, either:
-            // - provide CA cert with webSocket.setCACert(...);
-            // - or if library supports it, disable validation for testing (not recommended for production).
-        }
-        else
-        {
-            // plain websocket (ws)
-            webSocket.begin(host.c_str(), port, "/");
-        }
+        // Render requires SSL (wss://)
+        // We use beginSSL instead of begin
+        webSocket.beginSSL(host.c_str(), port, "/");
 
         webSocket.onEvent(webSocketEvent);
         webSocket.setReconnectInterval(RECONNECT_INTERVAL);
@@ -661,8 +643,8 @@ namespace Browser
 
     void Start()
     {
-        // Default start page (no forced custom port)
-        Start("mw-search-server-onrender-app.onrender.com@startpage");
+        // Change the default URL to include https://
+        Start("https://mw-search-server-onrender-app.onrender.com@startpage");
     }
 
     void Exit()
