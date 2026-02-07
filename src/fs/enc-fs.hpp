@@ -51,6 +51,7 @@ namespace ENC_FS
     bool rmDir(const Path &p);
     Buffer readFilePart(const Path &p, long start, long end);
     Buffer readFile(const Path &p, long start, long end);
+    Buffer readFileFull(const Path &p);
     String readFileString(const Path &p);
     bool writeFile(const Path &p, long start, long end, const Buffer &data);
     bool appendFile(const Path &p, const Buffer &data);
@@ -68,6 +69,15 @@ namespace ENC_FS
         Buffer get(const String &appId, const String &key, long start = -1, long end = -1);
         bool del(const String &appId, const String &key);
         bool set(const String &appId, const String &key, const Buffer &data);
+    }
+
+    namespace BrowserStorage
+    {
+        Buffer get(const String &domain);
+        bool del(const String &domain);
+        bool set(const String &domain, const Buffer &data);
+        bool clearAll();
+        std::vector<String> listSites();
     }
 
     void copyFileFromSPIFFS(const char *spiffsPath, const Path &sdPath);

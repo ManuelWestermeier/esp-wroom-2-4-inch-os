@@ -582,6 +582,11 @@ namespace ENC_FS
         if (!f)
             return empty;
         long fsize = f.size();
+        if (start == end && end <= 0)
+        {
+            start = 0;
+            end = f.size();
+        }
         if (end <= 0 || end > fsize)
             end = fsize;
         if (start < 0)
@@ -616,6 +621,11 @@ namespace ENC_FS
     Buffer readFile(const Path &p, long start, long end)
     {
         return readFilePart(p, start, end);
+    }
+
+    Buffer readFileFull(const Path &p)
+    {
+        return readFilePart(p, -1, -1);
     }
 
     String readFileString(const Path &p)
@@ -843,6 +853,62 @@ namespace ENC_FS
         {
             Path p = storagePath(appId, key);
             return ENC_FS::writeFile(p, 0, 0, data);
+        }
+    }
+
+    namespace BrowserStorage
+    {
+        inline void makeSureBrowserStorageExist()
+        {
+            if (!exists({"browser"}))
+            {
+                mkDir({"browser"});
+            }
+        }
+        // get set delete from browser/domain.data
+        Buffer get(const String &domain)
+        {
+            makeSureBrowserStorageExist();
+            // Returns the encrypted file content for the specific domain
+            return readFileFull({"browser", domain + ".data"});
+        }
+
+        bool del(const String &domain)
+        {
+            makeSureBrowserStorageExist();
+            // Deletes the specific domain data file and its associated metadata
+            return deleteFile({"browser", domain + ".data"});
+        }
+
+        std::vector<String> listSites()
+        {
+            makeSureBrowserStorageExist();
+
+            vector<String> out;
+            auto files = readDir({"browser"});
+
+            for (const String &file : files)
+            {
+                if (file.endsWith(".data"))
+                {
+                    out.push_back(file.substring(0, file.length() - 5));
+                }
+            }
+
+            return out;
+        }
+
+        bool set(const String &domain, const Buffer &data)
+        {
+            makeSureBrowserStorageExist();
+            // Writes the buffer to /browser/domain.data (encrypted via ENC_FS)
+            return writeFile({"browser", domain + ".data"}, 0, 0, data);
+        }
+
+        bool clearAll()
+        {
+            // Removes the entire browser directory and all domain files within it
+            return rmDir({"browser"});
         }
     }
 

@@ -195,7 +195,8 @@ namespace Browser
     {
         loc.session = "";
         loc.state = "home";
-        ENC_FS::Storage::del("mw-os-browser", "settings");
+        // ENC_FS::BrowserStorage::del("settings");
+        ENC_FS::BrowserStorage::clearAll();
     }
 
     uint16_t getThemeColor(const String &name)
@@ -213,12 +214,12 @@ namespace Browser
 
     void storeData(const String &domain, const ENC_FS::Buffer &data)
     {
-        ENC_FS::Storage::set("mw-os-browser", domain, data);
+        ENC_FS::BrowserStorage::set(domain, data);
     }
 
     ENC_FS::Buffer loadData(const String &domain)
     {
-        return ENC_FS::Storage::get("mw-os-browser", domain);
+        return ENC_FS::BrowserStorage::get(domain);
     }
 
     void drawTopBar()
