@@ -28,6 +28,7 @@ namespace Screen
     void init();
 
     // Touch data: absolute position + movement delta
+    // tp.x tp.y tp.move.x tp.move.y tp.clicked
     struct TouchPos : Vec
     {
         bool clicked;
