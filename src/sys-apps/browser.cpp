@@ -15,7 +15,6 @@ namespace Browser
         tft.setTextColor(TFT_WHITE);
         tft.println("Connecting to MWOSP...");
 
-        // WebSocket SSL
         webSocket.beginSSL(loc.domain.c_str(), loc.port, "/");
         webSocket.setReconnectInterval(5000);
 
@@ -26,8 +25,8 @@ namespace Browser
             switch (type)
             {
             case WStype_CONNECTED:
-                Serial.println("[Browser] Connected to Server");
-                webSocket.sendTXT("MWOSP-v1 " + Location::sessionId + " 320 480"); // viewport
+                Serial.println("[Browser] Connected");
+                webSocket.sendTXT("MWOSP-v1 " + Location::sessionId + " 320 480");
                 break;
             case WStype_TEXT:
                 handleCommand(msg);
@@ -49,16 +48,51 @@ namespace Browser
                 tft.fillRect(x, y, w, h, c);
             }
         }
+        else if (payload.startsWith("DrawCircle"))
+        {
+            int x, y, r;
+            uint16_t c;
+            if (sscanf(payload.c_str(), "DrawCircle %d %d %d %hu", &x, &y, &r, &c) == 4)
+            {
+                tft.drawCircle(x, y, r, c);
+            }
+        }
+        else if (payload.startsWith("DrawText"))
+        {
+            int x, y, size;
+            uint16_t c;
+            char buf[256];
+            if (sscanf(payload.c_str(), "DrawText %d %d %d %hu %[^\n]", &x, &y, &size, &c, buf) >= 5)
+            {
+                drawText(x, y, String(buf), c, size);
+            }
+        }
+        else if (payload.startsWith("DrawSVG"))
+        {
+            int x, y, w, h;
+            uint16_t c;
+            int idx = payload.indexOf(' ', 7);
+            String svg = payload.substring(idx + 1);
+            drawSVG(svg, x, y, w, h, c);
+        }
+        else if (payload.startsWith("PromptText"))
+        {
+            String rid = payload.substring(11);
+            String input = promptText("Enter text:");
+            webSocket.sendTXT("GetBackText " + rid + " " + input);
+        }
         else if (payload.startsWith("Navigate"))
         {
             loc.state = payload.substring(9);
             ReRender();
         }
-        else if (payload.startsWith("GetText"))
+        else if (payload.startsWith("Exit"))
         {
-            String rid = payload.substring(8);
-            String input = readString("Input Required", "");
-            webSocket.sendTXT("GetBackText " + rid + " " + input);
+            Exit();
+        }
+        else if (payload.startsWith("ClearSettings"))
+        {
+            clearSettings();
         }
         else if (payload.startsWith("SetSession"))
         {
@@ -97,13 +131,11 @@ namespace Browser
     void ReRender()
     {
         tft.fillScreen(TFT_BLACK);
-        // Top bar
-        tft.fillRect(0, 0, 320, 20, 31);
-        // Render state as text
+        tft.fillRect(0, 0, 320, 20, 31); // top bar
         tft.setCursor(5, 5);
         tft.setTextColor(TFT_WHITE);
         tft.println(loc.state);
-        // TODO: Add input field, buttons, history, etc.
+        // TODO: add pages, buttons, input fields
     }
 
     void Exit()
@@ -114,5 +146,63 @@ namespace Browser
     void OnExit()
     {
         webSocket.disconnect();
+    }
+
+    // ----------------- Utilities -----------------
+    void drawText(int x, int y, const String &text, uint16_t color, int size)
+    {
+        tft.setTextColor(color);
+        tft.setTextSize(size);
+        tft.setCursor(x, y);
+        tft.print(text);
+    }
+
+    void drawCircle(int x, int y, int r, uint16_t color)
+    {
+        tft.drawCircle(x, y, r, color);
+    }
+
+    void drawSVG(const String &svgStr, int x, int y, int w, int h, uint16_t color)
+    {
+        NSVGimage *img = createSVG(svgStr);
+        if (img)
+        {
+            drawSVGString(svgStr, x, y, w, h, color);
+        }
+    }
+
+    String promptText(const String &question, const String &defaultValue)
+    {
+        return readString(question, defaultValue);
+    }
+
+    void clearSettings()
+    {
+        loc.session = "";
+        loc.state = "startpage";
+        ENC_FS::Storage::del("browser", "settings");
+    }
+
+    uint16_t getThemeColor(const String &name)
+    {
+        if (name == "bg")
+            return Style::Colors::bg;
+        if (name == "text")
+            return Style::Colors::text;
+        if (name == "primary")
+            return Style::Colors::primary;
+        if (name == "accent")
+            return Style::Colors::accent;
+        return TFT_WHITE;
+    }
+
+    void storeData(const String &key, const ENC_FS::Buffer &data)
+    {
+        ENC_FS::Storage::set("browser", key, data);
+    }
+
+    ENC_FS::Buffer loadData(const String &key)
+    {
+        return ENC_FS::Storage::get("browser", key);
     }
 }
