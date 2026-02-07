@@ -7,6 +7,7 @@
 #include "../styles/global.hpp"
 #include "../fs/enc-fs.hpp"
 #include "nanosvg.h"
+#include "../utils/time.hpp"
 
 namespace Browser
 {

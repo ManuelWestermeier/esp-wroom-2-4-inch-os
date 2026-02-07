@@ -1,7 +1,14 @@
+// browser.cpp
 #include "browser.hpp"
 
 #include <WiFiClientSecure.h>
 #include <WebSocketsClient.h>
+
+#include "../screen/index.hpp"
+#include "../io/read-string.hpp"
+#include "../styles/global.hpp"
+#include "../fs/enc-fs.hpp"
+#include "nanosvg.h"
 
 namespace Browser
 {
@@ -23,39 +30,62 @@ namespace Browser
     static constexpr int VIEWPORT_Y = TOPBAR_H;
     static constexpr int VIEWPORT_H = SCREEN_H - TOPBAR_H;
 
+    // Forward declarations
+    void renderTopBar();
+    void showHomeUI();
+    void showVisitedSites();
+    void showWebsitePage();
+    void ReRender();
+
+    // ---- Start / lifecycle ----
     void Start()
     {
-        // Clear screen with theme bg and draw UI
+        // Render initial UI but do NOT connect the websocket automatically.
+        // The remote website connection will be opened only after the user explicitly navigates.
         Screen::tft.fillScreen(BG);
         renderTopBar();
         showHomeUI();
         showVisitedSites();
 
-        // Setup websocket (SSL)
-        webSocket.beginSSL(loc.domain.c_str(), loc.port, "/");
-        webSocket.setReconnectInterval(5000);
-
+        // Prepare websocket event handler (connection will be started on navigate())
         webSocket.onEvent([](WStype_t type, uint8_t *payload, size_t length)
                           {
-                              String msg = (payload != nullptr) ? String((char *)payload) : String();
+            String msg = (payload != nullptr && length > 0) ? String((char *)payload) : String();
 
-                              switch (type)
-                              {
-                              case WStype_CONNECTED:
-                                  Serial.println("[Browser] Connected");
-                                  webSocket.sendTXT("MWOSP-v1 " + Location::sessionId + " 320 480");
-                                  break;
-                              case WStype_TEXT:
-                                  handleCommand(msg);
-                                  break;
-                              case WStype_DISCONNECTED:
-                                  Serial.println("[Browser] Disconnected");
-                                  break;
-                              default:
-                                  break;
-                              } });
+            switch (type)
+            {
+            case WStype_CONNECTED:
+                Serial.println("[Browser] Connected");
+                // Send handshake with sessionId and device resolution (width x height)
+                webSocket.sendTXT("MWOSP-v1 " + Location::sessionId + " " + String(SCREEN_W) + " " + String(SCREEN_H));
+                break;
+            case WStype_TEXT:
+                handleCommand(msg);
+                break;
+            case WStype_DISCONNECTED:
+                Serial.println("[Browser] Disconnected");
+                break;
+            default:
+                break;
+            } });
 
+        // No automatic .beginSSL() here: connect when navigate() is called.
         isRunning = true;
+    }
+
+    void OnExit()
+    {
+        // Ensure websocket is gracefully closed
+        webSocket.disconnect();
+    }
+
+    void Exit()
+    {
+        isRunning = false;
+        OnExit();
+        // return to home view
+        loc.state = "home";
+        ReRender();
     }
 
     // ---- Command handling from server ----
@@ -67,36 +97,47 @@ namespace Browser
             int x = 0, y = 0, w = 0, h = 0;
             unsigned int c = 0;
             if (sscanf(payload.c_str(), "FillRect %d %d %d %d %u", &x, &y, &w, &h, &c) == 5)
-                Screen::tft.fillRect(x, y, w, h, (uint16_t)c);
+            {
+                // Guard drawing to visible area to avoid out-of-bounds writes.
+                if (w > 0 && h > 0 && x < SCREEN_W && y < SCREEN_H && x + w > 0 && y + h > 0)
+                    Screen::tft.fillRect(x, y, w, h, (uint16_t)c);
+            }
         }
         else if (payload.startsWith("DrawCircle"))
         {
             int x = 0, y = 0, r = 0;
             unsigned int c = 0;
             if (sscanf(payload.c_str(), "DrawCircle %d %d %d %u", &x, &y, &r, &c) == 4)
-                drawCircle(x, y, r, (uint16_t)c);
+            {
+                if (r >= 0 && x >= -r && y >= -r && x <= SCREEN_W + r && y <= SCREEN_H + r)
+                    drawCircle(x, y, r, (uint16_t)c);
+            }
         }
         else if (payload.startsWith("DrawText"))
         {
             int x = 0, y = 0, size = 1;
             unsigned int c = 0;
-            char buf[256] = {0};
+            char buf[512] = {0};
+            // Format: DrawText <x> <y> <size> <color> <text...>
             if (sscanf(payload.c_str(), "DrawText %d %d %d %u %[^\n]", &x, &y, &size, &c, buf) >= 5)
-                drawText(x, y, String(buf), (uint16_t)c, size);
+            {
+                String text = String(buf);
+                // Ensure y within screen bounds
+                if (y >= 0 && y < SCREEN_H)
+                    drawText(x, y, text, (uint16_t)c, size);
+            }
         }
         else if (payload.startsWith("DrawSVG"))
         {
             // Format assumed: "DrawSVG x y w h color <svg...>"
             int x = 0, y = 0, w = 0, h = 0;
             unsigned int c = 0;
-            int headerEnd = -1;
-            // extract first four ints and color then svg after space
-            // Use sscanf to read header, then locate the index of 5th space
             int read = sscanf(payload.c_str(), "DrawSVG %d %d %d %d %u", &x, &y, &w, &h, &c);
             if (read == 5)
             {
-                // find position after the 5th space
+                // locate 5th space to extract svg payload
                 int countSpaces = 0;
+                int headerEnd = -1;
                 for (int i = 0; i < (int)payload.length(); ++i)
                 {
                     if (payload[i] == ' ')
@@ -110,13 +151,16 @@ namespace Browser
                 if (headerEnd >= 0 && headerEnd + 1 < (int)payload.length())
                 {
                     String svg = payload.substring(headerEnd + 1);
-                    drawSVG(svg, x, y, w, h, (uint16_t)c);
+                    // Ensure svg area intersects the screen
+                    if (w > 0 && h > 0 && x < SCREEN_W && y < SCREEN_H && x + w > 0 && y + h > 0)
+                        drawSVG(svg, x, y, w, h, (uint16_t)c);
                 }
             }
         }
         // ----------------- Storage -----------------
         else if (payload.startsWith("GetStorage"))
         {
+            // "GetStorage <key>"
             String key = payload.substring(11);
             ENC_FS::Buffer data = ENC_FS::BrowserStorage::get(key);
             String s;
@@ -126,6 +170,7 @@ namespace Browser
         }
         else if (payload.startsWith("SetStorage"))
         {
+            // "SetStorage <key> <value...>"
             int idx = payload.indexOf(' ', 11);
             if (idx > 0)
             {
@@ -138,19 +183,36 @@ namespace Browser
         // ----------------- Navigation & Control -----------------
         else if (payload.startsWith("Navigate"))
         {
-            int idx1 = payload.indexOf('@', 9);
-            int idx2 = payload.indexOf(':', 9);
+            // Format: Navigate <domain>[:port]@<state>
+            int idxAt = payload.indexOf('@', 9);
+            int idxColon = payload.indexOf(':', 9);
             String domain;
             int port = 443;
-            String state;
-            if (idx2 > 0 && idx2 < idx1)
+            String state = "startpage";
+
+            if (idxAt > 0)
             {
-                domain = payload.substring(9, idx2);
-                port = payload.substring(idx2 + 1, idx1).toInt();
+                if (idxColon > 0 && idxColon < idxAt)
+                {
+                    domain = payload.substring(9, idxColon);
+                    port = payload.substring(idxColon + 1, idxAt).toInt();
+                }
+                else
+                    domain = payload.substring(9, idxAt);
+                state = payload.substring(idxAt + 1);
             }
             else
-                domain = payload.substring(9, idx1);
-            state = payload.substring(idx1 + 1);
+            {
+                // No @, maybe just "Navigate home" or "Navigate settings"
+                domain = payload.substring(9);
+                // if domain equals "home" or "settings" treat as state
+                if (domain == "home" || domain == "settings" || domain == "search" || domain == "input")
+                {
+                    loc.state = domain;
+                    ReRender();
+                    return;
+                }
+            }
             navigate(domain, port, state);
         }
         else if (payload.startsWith("Exit"))
@@ -164,7 +226,13 @@ namespace Browser
         }
         else if (payload.startsWith("PromptText"))
         {
-            String rid = payload.substring(11);
+            // server asked device for input
+            int idx = payload.indexOf(' ', 11);
+            String rid;
+            if (idx > 0)
+                rid = payload.substring(11, idx);
+            else
+                rid = payload.substring(11);
             String input = promptText("Enter text:");
             webSocket.sendTXT("GetBackText " + rid + " " + input);
         }
@@ -188,7 +256,7 @@ namespace Browser
         }
         else if (payload.startsWith("Title "))
         {
-            // Server can send page title
+            // Server sends page title
             loc.title = payload.substring(6);
             ReRender();
         }
@@ -196,6 +264,7 @@ namespace Browser
 
     void Update()
     {
+        // webSocket.loop is safe even if not connected
         webSocket.loop();
         handleTouch();
     }
@@ -205,6 +274,7 @@ namespace Browser
         // Full redraw according to current loc.state
         Screen::tft.fillScreen(BG);
         renderTopBar();
+
         if (loc.state == "home" || loc.state == "")
         {
             showHomeUI();
@@ -216,7 +286,6 @@ namespace Browser
         }
         else if (loc.state == "startpage" || loc.state == "website")
         {
-            // When a website is active, render site UI
             showWebsitePage();
         }
         else if (loc.state == "input")
@@ -230,20 +299,6 @@ namespace Browser
             showHomeUI();
             showVisitedSites();
         }
-    }
-
-    void Exit()
-    {
-        isRunning = false;
-        OnExit();
-        // Return to menu state: here we set to home
-        loc.state = "home";
-        ReRender();
-    }
-
-    void OnExit()
-    {
-        webSocket.disconnect();
     }
 
     // ----------------- Utilities -----------------
@@ -289,6 +344,18 @@ namespace Browser
             return Style::Colors::primary;
         if (name == "accent")
             return Style::Colors::accent;
+        if (name == "accent2")
+            return Style::Colors::accent2;
+        if (name == "accent3")
+            return Style::Colors::accent3;
+        if (name == "accentText")
+            return Style::Colors::accentText;
+        if (name == "pressed")
+            return Style::Colors::pressed;
+        if (name == "danger")
+            return Style::Colors::danger;
+        if (name == "placeholder")
+            return Style::Colors::placeholder;
         return TFT_WHITE;
     }
 
@@ -307,11 +374,46 @@ namespace Browser
         // top bar background
         Screen::tft.fillRect(0, 0, SCREEN_W, TOPBAR_H, PRIMARY);
 
-        // left label
-        drawText(6, 3, "MW-OS-Browser", AT, 2);
+        // left: time display
+        // Acquire time from UserTime (if available)
+        String timeStr = "XX:XX";
+#ifdef USER_TIME_AVAILABLE
+        // If your project defines USER_TIME_AVAILABLE and provides UserTime::get()
+        auto time = UserTime::get();
+        String hour = String(time.tm_hour);
+        String minute = String(time.tm_min);
+        if (minute.length() < 2)
+            minute = "0" + minute;
+        if (hour.length() < 2)
+            hour = "0" + hour;
+        if (time.tm_year == 0)
+            timeStr = "XX:XX";
+        else
+            timeStr = hour + ":" + minute;
+#else
+// Try to call UserTime::get() defensively without compile guard if header exists
+#if defined(UserTime_h)
+        auto time = UserTime::get();
+        String hour = String(time.tm_hour);
+        String minute = String(time.tm_min);
+        if (minute.length() < 2)
+            minute = "0" + minute;
+        if (hour.length() < 2)
+            hour = "0" + hour;
+        if (time.tm_year == 0)
+            timeStr = "XX:XX";
+        else
+            timeStr = hour + ":" + minute;
+#endif
+#endif
+
+        drawText(6, 3, timeStr, getThemeColor("accentText"), 2);
+
+        // left label next to time
+        drawText(50, 3, "MW-OS-Browser", getThemeColor("accentText"), 2);
 
         // close button on top right
-        drawText(SCREEN_W - 22, 3, "X", DANGER, 2);
+        drawText(SCREEN_W - 22, 3, "X", getThemeColor("danger"), 2);
     }
 
     void handleTouch()
@@ -330,32 +432,26 @@ namespace Browser
             return;
         }
 
-        // If website page is active: top bar exit returns to menu (state->home)
-        if (loc.state == "startpage" || loc.state == "website")
+        // Top-left title tapped: go home (safe within topbar)
+        if (pos.y < TOPBAR_H && pos.x < 120)
         {
-            // top bar left area could be title click or close button handled above
-            // handle touches inside viewport forwarding to server if needed (not implemented)
-            // top bar close already handled
-            // Also provide a "menu" touch on left side title to return to home
-            if (pos.y < TOPBAR_H && pos.x < 120)
-            {
-                loc.state = "home";
-                ReRender();
-                return;
-            }
+            loc.state = "home";
+            ReRender();
+            return;
         }
 
         // Home page buttons (three buttons in a row)
         if (loc.state == "home")
         {
-            // button positions
-            int btnW = (SCREEN_W - BUTTON_PADDING * 4) / 3;
-            int bx0 = BUTTON_PADDING;
-            int by = BUTTON_ROW_Y;
-            // Search button
+            // button positions (same layout used in showHomeUI)
+            int cardX = 6;
+            int cardW = SCREEN_W - cardX * 2;
+            int btnW = (cardW - BUTTON_PADDING * 4) / 3;
+            int bx0 = cardX + BUTTON_PADDING;
+            int by = 22 + 6; // cardY + 6
+            // Search/Input/Settings detection
             if (pos.y >= by && pos.y <= by + BUTTON_H)
             {
-                // determine which of three buttons
                 for (int i = 0; i < 3; ++i)
                 {
                     int bx = bx0 + i * (btnW + BUTTON_PADDING);
@@ -363,7 +459,7 @@ namespace Browser
                     {
                         if (i == 0)
                         {
-                            // Search -> open known search server
+                            // Search -> open known search server (connect only after click)
                             navigate("mw-search-server-onrender-app.onrender.com", 443, "startpage");
                         }
                         else if (i == 1)
@@ -401,8 +497,6 @@ namespace Browser
                     }
                 }
             }
-
-            // Taps on visited sites list handled below
         }
 
         // Visits list interactions (delete / cleardata / open)
@@ -413,13 +507,12 @@ namespace Browser
             if (idx >= 0 && idx < (int)sites.size())
             {
                 String domain = sites[idx];
-                int itemY = VISIT_LIST_Y + idx * VISIT_ITEM_H;
-                // Layout for buttons on the right of the item
                 int btnW = 56;
                 int btnGap = 4;
                 int xOpen = SCREEN_W - BUTTON_PADDING - btnW;
                 int xClear = xOpen - btnGap - btnW;
                 int xDelete = xClear - btnGap - btnW;
+
                 // Delete
                 if (pos.x >= xDelete && pos.x <= xDelete + btnW)
                 {
@@ -438,6 +531,7 @@ namespace Browser
                 // Open
                 if (pos.x >= xOpen && pos.x <= xOpen + btnW)
                 {
+                    // Ask user for URL override or open directly
                     String theUrl = promptText("Which page do you want to visit?", domain);
                     if (theUrl.length() > 0)
                     {
@@ -472,10 +566,9 @@ namespace Browser
             }
         }
 
-        // Settings page taps
+        // Settings page taps: top-left back
         if (loc.state == "settings")
         {
-            // Top bar X handled earlier; provide simple back by tapping top-left area
             if (pos.y > TOPBAR_H && pos.y < TOPBAR_H + 30 && pos.x < 120)
             {
                 loc.state = "home";
@@ -486,24 +579,26 @@ namespace Browser
 
     void navigate(const String &domain, int port, const String &state)
     {
-        // store previous socket & connect to new
+        // set desired location
         loc.domain = domain;
         loc.port = port;
         loc.state = state;
         saveVisitedSite(domain);
 
+        // Connect websocket to the target domain (only when user requested)
+        // Disconnect previous socket first (if any)
+        webSocket.disconnect();
+        // Begin SSL WebSocket connection to server
+        webSocket.beginSSL(loc.domain.c_str(), loc.port, "/");
+        webSocket.setReconnectInterval(5000);
+
         // Re-render UI to show website title bar and view
         ReRender();
-
-        // connect websocket
-        webSocket.disconnect();
-        webSocket.beginSSL(loc.domain.c_str(), loc.port, "/");
     }
 
     // Save visited site into BrowserStorage (simple presence marker)
     void saveVisitedSite(const String &domain)
     {
-        // store a tiny marker (timestamp) so the site appears in listSites
         unsigned long ts = millis();
         String tsStr = String(ts);
         ENC_FS::Buffer buf((uint8_t *)tsStr.c_str(), (uint8_t *)tsStr.c_str() + tsStr.length());
@@ -517,12 +612,12 @@ namespace Browser
         int cardY = 22;
         int cardW = SCREEN_W - cardX * 2;
         int cardH = 60;
-        // background
+
+        // outer (shadow / primary)
         Screen::tft.fillRoundRect(cardX, cardY, cardW, cardH, 6, PRIMARY);
-        // inner area (floating look)
+        // inner (floating)
         Screen::tft.fillRoundRect(cardX + 2, cardY + 2, cardW - 4, cardH - 4, 6, BG);
 
-        // Draw three buttons in a row inside the card
         int btnW = (cardW - BUTTON_PADDING * 4) / 3;
         int bx = cardX + BUTTON_PADDING;
         int by = cardY + 6;
@@ -554,6 +649,10 @@ namespace Browser
         for (size_t i = 0; i < sites.size(); ++i)
         {
             int y = VISIT_LIST_Y + i * VISIT_ITEM_H;
+            // clip vertical list to not draw beyond screen
+            if (y + VISIT_ITEM_H - 2 > SCREEN_H)
+                break;
+
             // background alternating for clarity
             uint16_t bgColor = (i % 2 == 0) ? Style::Colors::primary : BG;
             Screen::tft.fillRect(0, y, SCREEN_W, VISIT_ITEM_H - 2, bgColor);
@@ -632,26 +731,28 @@ namespace Browser
 
     void showWebsitePage()
     {
-        // Top bar with title and close button
+        // Top bar with title and close button (redraw topbar to show title)
         Screen::tft.fillRect(0, 0, SCREEN_W, TOPBAR_H, PRIMARY);
+
         String title = loc.title.length() ? loc.title : loc.domain;
+        // left: time + app name handled in renderTopBar; here override title only if present
         drawText(6, 3, title, AT, 2);
         drawText(SCREEN_W - 22, 3, "X", DANGER, 2);
 
-        // Set viewport for website content clipping
-        // NOTE: this uses the requested API name from spec: setViewPort(0,20,320,220)
-        // If your TFT class exposes a different name, adjust accordingly.
-        if (&Screen::tft)
-        {
-            // Attempt to set viewport; platform-specific — keep best-effort
-            // Many TFT libraries use setViewport or setAddrWindow variants; user requested setViewPort.
-            Screen::tft.setViewport(0, VIEWPORT_Y, SCREEN_W, VIEWPORT_H);
-        }
+// Ensure viewport/clipping is set so drawing from server remains inside the page view.
+// Requested viewport (0, TOPBAR_H, SCREEN_W, VIEWPORT_H)
+// Many TFT libraries offer setViewport or setAddrWindow. We call setViewport as requested.
+// If your TFT implementation lacks setViewport, replace this call with the appropriate clipping API.
+#if defined(TFT_ESPI_VERSION) || defined(TFT_eSPI_h)
+        // Best-effort call — if setViewport exists, use it.
+        // NOTE: If your TFT library does not provide setViewport, comment out the next line.
+        Screen::tft.setViewport(0, VIEWPORT_Y, SCREEN_W, VIEWPORT_H);
+#endif
 
-        // Clear website area with bg color
+        // Clear website area with bg color (only inside viewport)
         Screen::tft.fillRect(0, VIEWPORT_Y, SCREEN_W, VIEWPORT_H, BG);
 
-        // Optionally draw a small status at bottom of viewport
+        // Draw a small hint inside the viewport (top-left)
         drawText(6, VIEWPORT_Y + 4, "Page view", PH, 1);
     }
 
