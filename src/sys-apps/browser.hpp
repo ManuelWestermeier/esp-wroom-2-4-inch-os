@@ -16,6 +16,7 @@ namespace Browser
         int port = 443;
         String state = "startpage";
         String session = "";
+        String title;
         static String sessionId;
     };
 
@@ -40,13 +41,19 @@ namespace Browser
     uint16_t getThemeColor(const String &name);
     void storeData(const String &domain, const ENC_FS::Buffer &data);
     ENC_FS::Buffer loadData(const String &domain);
-    void drawTopBar();
     void handleTouch();
     void navigate(const String &domain, int port, const String &state);
-    void showHomeButtons();
     void showSettingsPage();
     void showOSSearchPage();
     void showInputPage();
+
+    // Forward
+    void showVisitedSites();
+    void showHomeUI();
+    void showWebsitePage();
+    void renderTopBar();
+    void saveVisitedSite(const String &domain);
+
 }
 
 static inline void openBrowser()

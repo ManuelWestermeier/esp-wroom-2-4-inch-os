@@ -1,0 +1,490 @@
+use this as base: ```cpp #include "browser.hpp"
+#include <WiFiClientSecure.h>
+
+namespace Browser
+{
+    Location loc;
+    bool isRunning = false;
+    WebSocketsClient webSocket;
+    String Location::sessionId = String(random(100000, 999999));
+
+    void Start()
+    {
+        tft.fillScreen(TFT_BLACK);
+        drawTopBar();
+        showHomeButtons();
+
+        webSocket.beginSSL(loc.domain.c_str(), loc.port, "/");
+        webSocket.setReconnectInterval(5000);
+
+        webSocket.onEvent([](WStype_t type, uint8_t *payload, size_t length)
+                          {
+            String msg = (payload != nullptr) ? (char *)payload : "";
+            switch (type)
+            {
+                case WStype_CONNECTED:
+                    Serial.println("[Browser] Connected");
+                    webSocket.sendTXT("MWOSP-v1 " + Location::sessionId + " 320 480");
+                    break;
+                case WStype_TEXT:
+                    handleCommand(msg);
+                    break;
+                case WStype_DISCONNECTED:
+                    Serial.println("[Browser] Disconnected");
+                    break;
+            } });
+    }
+
+    void handleCommand(const String &payload)
+    {
+        // ----------------- TFT Drawing -----------------
+        if (payload.startsWith("FillRect"))
+        {
+            int x, y, w, h;
+            uint16_t c;
+            if (sscanf(payload.c_str(), "FillRect %d %d %d %d %hu", &x, &y, &w, &h, &c) == 5)
+                tft.fillRect(x, y, w, h, c);
+        }
+        else if (payload.startsWith("DrawCircle"))
+        {
+            int x, y, r;
+            uint16_t c;
+            if (sscanf(payload.c_str(), "DrawCircle %d %d %d %hu", &x, &y, &r, &c) == 4)
+                drawCircle(x, y, r, c);
+        }
+        else if (payload.startsWith("DrawText"))
+        {
+            int x, y, size;
+            uint16_t c;
+            char buf[256];
+            if (sscanf(payload.c_str(), "DrawText %d %d %d %hu %[^\n]", &x, &y, &size, &c, buf) >= 5)
+                drawText(x, y, String(buf), c, size);
+        }
+        else if (payload.startsWith("DrawSVG"))
+        {
+            int x, y, w, h;
+            uint16_t c;
+            int idx = payload.indexOf(' ', 7);
+            String svg = payload.substring(idx + 1);
+            drawSVG(svg, x, y, w, h, c);
+        }
+        // ----------------- Storage -----------------
+        else if (payload.startsWith("GetStorage"))
+        {
+            String key = payload.substring(11);
+            ENC_FS::Buffer data = loadData(key);
+            webSocket.sendTXT("GetBackStorage " + key + " " + String((const char *)data.data(), data.size()));
+        }
+        else if (payload.startsWith("SetStorage"))
+        {
+            int idx = payload.indexOf(' ', 11);
+            String key = payload.substring(11, idx);
+            String val = payload.substring(idx + 1);
+            ENC_FS::Buffer buf((uint8_t *)val.c_str(), (uint8_t *)val.c_str() + val.length());
+            storeData(key, buf);
+        }
+        // ----------------- Navigation & Control -----------------
+        else if (payload.startsWith("Navigate"))
+        {
+            int idx1 = payload.indexOf('@', 9);
+            int idx2 = payload.indexOf(':', 9);
+            String domain;
+            int port = 443;
+            String state;
+            if (idx2 > 0 && idx2 < idx1)
+            {
+                domain = payload.substring(9, idx2);
+                port = payload.substring(idx2 + 1, idx1).toInt();
+            }
+            else
+                domain = payload.substring(9, idx1);
+            state = payload.substring(idx1 + 1);
+            navigate(domain, port, state);
+        }
+        else if (payload.startsWith("Exit"))
+        {
+            Exit();
+        }
+        else if (payload.startsWith("ClearSettings"))
+        {
+            clearSettings();
+        }
+        else if (payload.startsWith("PromptText"))
+        {
+            String rid = payload.substring(11);
+            String input = promptText("Enter text:");
+            webSocket.sendTXT("GetBackText " + rid + " " + input);
+        }
+        else if (payload.startsWith("SetSession"))
+        {
+            loc.session = payload.substring(11);
+        }
+        else if (payload.startsWith("GetSession"))
+        {
+            String rid = payload.substring(11);
+            webSocket.sendTXT("GetBackSession " + rid + " " + loc.session);
+        }
+        else if (payload.startsWith("SetState"))
+        {
+            loc.state = payload.substring(9);
+        }
+        else if (payload.startsWith("GetState"))
+        {
+            String rid = payload.substring(9);
+            webSocket.sendTXT("GetBackState " + rid + " " + loc.state);
+        }
+    }
+
+    void Update()
+    {
+        webSocket.loop();
+        handleTouch();
+    }
+
+    void ReRender()
+    {
+        tft.fillScreen(TFT_BLACK);
+        drawTopBar();
+        if (loc.state == "home")
+            showHomeButtons();
+        else if (loc.state == "settings")
+            showSettingsPage();
+        else if (loc.state == "search")
+            showOSSearchPage();
+        else if (loc.state == "input")
+            showInputPage();
+    }
+
+    void Exit()
+    {
+        isRunning = false;
+    }
+
+    void OnExit()
+    {
+        webSocket.disconnect();
+    }
+
+    // ----------------- Utilities -----------------
+    void drawText(int x, int y, const String &text, uint16_t color, int size)
+    {
+        tft.setTextColor(color);
+        tft.setTextSize(size);
+        tft.setCursor(x, y);
+        tft.print(text);
+    }
+
+    void drawCircle(int x, int y, int r, uint16_t color)
+    {
+        tft.drawCircle(x, y, r, color);
+    }
+
+    void drawSVG(const String &svgStr, int x, int y, int w, int h, uint16_t color)
+    {
+        NSVGimage *img = createSVG(svgStr);
+        if (img)
+            drawSVGString(svgStr, x, y, w, h, color);
+    }
+
+    String promptText(const String &question, const String &defaultValue)
+    {
+        return readString(question, defaultValue);
+    }
+
+    void clearSettings()
+    {
+        loc.session = "";
+        loc.state = "home";
+        // ENC_FS::BrowserStorage::del("settings");
+        ENC_FS::BrowserStorage::clearAll();
+    }
+
+    uint16_t getThemeColor(const String &name)
+    {
+        if (name == "bg")
+            return Style::Colors::bg;
+        if (name == "text")
+            return Style::Colors::text;
+        if (name == "primary")
+            return Style::Colors::primary;
+        if (name == "accent")
+            return Style::Colors::accent;
+        return TFT_WHITE;
+    }
+
+    void storeData(const String &domain, const ENC_FS::Buffer &data)
+    {
+        ENC_FS::BrowserStorage::set(domain, data);
+    }
+
+    ENC_FS::Buffer loadData(const String &domain)
+    {
+        return ENC_FS::BrowserStorage::get(domain);
+    }
+
+    void drawTopBar()
+    {
+        tft.fillRect(0, 0, 320, 20, Style::Colors::primary);
+        drawText(5, 3, loc.domain + "@" + loc.state, TFT_WHITE, 1);
+        drawText(280, 3, "X", TFT_RED, 2); // Exit button
+    }
+
+    void handleTouch()
+    {
+        if (!Screen::isTouched())
+            return;
+        Screen::TouchPos pos = Screen::getTouchPos();
+        if (!pos.clicked)
+            return;
+
+        // Top bar exit
+        if (pos.y < 20 && pos.x > 275)
+        {
+            Exit();
+            return;
+        }
+
+        // Home page buttons
+        if (loc.state == "home")
+        {
+            if (pos.y > 50 && pos.y < 90)
+            {
+                if (pos.x > 10 && pos.x < 150)
+                {
+                    loc.state = "settings";
+                    ReRender();
+                }
+                else if (pos.x > 160 && pos.x < 310)
+                {
+                    loc.state = "search";
+                    ReRender();
+                }
+            }
+            else if (pos.y > 100 && pos.y < 140)
+            {
+                loc.state = "input";
+                ReRender();
+            }
+        }
+    }
+
+    void navigate(const String &domain, int port, const String &state)
+    {
+        loc.domain = domain;
+        loc.port = port;
+        loc.state = state;
+        ReRender();
+        webSocket.beginSSL(loc.domain.c_str(), loc.port, "/");
+    }
+
+    void showHomeButtons()
+    {
+        tft.fillRect(10, 50, 140, 40, Style::Colors::accent);
+        drawText(20, 60, "Settings", TFT_WHITE, 2);
+
+        tft.fillRect(160, 50, 140, 40, Style::Colors::accent);
+        drawText(170, 60, "OS-Search-Page", TFT_WHITE, 2);
+
+        tft.fillRect(10, 100, 290, 40, Style::Colors::primary);
+        drawText(20, 110, "Input Page", TFT_WHITE, 2);
+    }
+
+    void showSettingsPage()
+    {
+        tft.fillScreen(Style::Colors::bg);
+        drawText(10, 30, "Visited Sites & Storage", TFT_WHITE, 2);
+        // TODO: list sites and allow deletion
+    }
+
+    void showOSSearchPage()
+    {
+        navigate("mw-search-server-onrender-app.onrender.com", 443, "startpage");
+    }
+
+    void showInputPage()
+    {
+        String input = promptText("Enter domain@state", "example.com@startpage");
+        int idx = input.indexOf('@');
+        if (idx > 0)
+        {
+            String domainPort = input.substring(0, idx);
+            String state = input.substring(idx + 1);
+            int colon = domainPort.indexOf(':');
+            String domain = domainPort;
+            int port = 443;
+            if (colon > 0)
+            {
+                domain = domainPort.substring(0, colon);
+                port = domainPort.substring(colon + 1).toInt();
+            }
+            navigate(domain, port, state);
+        }
+    }
+}
+``` use this as conetxt : ```cpp #pragma once 
+
+#include <Arduino.h>
+#include <vector>
+#include <FS.h>
+#include <SPIFFS.h>
+#include <SD.h>
+
+namespace ENC_FS
+{
+    using Buffer = std::vector<uint8_t>;
+    using Path = std::vector<String>;
+
+    struct Metadata
+    {
+        long size;
+        String encryptedName;
+        String decryptedName;
+        bool isDirectory;
+    };
+
+    // ---------- Helpers ----------
+
+    Buffer sha256(const String &s);
+    void pkcs7_pad(Buffer &b);
+    bool pkcs7_unpad(Buffer &b);
+    String base64url_encode(const uint8_t *data, size_t len);
+    bool base64url_decode(const String &s, Buffer &out);
+    static void deriveNonceForFullPathVersion(const String &full, uint64_t version, uint8_t nonce[16]);
+    static bool writeVersionForFullPath(const String &full, uint64_t v);
+    static uint64_t readVersionForFullPath(const String &full);
+
+    Buffer deriveKey();
+
+    // ---------- Path helpers ----------
+
+    Path str2Path(const String &s);
+    String path2Str(const Path &p);
+
+    // ---------- Segment encryption/decryption ----------
+    String joinEncPath(const Path &plain);
+    // ---------- File AES-CTR ----------
+
+    Buffer aes_ctr_crypt_full_with_nonce(const Buffer &in, const uint8_t nonce[16]);
+    Buffer aes_ctr_crypt_offset_with_nonce(const Buffer &in, size_t offset, const uint8_t nonce[16]);
+
+    // ---------- File API ----------
+
+    bool exists(const Path &p);
+    bool mkDir(const Path &p);
+    bool rmDir(const Path &p);
+    Buffer readFilePart(const Path &p, long start, long end);
+    Buffer readFile(const Path &p, long start, long end);
+    Buffer readFileFull(const Path &p);
+    String readFileString(const Path &p);
+    bool writeFile(const Path &p, long start, long end, const Buffer &data);
+    bool appendFile(const Path &p, const Buffer &data);
+    bool writeFileString(const Path &p, const String &s);
+    bool deleteFile(const Path &p);
+    long getFileSize(const Path &p);
+    Metadata getMetadata(const Path &p);
+    std::vector<String> readDir(const Path &plainDir);
+    void lsDirSerial(const Path &plainDir);
+
+    Path storagePath(const String &appId, const String &key);
+
+    namespace Storage
+    {
+        Buffer get(const String &appId, const String &key, long start = -1, long end = -1);
+        bool del(const String &appId, const String &key);
+        bool set(const String &appId, const String &key, const Buffer &data);
+    }
+
+    namespace BrowserStorage
+    {
+        Buffer get(const String &domain);
+        bool del(const String &domain);
+        bool set(const String &domain, const Buffer &data);
+        bool clearAll();
+        std::vector<String> listSites();
+    }
+
+    void copyFileFromSPIFFS(const char *spiffsPath, const Path &sdPath);
+} // namespace ENC_FS ```. use the new ENC_FS::BrowserStorage for storing site data. use this for screen stuff: ```cpp #pragma once
+
+#include <Arduino.h>
+
+#include "../utils/vec.hpp"
+#include "config.h"
+#include "svg.hpp"
+#include "../icons/index.hpp"
+
+#include <TFT_eSPI.h>
+#include <SD.h>
+
+#define BRIGHTNESS_MIN 5
+
+namespace Screen
+{
+    // The one-and-only TFT object (defined in index.cpp)
+    extern TFT_eSPI tft;
+
+    // Threshold for movement accumulation (milliseconds)
+    extern int MOVEMENT_TIME_THRESHOLD;
+
+    // Set backlight brightness (0–255)
+    void setBrightness(byte b = 255, bool store = true);
+    byte getBrightness();
+
+    // Initialize display and touch
+    void init();
+
+    // Touch data: absolute position + movement delta
+    // tp.x tp.y tp.move.x tp.move.y tp.clicked
+    struct TouchPos : Vec
+    {
+        bool clicked;
+        Vec move;
+    };
+
+    // Read the current touch state
+    bool isTouched();
+    TouchPos getTouchPos();
+
+    void drawImageFromSD(const char *filename, int x, int y);
+}
+
+using Screen::tft;``` when you open the browser everything have to be cleared with this color shemes: ````cpp #pragma once 
+
+#include <Arduino.h>
+
+namespace Style
+{
+        namespace Colors
+        {
+                // Backgrounds and general surfaces
+                extern uint16_t bg;
+                extern uint16_t primary;
+
+                // Text colors
+                extern uint16_t text;
+                extern uint16_t placeholder;
+
+                // Accents
+                extern uint16_t accent;
+                extern uint16_t accent2;
+                extern uint16_t accent3;
+                extern uint16_t accentText;
+
+                // States
+                extern uint16_t pressed;
+                extern uint16_t danger;
+        }
+}
+
+// Macros
+#define BG Style::Colors::bg
+#define TEXT Style::Colors::text
+#define PRIMARY Style::Colors::primary
+#define ACCENT Style::Colors::accent
+#define ACCENT2 Style::Colors::accent2
+#define ACCENT3 Style::Colors::accent3
+#define DANGER Style::Colors::danger
+#define PRESSED Style::Colors::pressed
+#define PH Style::Colors::placeholder
+#define AT Style::Colors::accentText
+```. then the browser app home page have to be rendered. on top right an close button. on the left the name "MW-OS-Browser". the ui have to be clean and floating. under it 3 buttons in a row ("Search" => open         navigate("mw-search-server-onrender-app.onrender.com", 443, "startpage"), Input Url => readString("Which page do you want to visit?", "")). under it there are all sites visited in a list. each item with the name and 3 buttons (Delete, ClearData, Open => readString("Which page do you want to visit?", theUrlOfthePage)) => open the page). on the websitepage, there is on top the title (provided from the server), then there is the exit/close button => go to menu. under this 320x20px bar is the view of the page. use setViewPort(0, 20, 320, 220) for clipping the websites conetnt. the screen is 320x240px. give me the full implementation.
