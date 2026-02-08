@@ -568,29 +568,39 @@ namespace Browser
     void handleTouch()
     {
         // manage dragging for the visited list
+        Screen::TouchPos pos = Screen::getTouchPos();
+
+        // normalize touch coords and whether inside viewport
+        int absX = pos.x;
+        int absY = pos.y;
+        bool inViewport = (viewportActive && absY >= vpY && absY < (vpY + vpH) && absX >= vpX && absX < (vpX + vpW));
+        int localX = inViewport ? (absX - vpX) : absX;
+        int localY = inViewport ? (absY - vpY) : absY;
+
         if (Screen::isTouched())
         {
-            Screen::TouchPos pos = Screen::getTouchPos();
             if (!touchDragging)
             {
                 touchDragging = true;
-                touchStartY = pos.y;
-                touchLastY = pos.y;
+                touchStartY = absY;
+                touchLastY = absY;
                 touchTotalMove = 0;
                 return; // start of touch, ignore until movement or release
             }
-            int dy = touchLastY - pos.y; // positive when user swipes up
+
+            int dy = touchLastY - absY; // positive when user swipes up
             if (dy != 0)
             {
                 touchTotalMove += abs(dy);
-                touchLastY = pos.y;
+                touchLastY = absY;
 
-                // Only apply scroll if touch started inside the list area
-                if (touchStartY >= VISIT_LIST_Y)
+                // Only apply scroll if touch started inside the list area (use viewport origin if active)
+                int listOriginY = viewportActive ? vpY : VISIT_LIST_Y;
+                if (touchStartY >= listOriginY && inViewport)
                 {
                     std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
                     int totalHeight = (int)sites.size() * VISIT_ITEM_H;
-                    int visible = SCREEN_H - VISIT_LIST_Y;
+                    int visible = vpH; // viewport height
                     int maxOffset = totalHeight > visible ? totalHeight - visible : 0;
                     visitScrollOffset += dy;
                     if (visitScrollOffset < 0)
@@ -609,9 +619,7 @@ namespace Browser
             if (touchDragging)
             {
                 // capture last release position
-                Screen::TouchPos pos = Screen::getTouchPos();
-                int releaseY = pos.y;
-                int releaseX = pos.x;
+                int releaseY = absY;
                 int moved = touchTotalMove;
                 touchDragging = false;
 
@@ -628,19 +636,18 @@ namespace Browser
         // At this point handle simple taps / clicks
         if (!Screen::isTouched())
         {
-            Screen::TouchPos pos = Screen::getTouchPos();
             if (!pos.clicked)
                 return;
 
             // Top bar Exit (right)
-            if (pos.y < TOPBAR_H && pos.x > (SCREEN_W - 60))
+            if (absY < TOPBAR_H && absX > (SCREEN_W - 60))
             {
                 Exit();
                 return;
             }
 
             // Top-left Home tapped: go home (safe within topbar)
-            if (pos.y < TOPBAR_H && pos.x < 120)
+            if (absY < TOPBAR_H && absX < 120)
             {
                 loc.state = "home";
                 ReRender();
@@ -655,12 +662,12 @@ namespace Browser
                 int btnW = (cardW - BUTTON_PADDING * 3) / 2; // two buttons
                 int bx0 = cardX + BUTTON_PADDING;
                 int by = 22 + 6; // cardY + 6
-                if (pos.y >= by && pos.y <= by + BUTTON_H)
+                if (absY >= by && absY <= by + BUTTON_H)
                 {
                     for (int i = 0; i < 2; ++i)
                     {
                         int bx = bx0 + i * (btnW + BUTTON_PADDING);
-                        if (pos.x >= bx && pos.x <= bx + btnW)
+                        if (absX >= bx && absX <= bx + btnW)
                         {
                             if (i == 0)
                             {
@@ -699,68 +706,137 @@ namespace Browser
             }
 
             // Visits list interactions (delete / cleardata / open)
-            if (pos.y >= VISIT_LIST_Y)
+            // Use viewport-relative coordinates for hit-testing when viewport is active
+            if (inViewport)
             {
                 std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
-                int idx = (pos.y - VISIT_LIST_Y + visitScrollOffset) / VISIT_ITEM_H;
-                if (idx >= 0 && idx < (int)sites.size())
+                if (!sites.empty())
                 {
-                    String domain = sites[idx];
-                    int btnW = 56;
-                    int btnGap = 4;
-                    int xOpen = SCREEN_W - BUTTON_PADDING - btnW;
-                    int xClear = xOpen - btnGap - btnW;
-                    int xDelete = xClear - btnGap - btnW;
+                    // localY is relative to viewport; compute item index
+                    int idx = (localY + visitScrollOffset) / VISIT_ITEM_H;
+                    if (idx >= 0 && idx < (int)sites.size())
+                    {
+                        String domain = sites[idx];
+                        int btnW = 56;
+                        int btnGap = 4;
+                        int xOpen = vpW - BUTTON_PADDING - btnW; // viewport coords
+                        int xClear = xOpen - btnGap - btnW;
+                        int xDelete = xClear - btnGap - btnW;
 
-                    // Delete
-                    if (pos.x >= xDelete && pos.x <= xDelete + btnW)
-                    {
-                        ENC_FS::BrowserStorage::del(domain);
-                        ReRender();
-                        return;
-                    }
-                    // ClearData (set empty)
-                    if (pos.x >= xClear && pos.x <= xClear + btnW)
-                    {
-                        ENC_FS::Buffer empty;
-                        ENC_FS::BrowserStorage::set(domain, empty);
-                        ReRender();
-                        return;
-                    }
-                    // Open
-                    if (pos.x >= xOpen && pos.x <= xOpen + btnW)
-                    {
-                        // Ask user for URL override or open directly
-                        String theUrl = promptText("Which page do you want to visit?", domain);
-                        if (theUrl.length() > 0)
+                        // Delete
+                        if (localX >= xDelete && localX <= xDelete + btnW)
                         {
-                            int idxAt = theUrl.indexOf('@');
-                            String domainPort = theUrl;
-                            String state = "startpage";
-                            if (idxAt > 0)
-                            {
-                                domainPort = theUrl.substring(0, idxAt);
-                                state = theUrl.substring(idxAt + 1);
-                            }
-                            int colon = domainPort.indexOf(':');
-                            String domainOnly = domainPort;
-                            int port = 443;
-                            if (colon > 0)
-                            {
-                                domainOnly = domainPort.substring(0, colon);
-                                port = domainPort.substring(colon + 1).toInt();
-                            }
-                            navigate(domainOnly, port, state);
+                            ENC_FS::BrowserStorage::del(domain);
+                            ReRender();
+                            return;
                         }
-                        return;
-                    }
+                        // ClearData (set empty)
+                        if (localX >= xClear && localX <= xClear + btnW)
+                        {
+                            ENC_FS::Buffer empty;
+                            ENC_FS::BrowserStorage::set(domain, empty);
+                            ReRender();
+                            return;
+                        }
+                        // Open
+                        if (localX >= xOpen && localX <= xOpen + btnW)
+                        {
+                            // Ask user for URL override or open directly
+                            String theUrl = promptText("Which page do you want to visit?", domain);
+                            if (theUrl.length() > 0)
+                            {
+                                int idxAt = theUrl.indexOf('@');
+                                String domainPort = theUrl;
+                                String state = "startpage";
+                                if (idxAt > 0)
+                                {
+                                    domainPort = theUrl.substring(0, idxAt);
+                                    state = theUrl.substring(idxAt + 1);
+                                }
+                                int colon = domainPort.indexOf(':');
+                                String domainOnly = domainPort;
+                                int port = 443;
+                                if (colon > 0)
+                                {
+                                    domainOnly = domainPort.substring(0, colon);
+                                    port = domainPort.substring(colon + 1).toInt();
+                                }
+                                navigate(domainOnly, port, state);
+                            }
+                            return;
+                        }
 
-                    // If tap on the item text area -> navigate directly
-                    int textAreaW = SCREEN_W - BUTTON_PADDING - (3 * (btnW + btnGap));
-                    if (pos.x >= 0 && pos.x <= textAreaW)
+                        // If tap on the item text area -> navigate directly
+                        int textAreaW = vpW - BUTTON_PADDING - (3 * (btnW + btnGap));
+                        if (localX >= 0 && localX <= textAreaW)
+                        {
+                            navigate(domain, 443, "startpage");
+                            return;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // Fallback: if viewport is not active but user tapped below VISIT_LIST_Y, handle in absolute coordinates
+                if (absY >= VISIT_LIST_Y)
+                {
+                    std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
+                    int idx = (absY - VISIT_LIST_Y + visitScrollOffset) / VISIT_ITEM_H;
+                    if (idx >= 0 && idx < (int)sites.size())
                     {
-                        navigate(domain, 443, "startpage");
-                        return;
+                        String domain = sites[idx];
+                        int btnW = 56;
+                        int btnGap = 4;
+                        int xOpen = SCREEN_W - BUTTON_PADDING - btnW;
+                        int xClear = xOpen - btnGap - btnW;
+                        int xDelete = xClear - btnGap - btnW;
+
+                        if (absX >= xDelete && absX <= xDelete + btnW)
+                        {
+                            ENC_FS::BrowserStorage::del(domain);
+                            ReRender();
+                            return;
+                        }
+                        if (absX >= xClear && absX <= xClear + btnW)
+                        {
+                            ENC_FS::Buffer empty;
+                            ENC_FS::BrowserStorage::set(domain, empty);
+                            ReRender();
+                            return;
+                        }
+                        if (absX >= xOpen && absX <= xOpen + btnW)
+                        {
+                            String theUrl = promptText("Which page do you want to visit?", domain);
+                            if (theUrl.length() > 0)
+                            {
+                                int idxAt = theUrl.indexOf('@');
+                                String domainPort = theUrl;
+                                String state = "startpage";
+                                if (idxAt > 0)
+                                {
+                                    domainPort = theUrl.substring(0, idxAt);
+                                    state = theUrl.substring(idxAt + 1);
+                                }
+                                int colon = domainPort.indexOf(':');
+                                String domainOnly = domainPort;
+                                int port = 443;
+                                if (colon > 0)
+                                {
+                                    domainOnly = domainPort.substring(0, colon);
+                                    port = domainPort.substring(colon + 1).toInt();
+                                }
+                                navigate(domainOnly, port, state);
+                            }
+                            return;
+                        }
+
+                        int textAreaW = SCREEN_W - BUTTON_PADDING - (3 * (btnW + btnGap));
+                        if (absX >= 0 && absX <= textAreaW)
+                        {
+                            navigate(domain, 443, "startpage");
+                            return;
+                        }
                     }
                 }
             }
@@ -768,7 +844,7 @@ namespace Browser
             // Settings page taps: top-left back (kept for compatibility)
             if (loc.state == "settings")
             {
-                if (pos.y > TOPBAR_H && pos.y < TOPBAR_H + 30 && pos.x < 120)
+                if (absY > TOPBAR_H && absY < TOPBAR_H + 30 && absX < 120)
                 {
                     loc.state = "home";
                     ReRender();
