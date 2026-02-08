@@ -24,7 +24,7 @@ namespace Browser
     static constexpr int BUTTON_ROW_Y = TOPBAR_H + 6; // card y
     static constexpr int BUTTON_H = 36;
     static constexpr int BUTTON_PADDING = 10;
-    static constexpr int VISIT_LIST_Y = 80; // under the buttons
+    static constexpr int VISIT_LIST_Y = 100; // under the buttons
     static constexpr int VISIT_ITEM_H = 30;
     static constexpr int VIEWPORT_Y = TOPBAR_H;
     static constexpr int VIEWPORT_H = SCREEN_H - TOPBAR_H;
@@ -885,9 +885,9 @@ namespace Browser
     {
         // floating card style: small shadow box for the top controls
         int cardX = 6;
-        int cardY = 22;
+        int cardY = 25;
         int cardW = SCREEN_W - cardX * 2;
-        int cardH = 60;
+        int cardH = 48;
 
         // outer (shadow / primary)
         Screen::tft.fillRoundRect(cardX, cardY, cardW, cardH, 6, theme.primary);
