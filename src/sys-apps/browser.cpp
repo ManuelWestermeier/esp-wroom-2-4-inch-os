@@ -21,6 +21,9 @@ namespace Browser
     WebSocketsClient webSocket;
     String Location::sessionId = String(random(100000, 999999));
 
+    // Recent input cache (keeps last prompt quickly accessible)
+    static std::vector<String> recentInputs;
+
     // UI layout constants (320x240)
     static constexpr int SCREEN_W = 320;
     static constexpr int SCREEN_H = 240;
@@ -31,6 +34,10 @@ namespace Browser
     static constexpr int VISIT_ITEM_H = 30;
     static constexpr int VIEWPORT_Y = TOPBAR_H;
     static constexpr int VIEWPORT_H = SCREEN_H - TOPBAR_H;
+
+    // Touch / click tuning
+    static constexpr uint16_t CLICK_TOLERANCE = 12; // pixels (Manhattan)
+    static constexpr uint16_t STABILIZE_MS = 30;    // ms to ignore initial jitter
 
     // Theme (16-bit values stored in uint16_t)
     static struct Theme
@@ -46,12 +53,20 @@ namespace Browser
         uint16_t placeholder = Style::Colors::placeholder;
     } theme;
 
-    // Scrolling / touch state
+    // Scrolling / touch state (reworked)
     static int visitScrollOffset = 0;
-    static bool touchDragging = false;
-    static int touchStartY = 0;
-    static int touchLastY = 0;
-    static int touchTotalMove = 0;
+
+    static bool touchActive = false;
+    static bool dragging = false;
+    static bool clicked = false;
+
+    static int16_t startX = 0;
+    static int16_t startY = 0;
+    static int16_t lastX = 0;
+    static int16_t lastY = 0;
+
+    static uint32_t touchStartMs = 0;
+    static uint16_t moved = 0;
 
     // Viewport state
     static bool viewportActive = false;
@@ -63,6 +78,67 @@ namespace Browser
     void showVisitedSites();
     void showWebsitePage();
     void ReRender();
+
+    // touch helpers
+    static inline void onTouchStart(int16_t x, int16_t y)
+    {
+        touchActive = true;
+        dragging = false;
+        clicked = false;
+        startX = lastX = x;
+        startY = lastY = y;
+        moved = 0;
+        touchStartMs = millis();
+        Serial.printf("[Browser] onTouchStart x=%d y=%d\n", x, y);
+    }
+
+    static inline void onTouchMove(int16_t x, int16_t y)
+    {
+        if (!touchActive)
+            return;
+
+        // ignore unstable readings at the beginning
+        if (millis() - touchStartMs < STABILIZE_MS)
+        {
+            lastX = x;
+            lastY = y;
+            return;
+        }
+
+        // Manhattan distance from start (stable)
+        moved = abs(x - startX) + abs(y - startY);
+
+        if (moved > CLICK_TOLERANCE)
+            dragging = true;
+
+        // update last coordinates (used by scrolling calculation outside)
+        lastX = x;
+        lastY = y;
+    }
+
+    static inline void onTouchEnd()
+    {
+        if (!touchActive)
+            return;
+
+        // final distance check
+        if (!dragging && moved <= CLICK_TOLERANCE)
+            clicked = true;
+
+        Serial.printf("[Browser] onTouchEnd moved=%d dragging=%d clicked=%d\n", moved, dragging ? 1 : 0, clicked ? 1 : 0);
+
+        touchActive = false;
+    }
+
+    static inline bool consumeClick()
+    {
+        if (clicked)
+        {
+            clicked = false;
+            return true;
+        }
+        return false;
+    }
 
     // ----------------------------
     // Viewport helpers
@@ -88,6 +164,8 @@ namespace Browser
         vpH = h;
         viewportActive = true;
         Screen::tft.setViewport(vpX, vpY, vpW, vpH);
+
+        Serial.printf("[Browser] enterViewport x=%d y=%d w=%d h=%d\n", vpX, vpY, vpW, vpH);
     }
 
     void exitViewport()
@@ -98,6 +176,8 @@ namespace Browser
         vpW = SCREEN_W;
         vpH = SCREEN_H;
         Screen::tft.setViewport(0, 0, SCREEN_W, SCREEN_H);
+
+        Serial.println("[Browser] exitViewport");
     }
 
     // ----------------------------
@@ -105,6 +185,7 @@ namespace Browser
     // ----------------------------
     void Start()
     {
+        Serial.println("[Browser] Start");
         Screen::tft.fillScreen(theme.bg);
         renderTopBar();
         showHomeUI();
@@ -118,8 +199,11 @@ namespace Browser
             {
                 case WStype_CONNECTED:
                 {
-                    Serial.println("[Browser] Connected");
-                    webSocket.sendTXT("MWOSP-v1 " + Location::sessionId + " " + String(SCREEN_W) + " " + String(SCREEN_H));
+                    Serial.println("[Browser] WebSocket Connected");
+                    // prefer loc.session if present (use context correctly)
+                    String sess = (loc.session.length() ? loc.session : Location::sessionId);
+                    Serial.printf("[Browser] Using session id: %s\n", sess.c_str());
+                    webSocket.sendTXT("MWOSP-v1 " + sess + " " + String(SCREEN_W) + " " + String(SCREEN_H));
                     String themeMsg = "ThemeColors";
                     themeMsg += " bg:" + String(theme.bg, HEX);
                     themeMsg += " text:" + String(theme.text, HEX);
@@ -131,15 +215,18 @@ namespace Browser
                     themeMsg += " danger:" + String(theme.danger, HEX);
                     themeMsg += " placeholder:" + String(theme.placeholder, HEX);
                     webSocket.sendTXT(themeMsg);
+                    Serial.println("[Browser] Sent ThemeColors");
                     break;
                 }
                 case WStype_TEXT:
+                    Serial.printf("[Browser] WebSocket TEXT: %s\n", msg.c_str());
                     handleCommand(msg);
                     break;
                 case WStype_DISCONNECTED:
-                    Serial.println("[Browser] Disconnected");
+                    Serial.println("[Browser] WebSocket Disconnected");
                     break;
                 default:
+                    Serial.printf("[Browser] WebSocket Event type=%d\n", type);
                     break;
             } });
 
@@ -148,11 +235,13 @@ namespace Browser
 
     void OnExit()
     {
+        Serial.println("[Browser] OnExit - disconnecting websocket");
         webSocket.disconnect();
     }
 
     void Exit()
     {
+        Serial.println("[Browser] Exit");
         isRunning = false;
         OnExit();
         loc.state = "home";
@@ -178,12 +267,15 @@ namespace Browser
     // ----------------------------
     void handleCommand(const String &payload)
     {
+        Serial.printf("[Browser] handleCommand payload='%s'\n", payload.c_str());
+
         if (payload.startsWith("FillRect"))
         {
             int x = 0, y = 0, w = 0, h = 0;
             unsigned int c = 0;
             if (sscanf(payload.c_str(), "FillRect %d %d %d %d %u", &x, &y, &w, &h, &c) == 5)
             {
+                Serial.printf("[Browser] FillRect parsed x=%d y=%d w=%d h=%d color=0x%X\n", x, y, w, h, c);
                 if (x < 0)
                 {
                     w += x;
@@ -210,6 +302,7 @@ namespace Browser
             unsigned int c = 0;
             if (sscanf(payload.c_str(), "DrawCircle %d %d %d %u", &x, &y, &r, &c) == 4)
             {
+                Serial.printf("[Browser] DrawCircle x=%d y=%d r=%d color=0x%X\n", x, y, r, c);
                 if (r > 0 && x >= -r && x <= SCREEN_W + r && y >= -r && y <= SCREEN_H + r)
                     drawCircle(x, y, r, (uint16_t)c);
             }
@@ -225,6 +318,7 @@ namespace Browser
             if (sscanf(payload.c_str(), "DrawText %d %d %d %u %[^\n]", &x, &y, &size, &c, buf) >= 5)
             {
                 String text = String(buf);
+                Serial.printf("[Browser] DrawText x=%d y=%d size=%d color=0x%X text='%s'\n", x, y, size, c, text.c_str());
                 drawText(x, y, text, (uint16_t)c, size);
             }
             return;
@@ -236,6 +330,7 @@ namespace Browser
             unsigned int c = 0;
             if (sscanf(payload.c_str(), "DrawSVG %d %d %d %d %u", &x, &y, &w, &h, &c) == 5)
             {
+                Serial.printf("[Browser] DrawSVG x=%d y=%d w=%d h=%d color=0x%X\n", x, y, w, h, c);
                 // find payload after 5th token
                 int countSpaces = 0;
                 int headerEnd = -1;
@@ -286,6 +381,7 @@ namespace Browser
                 if (colorValue.startsWith("0x"))
                     colorValue = colorValue.substring(2);
                 uint16_t color = (uint16_t)strtoul(colorValue.c_str(), nullptr, 16);
+                Serial.printf("[Browser] SetThemeColor %s -> 0x%X\n", colorName.c_str(), color);
                 if (colorName == "bg")
                     theme.bg = color;
                 else if (colorName == "text")
@@ -316,6 +412,7 @@ namespace Browser
             String name = payload.substring(14);
             uint16_t c = getThemeColor(name);
             webSocket.sendTXT("ThemeColor " + name + " " + String(c, HEX));
+            Serial.printf("[Browser] GetThemeColor %s -> 0x%X\n", name.c_str(), c);
             return;
         }
 
@@ -328,6 +425,7 @@ namespace Browser
                 String val = payload.substring(idx + 1);
                 ENC_FS::Buffer buf((uint8_t *)val.c_str(), (uint8_t *)val.c_str() + val.length());
                 ENC_FS::BrowserStorage::set(key, buf);
+                Serial.printf("[Browser] SetStorage key='%s' len=%d\n", key.c_str(), (int)val.length());
             }
             return;
         }
@@ -340,6 +438,7 @@ namespace Browser
             if (!b.empty())
                 s = String((char *)b.data(), b.size());
             webSocket.sendTXT("GetBackStorage " + key + " " + s);
+            Serial.printf("[Browser] GetStorage key='%s' len=%d\n", key.c_str(), (int)s.length());
             return;
         }
 
@@ -348,6 +447,7 @@ namespace Browser
             // support: "Navigate home" or "Navigate domain[:port]@state"
             String arg = payload.substring(9);
             arg.trim();
+            Serial.printf("[Browser] Navigate arg='%s'\n", arg.c_str());
             if (arg == "home")
             {
                 loc.state = "home";
@@ -376,6 +476,7 @@ namespace Browser
 
         if (payload.startsWith("Exit"))
         {
+            Serial.println("[Browser] Received Exit command");
             Exit();
             return;
         }
@@ -388,19 +489,37 @@ namespace Browser
                 rid = payload.substring(11, idx);
             else
                 rid = payload.substring(11);
-            String input = promptText("Enter text:");
+            Serial.printf("[Browser] PromptText rid='%s'\n", rid.c_str());
+            // Ensure UI is up-to-date before prompting
+            ReRender();
+            String input = promptText("Enter text:", "");
+            // cache last input to ENC_FS quickly for retrieval
+            ENC_FS::Buffer cacheBuf((uint8_t *)input.c_str(), (uint8_t *)input.c_str() + input.length());
+            ENC_FS::BrowserStorage::set("_last_input", cacheBuf);
+            if (input.length())
+            {
+                // store also into in-memory recentInputs (bounded)
+                recentInputs.insert(recentInputs.begin(), input);
+                if (recentInputs.size() > 8)
+                    recentInputs.pop_back();
+            }
+            Serial.printf("[Browser] PromptText input='%s'\n", input.c_str());
             webSocket.sendTXT("GetBackText " + rid + " " + input);
+            // After prompt, refresh UI quickly
+            ReRender();
             return;
         }
 
         if (payload.startsWith("Title "))
         {
             loc.title = payload.substring(6);
+            Serial.printf("[Browser] Title set to '%s'\n", loc.title.c_str());
             ReRender();
             return;
         }
 
         // unhandled messages are ignored
+        Serial.println("[Browser] Unhandled command");
     }
 
     // ----------------------------
@@ -417,6 +536,7 @@ namespace Browser
     // ----------------------------
     void ReRender()
     {
+        Serial.printf("[Browser] ReRender state='%s' domain='%s'\n", loc.state.c_str(), loc.domain.c_str());
         Screen::tft.fillScreen(theme.bg);
         renderTopBar();
 
@@ -471,11 +591,24 @@ namespace Browser
         NSVGimage *img = createSVG(svgStr);
         if (img)
             drawSVGString(svgStr, x, y, w, h, color);
+        else
+            Serial.println("[Browser] drawSVG: failed to parse SVG");
     }
 
     String promptText(const String &question, const String &defaultValue)
     {
-        return readString(question, defaultValue);
+        // Refresh UI before prompting to make response feel instant
+        ReRender();
+        String res = readString(question, defaultValue);
+        // quick in-memory cache: push front, keep small
+        if (res.length())
+        {
+            recentInputs.insert(recentInputs.begin(), res);
+            if (recentInputs.size() > 8)
+                recentInputs.pop_back();
+        }
+        Serial.printf("[Browser] promptText question='%s' -> '%s'\n", question.c_str(), res.c_str());
+        return res;
     }
 
     void clearSettings()
@@ -483,6 +616,7 @@ namespace Browser
         loc.session = "";
         loc.state = "home";
         ENC_FS::BrowserStorage::clearAll();
+        Serial.println("[Browser] clearSettings called - storage cleared");
     }
 
     uint16_t getThemeColor(const String &name)
@@ -511,10 +645,13 @@ namespace Browser
     void storeData(const String &domain, const ENC_FS::Buffer &data)
     {
         ENC_FS::BrowserStorage::set(domain, data);
+        Serial.printf("[Browser] storeData domain='%s' len=%d\n", domain.c_str(), (int)data.size());
     }
     ENC_FS::Buffer loadData(const String &domain)
     {
-        return ENC_FS::BrowserStorage::get(domain);
+        ENC_FS::Buffer b = ENC_FS::BrowserStorage::get(domain);
+        Serial.printf("[Browser] loadData domain='%s' len=%d\n", domain.c_str(), (int)b.size());
+        return b;
     }
 
     // ----------------------------
@@ -528,7 +665,7 @@ namespace Browser
     }
 
     // ----------------------------
-    // Touch & click handling
+    // Touch & click handling (REPLACED)
     // ----------------------------
     void handleTouch()
     {
@@ -536,224 +673,244 @@ namespace Browser
         int absX = pos.x;
         int absY = pos.y;
 
+        Serial.printf("[Browser] Touch pos x=%d y=%d pressed=%d\n", absX, absY, pos.clicked ? 1 : 0);
+
         // Determine if pointer is inside our list viewport (when list rendered we call enterViewport)
         bool inViewport = (absX >= vpX && absX < vpX + vpW && absY >= vpY && absY < vpY + vpH && viewportActive);
         int localX = inViewport ? (absX - vpX) : absX;
         int localY = inViewport ? (absY - vpY) : absY;
 
+        // pressed
         if (pos.clicked)
         {
-            if (!touchDragging)
+            if (!touchActive)
             {
-                touchDragging = true;
-                touchStartY = absY;
-                touchLastY = absY;
-                touchTotalMove = 0;
+                // start new touch
+                onTouchStart(absX, absY);
                 return;
             }
-
-            int dy = touchLastY - absY; // positive -> user swiped up
-            if (dy != 0)
+            else
             {
-                touchTotalMove += abs(dy);
-                touchLastY = absY;
-
+                // move
+                int16_t prevLastY = lastY;
+                onTouchMove(absX, absY);
+                // if we are dragging and started inside the list area, scroll
                 int listOriginY = viewportActive ? vpY : VISIT_LIST_Y;
-                if (touchStartY >= listOriginY && inViewport && loc.state == "home")
+                if (dragging && startY >= listOriginY && inViewport && loc.state == "home")
                 {
-                    std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
-                    clampScrollForSites(sites);
-                    int totalHeight = (int)sites.size() * VISIT_ITEM_H;
-                    int visible = vpH;
-                    int maxOffset = totalHeight > visible ? totalHeight - visible : 0;
-                    visitScrollOffset += dy;
-                    if (visitScrollOffset < 0)
-                        visitScrollOffset = 0;
-                    if (visitScrollOffset > maxOffset)
-                        visitScrollOffset = maxOffset;
-                    ReRender();
-                    return;
+                    int dy = prevLastY - lastY; // positive -> user swiped up
+                    if (dy != 0)
+                    {
+                        std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
+                        clampScrollForSites(sites);
+                        int totalHeight = (int)sites.size() * VISIT_ITEM_H;
+                        int visible = vpH;
+                        int maxOffset = totalHeight > visible ? totalHeight - visible : 0;
+                        visitScrollOffset += dy;
+                        if (visitScrollOffset < 0)
+                            visitScrollOffset = 0;
+                        if (visitScrollOffset > maxOffset)
+                            visitScrollOffset = maxOffset;
+                        Serial.printf("[Browser] Dragging list dy=%d visitScrollOffset=%d\n", dy, visitScrollOffset);
+                        ReRender();
+                    }
                 }
+                return;
             }
-            return;
         }
         else
         {
-            if (touchDragging)
+            // released
+            if (touchActive)
             {
-                int moved = touchTotalMove;
-                touchDragging = false;
-                if (moved > 6)
-                    return; // it was a drag, ignore as click
-                // else fall through to treat as click
-            }
-        }
-
-        // simple taps / clicks
-        if (!pos.clicked)
-        {
-            if (!pos.clicked)
-                return;
-
-            // Topbar Exit (right)
-            if (absY < TOPBAR_H && absX > (SCREEN_W - 60))
-            {
-                // For production: Exit should close app or disconnect; here go to home
-                loc.state = "home";
-                ReRender();
-                return;
-            }
-
-            // Top-left home area -> go home
-            if (absY < TOPBAR_H && absX < 120)
-            {
-                loc.state = "home";
-                ReRender();
-                return;
-            }
-
-            // Home buttons
-            if (loc.state == "home")
-            {
-                int cardX = 6;
-                int cardY = 25;
-                int cardW = SCREEN_W - cardX * 2;
-                int btnW = (cardW - BUTTON_PADDING * 3) / 2;
-                int bx0 = cardX + BUTTON_PADDING;
-                int by = cardY + 6;
-                if (absY >= by && absY <= by + BUTTON_H)
+                onTouchEnd();
+                // if it was a click, handle it using start coords (stabilized) -> map to local coords
+                if (consumeClick())
                 {
-                    for (int i = 0; i < 2; ++i)
+                    int clickX = startX;
+                    int clickY = startY;
+                    bool clickInViewport = (clickX >= vpX && clickX < vpX + vpW && clickY >= vpY && clickY < vpY + vpH && viewportActive);
+                    int clickLocalX = clickInViewport ? (clickX - vpX) : clickX;
+                    int clickLocalY = clickInViewport ? (clickY - vpY) : clickY;
+
+                    Serial.printf("[Browser] Click detected x=%d y=%d (localX=%d localY=%d) inViewport=%d state=%s\n",
+                                  clickX, clickY, clickLocalX, clickLocalY, clickInViewport ? 1 : 0, loc.state.c_str());
+
+                    // Topbar Exit (right)
+                    if (clickY < TOPBAR_H && clickX > (SCREEN_W - 60))
                     {
-                        int bx = bx0 + i * (btnW + BUTTON_PADDING);
-                        if (absX >= bx && absX <= bx + btnW)
+                        Serial.println("[Browser] Topbar Exit tapped");
+                        loc.state = "home";
+                        ReRender();
+                        return;
+                    }
+
+                    // Top-left home area -> go home
+                    if (clickY < TOPBAR_H && clickX < 120)
+                    {
+                        Serial.println("[Browser] Topbar Home tapped");
+                        loc.state = "home";
+                        ReRender();
+                        return;
+                    }
+
+                    // Home buttons
+                    if (loc.state == "home")
+                    {
+                        int cardX = 6;
+                        int cardY = 25;
+                        int cardW = SCREEN_W - cardX * 2;
+                        int btnW = (cardW - BUTTON_PADDING * 3) / 2;
+                        int bx0 = cardX + BUTTON_PADDING;
+                        int by = cardY + 6;
+                        if (clickY >= by && clickY <= by + BUTTON_H)
                         {
-                            if (i == 0)
+                            for (int i = 0; i < 2; ++i)
                             {
-                                String input = promptText("Which page do you want to visit?", "");
-                                if (input.length())
+                                int bx = bx0 + i * (btnW + BUTTON_PADDING);
+                                if (clickX >= bx && clickX <= bx + btnW)
                                 {
-                                    int at = input.indexOf('@');
-                                    String domainPort = input;
-                                    String state = "startpage";
-                                    if (at > 0)
+                                    if (i == 0)
                                     {
-                                        domainPort = input.substring(0, at);
-                                        state = input.substring(at + 1);
+                                        Serial.println("[Browser] Open Site button tapped");
+                                        String input = promptText("Which page do you want to visit?", "");
+                                        if (input.length())
+                                        {
+                                            int at = input.indexOf('@');
+                                            String domainPort = input;
+                                            String state = "startpage";
+                                            if (at > 0)
+                                            {
+                                                domainPort = input.substring(0, at);
+                                                state = input.substring(at + 1);
+                                            }
+                                            int colon = domainPort.indexOf(':');
+                                            String domain = domainPort;
+                                            int port = 443;
+                                            if (colon > 0)
+                                            {
+                                                domain = domainPort.substring(0, colon);
+                                                port = domainPort.substring(colon + 1).toInt();
+                                            }
+                                            navigate(domain, port, state);
+                                        }
                                     }
-                                    int colon = domainPort.indexOf(':');
-                                    String domain = domainPort;
-                                    int port = 443;
-                                    if (colon > 0)
+                                    else // search
                                     {
-                                        domain = domainPort.substring(0, colon);
-                                        port = domainPort.substring(colon + 1).toInt();
+                                        Serial.println("[Browser] Open Search button tapped");
+                                        navigate("mw-search-server-onrender-app.onrender.com", 443, "startpage");
                                     }
-                                    navigate(domain, port, state);
+                                    return;
                                 }
                             }
-                            else // search
+                        }
+                    }
+
+                    // Visited list hit-testing — use viewport-relative coords when active
+                    if (loc.state == "home" && clickInViewport)
+                    {
+                        std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
+                        if (!sites.empty())
+                        {
+                            int idx = (clickLocalY + visitScrollOffset) / VISIT_ITEM_H;
+                            Serial.printf("[Browser] Click in viewport idx=%d localX=%d localY=%d\n", idx, clickLocalX, clickLocalY);
+                            if (idx >= 0 && idx < (int)sites.size())
                             {
-                                navigate("mw-search-server-onrender-app.onrender.com", 443, "startpage");
+                                String domain = sites[idx];
+                                int btnW = 56;
+                                int btnGap = 4;
+                                int xOpen = vpW - BUTTON_PADDING - btnW;
+                                int xClear = xOpen - btnGap - btnW;
+                                int xDelete = xClear - btnGap - btnW;
+
+                                if (clickLocalX >= xDelete && clickLocalX <= xDelete + btnW)
+                                {
+                                    Serial.printf("[Browser] Delete site '%s'\n", domain.c_str());
+                                    ENC_FS::BrowserStorage::del(domain);
+                                    ReRender();
+                                    return;
+                                }
+                                if (clickLocalX >= xClear && clickLocalX <= xClear + btnW)
+                                {
+                                    Serial.printf("[Browser] Clear site content '%s'\n", domain.c_str());
+                                    ENC_FS::Buffer empty;
+                                    ENC_FS::BrowserStorage::set(domain, empty);
+                                    ReRender();
+                                    return;
+                                }
+                                if (clickLocalX >= xOpen && clickLocalX <= xOpen + btnW)
+                                {
+                                    Serial.printf("[Browser] Open site '%s'\n", domain.c_str());
+                                    navigate(domain, 443, "startpage");
+                                    return;
+                                }
+
+                                int textAreaW = vpW - BUTTON_PADDING - (3 * (btnW + btnGap));
+                                if (clickLocalX >= 0 && clickLocalX <= textAreaW)
+                                {
+                                    Serial.printf("[Browser] Text area tapped - open '%s'\n", domain.c_str());
+                                    navigate(domain, 443, "startpage");
+                                    return;
+                                }
                             }
-                            return;
                         }
                     }
-                }
-            }
-
-            // Visited list hit-testing — use viewport-relative coords when active
-            if (loc.state == "home" && inViewport)
-            {
-                std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
-                if (!sites.empty())
-                {
-                    int idx = (localY + visitScrollOffset) / VISIT_ITEM_H;
-                    if (idx >= 0 && idx < (int)sites.size())
+                    else if (loc.state == "home" && clickY >= VISIT_LIST_Y)
                     {
-                        String domain = sites[idx];
-                        int btnW = 56;
-                        int btnGap = 4;
-                        int xOpen = vpW - BUTTON_PADDING - btnW;
-                        int xClear = xOpen - btnGap - btnW;
-                        int xDelete = xClear - btnGap - btnW;
+                        // fallback when viewport wasn't used
+                        std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
+                        int idx = (clickY - VISIT_LIST_Y + visitScrollOffset) / VISIT_ITEM_H;
+                        Serial.printf("[Browser] Click in fallback list idx=%d absX=%d absY=%d\n", idx, clickX, clickY);
+                        if (idx >= 0 && idx < (int)sites.size())
+                        {
+                            String domain = sites[idx];
+                            int btnW = 56;
+                            int btnGap = 4;
+                            int xOpen = SCREEN_W - BUTTON_PADDING - btnW;
+                            int xClear = xOpen - btnGap - btnW;
+                            int xDelete = xClear - btnGap - btnW;
 
-                        if (localX >= xDelete && localX <= xDelete + btnW)
-                        {
-                            ENC_FS::BrowserStorage::del(domain);
-                            ReRender();
-                            return;
-                        }
-                        if (localX >= xClear && localX <= xClear + btnW)
-                        {
-                            ENC_FS::Buffer empty;
-                            ENC_FS::BrowserStorage::set(domain, empty);
-                            ReRender();
-                            return;
-                        }
-                        if (localX >= xOpen && localX <= xOpen + btnW)
-                        {
-                            navigate(domain, 443, "startpage");
-                            return;
-                        }
+                            if (clickX >= xDelete && clickX <= xDelete + btnW)
+                            {
+                                Serial.printf("[Browser] Delete site '%s' (fallback)\n", domain.c_str());
+                                ENC_FS::BrowserStorage::del(domain);
+                                ReRender();
+                                return;
+                            }
+                            if (clickX >= xClear && clickX <= xClear + btnW)
+                            {
+                                Serial.printf("[Browser] Clear site '%s' (fallback)\n", domain.c_str());
+                                ENC_FS::Buffer empty;
+                                ENC_FS::BrowserStorage::set(domain, empty);
+                                ReRender();
+                                return;
+                            }
+                            if (clickX >= xOpen && clickX <= xOpen + btnW)
+                            {
+                                Serial.printf("[Browser] Open site '%s' (fallback)\n", domain.c_str());
+                                navigate(domain, 443, "startpage");
+                                return;
+                            }
 
-                        int textAreaW = vpW - BUTTON_PADDING - (3 * (btnW + btnGap));
-                        if (localX >= 0 && localX <= textAreaW)
-                        {
-                            navigate(domain, 443, "startpage");
-                            return;
+                            int textAreaW = SCREEN_W - BUTTON_PADDING - (3 * (btnW + btnGap));
+                            if (clickX >= 0 && clickX <= textAreaW)
+                            {
+                                Serial.printf("[Browser] Text area tapped - open '%s' (fallback)\n", domain.c_str());
+                                navigate(domain, 443, "startpage");
+                                return;
+                            }
                         }
                     }
-                }
-            }
-            else if (loc.state == "home" && absY >= VISIT_LIST_Y)
-            {
-                // fallback when viewport wasn't used
-                std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
-                int idx = (absY - VISIT_LIST_Y + visitScrollOffset) / VISIT_ITEM_H;
-                if (idx >= 0 && idx < (int)sites.size())
-                {
-                    String domain = sites[idx];
-                    int btnW = 56;
-                    int btnGap = 4;
-                    int xOpen = SCREEN_W - BUTTON_PADDING - btnW;
-                    int xClear = xOpen - btnGap - btnW;
-                    int xDelete = xClear - btnGap - btnW;
 
-                    if (absX >= xDelete && absX <= xDelete + btnW)
+                    // Website topbar exit
+                    if (loc.state != "home" && clickY < TOPBAR_H && clickX > (SCREEN_W - 40))
                     {
-                        ENC_FS::BrowserStorage::del(domain);
+                        Serial.println("[Browser] Website topbar close tapped");
+                        loc.state = "home";
                         ReRender();
                         return;
                     }
-                    if (absX >= xClear && absX <= xClear + btnW)
-                    {
-                        ENC_FS::Buffer empty;
-                        ENC_FS::BrowserStorage::set(domain, empty);
-                        ReRender();
-                        return;
-                    }
-                    if (absX >= xOpen && absX <= xOpen + btnW)
-                    {
-                        navigate(domain, 443, "startpage");
-                        return;
-                    }
-
-                    int textAreaW = SCREEN_W - BUTTON_PADDING - (3 * (btnW + btnGap));
-                    if (absX >= 0 && absX <= textAreaW)
-                    {
-                        navigate(domain, 443, "startpage");
-                        return;
-                    }
                 }
-            }
-
-            // Website topbar exit
-            if (loc.state != "home" && absY < TOPBAR_H && absX > (SCREEN_W - 40))
-            {
-                loc.state = "home";
-                ReRender();
-                return;
             }
         }
     }
@@ -763,12 +920,15 @@ namespace Browser
     // ----------------------------
     void navigate(const String &domain, int port, const String &state)
     {
+        Serial.printf("[Browser] navigate domain='%s' port=%d state='%s'\n", domain.c_str(), port, state.c_str());
         loc.domain = domain;
         loc.port = port;
         loc.state = state;
         saveVisitedSite(domain);
 
         webSocket.disconnect();
+        // small delay can help WebSockets reconnect reliably on some hardware; keep minimal
+        delay(10);
         webSocket.beginSSL(loc.domain.c_str(), loc.port, "/");
         webSocket.setReconnectInterval(5000);
         ReRender();
@@ -780,6 +940,7 @@ namespace Browser
         String s = String(ts);
         ENC_FS::Buffer b((uint8_t *)s.c_str(), (uint8_t *)s.c_str() + s.length());
         ENC_FS::BrowserStorage::set(domain, b);
+        Serial.printf("[Browser] saveVisitedSite domain='%s' ts=%lu\n", domain.c_str(), ts);
     }
 
     // ----------------------------
@@ -810,6 +971,7 @@ namespace Browser
     void showVisitedSites()
     {
         std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
+        Serial.printf("[Browser] showVisitedSites count=%d visitScrollOffset=%d\n", (int)sites.size(), visitScrollOffset);
         drawText(10, VISIT_LIST_Y - 18, "Visited Sites", theme.text, 2);
 
         // Use viewport for list area
@@ -902,6 +1064,7 @@ namespace Browser
 
     void showWebsitePage()
     {
+        Serial.printf("[Browser] showWebsitePage title='%s' domain='%s'\n", loc.title.c_str(), loc.domain.c_str());
         Screen::tft.fillRect(0, 0, SCREEN_W, TOPBAR_H, theme.primary);
         String title = loc.title.length() ? loc.title : loc.domain;
         if (title.length() > 20)
