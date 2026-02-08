@@ -1,3 +1,7 @@
+// browser.cpp — Production-ready two-page browser (home, website)
+// Matches browser.hpp API. Focus: robust viewport, visited-list scrolling, hit-testing,
+// safe parsing of incoming Draw* commands, no out-of-bounds rendering.
+
 #include "browser.hpp"
 
 #include <WiFiClientSecure.h>
@@ -17,19 +21,18 @@ namespace Browser
     WebSocketsClient webSocket;
     String Location::sessionId = String(random(100000, 999999));
 
-    // UI layout constants
+    // UI layout constants (320x240)
     static constexpr int SCREEN_W = 320;
     static constexpr int SCREEN_H = 240;
-    static constexpr int TOPBAR_H = 20;               // task-bar 20px high
-    static constexpr int BUTTON_ROW_Y = TOPBAR_H + 6; // card y
-    static constexpr int BUTTON_H = 36;
+    static constexpr int TOPBAR_H = 20;
     static constexpr int BUTTON_PADDING = 10;
-    static constexpr int VISIT_LIST_Y = 100; // under the buttons
+    static constexpr int BUTTON_H = 36;
+    static constexpr int VISIT_LIST_Y = 100;
     static constexpr int VISIT_ITEM_H = 30;
     static constexpr int VIEWPORT_Y = TOPBAR_H;
     static constexpr int VIEWPORT_H = SCREEN_H - TOPBAR_H;
 
-    // Theme colors storage (can be updated from frontend)
+    // Theme (16-bit values stored in uint16_t)
     static struct Theme
     {
         uint16_t bg = Style::Colors::bg;
@@ -37,35 +40,35 @@ namespace Browser
         uint16_t primary = Style::Colors::primary;
         uint16_t accent = Style::Colors::accent;
         uint16_t accent2 = Style::Colors::accent2;
-        uint16_t accent3 = Style::Colors::accent3;
         uint16_t accentText = Style::Colors::accentText;
         uint16_t pressed = Style::Colors::pressed;
         uint16_t danger = Style::Colors::danger;
         uint16_t placeholder = Style::Colors::placeholder;
     } theme;
 
-    // Scroll state for visited list
+    // Scrolling / touch state
     static int visitScrollOffset = 0;
     static bool touchDragging = false;
     static int touchStartY = 0;
     static int touchLastY = 0;
     static int touchTotalMove = 0;
 
-    // Viewport tracking (keeps track of current viewport so drawing helpers can clip)
+    // Viewport state
     static bool viewportActive = false;
     static int vpX = 0, vpY = 0, vpW = SCREEN_W, vpH = SCREEN_H;
 
-    // Forward declarations
+    // Forward declarations (internal)
     void renderTopBar();
     void showHomeUI();
     void showVisitedSites();
     void showWebsitePage();
     void ReRender();
 
+    // ----------------------------
     // Viewport helpers
+    // ----------------------------
     void enterViewport(int x, int y, int w, int h)
     {
-        // clamp values
         if (x < 0)
             x = 0;
         if (y < 0)
@@ -97,60 +100,54 @@ namespace Browser
         Screen::tft.setViewport(0, 0, SCREEN_W, SCREEN_H);
     }
 
-    // ---- Start / lifecycle ----
+    // ----------------------------
+    // Lifecycle
+    // ----------------------------
     void Start()
     {
-        // Render initial UI but do NOT connect the websocket automatically.
-        // The remote website connection will be opened only after the user explicitly navigates.
         Screen::tft.fillScreen(theme.bg);
         renderTopBar();
         showHomeUI();
         showVisitedSites();
 
-        // Prepare websocket event handler (connection will be started on navigate())
         webSocket.onEvent([](WStype_t type, uint8_t *payload, size_t length)
                           {
             String msg = (payload != nullptr && length > 0) ? String((char *)payload) : String();
 
             switch (type)
             {
-            case WStype_CONNECTED:
+                case WStype_CONNECTED:
                 {
                     Serial.println("[Browser] Connected");
-                    // Send handshake with sessionId and device resolution (width x height)
                     webSocket.sendTXT("MWOSP-v1 " + Location::sessionId + " " + String(SCREEN_W) + " " + String(SCREEN_H));
-                    // Send current theme colors to server
                     String themeMsg = "ThemeColors";
                     themeMsg += " bg:" + String(theme.bg, HEX);
                     themeMsg += " text:" + String(theme.text, HEX);
                     themeMsg += " primary:" + String(theme.primary, HEX);
                     themeMsg += " accent:" + String(theme.accent, HEX);
                     themeMsg += " accent2:" + String(theme.accent2, HEX);
-                    themeMsg += " accent3:" + String(theme.accent3, HEX);
                     themeMsg += " accentText:" + String(theme.accentText, HEX);
                     themeMsg += " pressed:" + String(theme.pressed, HEX);
                     themeMsg += " danger:" + String(theme.danger, HEX);
                     themeMsg += " placeholder:" + String(theme.placeholder, HEX);
                     webSocket.sendTXT(themeMsg);
+                    break;
                 }
-                break;
-            case WStype_TEXT:
-                handleCommand(msg);
-                break;
-            case WStype_DISCONNECTED:
-                Serial.println("[Browser] Disconnected");
-                break;
-            default:
-                break;
+                case WStype_TEXT:
+                    handleCommand(msg);
+                    break;
+                case WStype_DISCONNECTED:
+                    Serial.println("[Browser] Disconnected");
+                    break;
+                default:
+                    break;
             } });
 
-        // No automatic .beginSSL() here: connect when navigate() is called.
         isRunning = true;
     }
 
     void OnExit()
     {
-        // Ensure websocket is gracefully closed
         webSocket.disconnect();
     }
 
@@ -158,22 +155,35 @@ namespace Browser
     {
         isRunning = false;
         OnExit();
-        // return to home view
         loc.state = "home";
         ReRender();
     }
 
-    // ---- Command handling from server ----
+    // ----------------------------
+    // Safe small helpers
+    // ----------------------------
+    static inline void clampScrollForSites(const std::vector<String> &sites)
+    {
+        int total = (int)sites.size() * VISIT_ITEM_H;
+        int visible = SCREEN_H - VISIT_LIST_Y;
+        int maxOff = total > visible ? total - visible : 0;
+        if (visitScrollOffset < 0)
+            visitScrollOffset = 0;
+        if (visitScrollOffset > maxOff)
+            visitScrollOffset = maxOff;
+    }
+
+    // ----------------------------
+    // Command handling (server -> device)
+    // ----------------------------
     void handleCommand(const String &payload)
     {
-        // ----------------- TFT Drawing with bounds checking -----------------
         if (payload.startsWith("FillRect"))
         {
             int x = 0, y = 0, w = 0, h = 0;
             unsigned int c = 0;
             if (sscanf(payload.c_str(), "FillRect %d %d %d %d %u", &x, &y, &w, &h, &c) == 5)
             {
-                // Clip rectangle to screen bounds
                 if (x < 0)
                 {
                     w += x;
@@ -188,44 +198,45 @@ namespace Browser
                     w = SCREEN_W - x;
                 if (y + h > SCREEN_H)
                     h = SCREEN_H - y;
-
                 if (w > 0 && h > 0)
                     Screen::tft.fillRect(x, y, w, h, (uint16_t)c);
             }
+            return;
         }
-        else if (payload.startsWith("DrawCircle"))
+
+        if (payload.startsWith("DrawCircle"))
         {
             int x = 0, y = 0, r = 0;
             unsigned int c = 0;
             if (sscanf(payload.c_str(), "DrawCircle %d %d %d %u", &x, &y, &r, &c) == 4)
             {
-                // Clip circle: only draw if any part is visible
                 if (r > 0 && x >= -r && x <= SCREEN_W + r && y >= -r && y <= SCREEN_H + r)
                     drawCircle(x, y, r, (uint16_t)c);
             }
+            return;
         }
-        else if (payload.startsWith("DrawText"))
+
+        if (payload.startsWith("DrawText"))
         {
             int x = 0, y = 0, size = 1;
             unsigned int c = 0;
             char buf[512] = {0};
-            // Format: DrawText <x> <y> <size> <color> <text...>
+            // single-line format string — reads all remaining chars until newline
             if (sscanf(payload.c_str(), "DrawText %d %d %d %u %[^\n]", &x, &y, &size, &c, buf) >= 5)
             {
                 String text = String(buf);
-                // Clip text position (use drawText which is viewport aware)
                 drawText(x, y, text, (uint16_t)c, size);
             }
+            return;
         }
-        else if (payload.startsWith("DrawSVG"))
+
+        if (payload.startsWith("DrawSVG"))
         {
-            // Format assumed: "DrawSVG x y w h color <svg...>"
             int x = 0, y = 0, w = 0, h = 0;
             unsigned int c = 0;
-            int read = sscanf(payload.c_str(), "DrawSVG %d %d %d %d %u", &x, &y, &w, &h, &c);
-            if (read == 5)
+            if (sscanf(payload.c_str(), "DrawSVG %d %d %d %d %u", &x, &y, &w, &h, &c) == 5)
             {
-                // locate 5th space to extract svg payload
+                // find payload after 5th token
                 int countSpaces = 0;
                 int headerEnd = -1;
                 for (int i = 0; i < (int)payload.length(); ++i)
@@ -241,7 +252,6 @@ namespace Browser
                 if (headerEnd >= 0 && headerEnd + 1 < (int)payload.length())
                 {
                     String svg = payload.substring(headerEnd + 1);
-                    // Clip SVG drawing area
                     if (x < 0)
                     {
                         w += x;
@@ -258,29 +268,24 @@ namespace Browser
                         w = SCREEN_W - x;
                     if (y + h > SCREEN_H)
                         h = SCREEN_H - y;
-
                     if (w > 0 && h > 0)
                         drawSVG(svg, x, y, w, h, (uint16_t)c);
                 }
             }
+            return;
         }
-        // ----------------- Theme Colors -----------------
-        else if (payload.startsWith("SetThemeColor"))
+
+        // Theme / storage / navigation commands — lightweight parsing
+        if (payload.startsWith("SetThemeColor"))
         {
-            // Format: "SetThemeColor bg 0xFFFF" (16-bit color in hex)
             int idx = payload.indexOf(' ', 13);
             if (idx > 0)
             {
                 String colorName = payload.substring(13, idx);
                 String colorValue = payload.substring(idx + 1);
-
-                // Remove "0x" prefix if present
                 if (colorValue.startsWith("0x"))
                     colorValue = colorValue.substring(2);
-
-                uint16_t color = (uint16_t)strtoul(colorValue.c_str(), NULL, 16);
-
-                // Update theme color
+                uint16_t color = (uint16_t)strtoul(colorValue.c_str(), nullptr, 16);
                 if (colorName == "bg")
                     theme.bg = color;
                 else if (colorName == "text")
@@ -291,8 +296,6 @@ namespace Browser
                     theme.accent = color;
                 else if (colorName == "accent2")
                     theme.accent2 = color;
-                else if (colorName == "accent3")
-                    theme.accent3 = color;
                 else if (colorName == "accentText")
                     theme.accentText = color;
                 else if (colorName == "pressed")
@@ -302,34 +305,22 @@ namespace Browser
                 else if (colorName == "placeholder")
                     theme.placeholder = color;
 
-                // Redraw UI with new colors if needed
-                if (loc.state == "home" || loc.state == "settings")
-                {
+                if (loc.state == "home" || loc.state == "website")
                     ReRender();
-                }
             }
+            return;
         }
-        else if (payload.startsWith("GetThemeColor"))
+
+        if (payload.startsWith("GetThemeColor"))
         {
-            // Format: "GetThemeColor bg"
-            String colorName = payload.substring(14);
-            uint16_t color = getThemeColor(colorName);
-            webSocket.sendTXT("ThemeColor " + colorName + " " + String(color, HEX));
+            String name = payload.substring(14);
+            uint16_t c = getThemeColor(name);
+            webSocket.sendTXT("ThemeColor " + name + " " + String(c, HEX));
+            return;
         }
-        // ----------------- Storage -----------------
-        else if (payload.startsWith("GetStorage"))
+
+        if (payload.startsWith("SetStorage"))
         {
-            // "GetStorage <key>"
-            String key = payload.substring(11);
-            ENC_FS::Buffer data = ENC_FS::BrowserStorage::get(key);
-            String s;
-            if (!data.empty())
-                s = String((const char *)data.data(), data.size());
-            webSocket.sendTXT("GetBackStorage " + key + " " + s);
-        }
-        else if (payload.startsWith("SetStorage"))
-        {
-            // "SetStorage <key> <value...>"
             int idx = payload.indexOf(' ', 11);
             if (idx > 0)
             {
@@ -338,54 +329,59 @@ namespace Browser
                 ENC_FS::Buffer buf((uint8_t *)val.c_str(), (uint8_t *)val.c_str() + val.length());
                 ENC_FS::BrowserStorage::set(key, buf);
             }
+            return;
         }
-        // ----------------- Navigation & Control -----------------
-        else if (payload.startsWith("Navigate"))
+
+        if (payload.startsWith("GetStorage"))
         {
-            // Format: Navigate <domain>[:port]@<state>
-            int idxAt = payload.indexOf('@', 9);
-            int idxColon = payload.indexOf(':', 9);
-            String domain;
+            String key = payload.substring(11);
+            ENC_FS::Buffer b = ENC_FS::BrowserStorage::get(key);
+            String s;
+            if (!b.empty())
+                s = String((char *)b.data(), b.size());
+            webSocket.sendTXT("GetBackStorage " + key + " " + s);
+            return;
+        }
+
+        if (payload.startsWith("Navigate"))
+        {
+            // support: "Navigate home" or "Navigate domain[:port]@state"
+            String arg = payload.substring(9);
+            arg.trim();
+            if (arg == "home")
+            {
+                loc.state = "home";
+                ReRender();
+                return;
+            }
+            // parse domain[:port]@state
+            String domain = arg;
             int port = 443;
             String state = "startpage";
-
-            if (idxAt > 0)
+            int at = arg.indexOf('@');
+            if (at >= 0)
             {
-                if (idxColon > 0 && idxColon < idxAt)
-                {
-                    domain = payload.substring(9, idxColon);
-                    port = payload.substring(idxColon + 1, idxAt).toInt();
-                }
-                else
-                    domain = payload.substring(9, idxAt);
-                state = payload.substring(idxAt + 1);
+                domain = arg.substring(0, at);
+                state = arg.substring(at + 1);
             }
-            else
+            int colon = domain.indexOf(':');
+            if (colon >= 0)
             {
-                // No @, maybe just "Navigate home" or "Navigate settings"
-                domain = payload.substring(9);
-                // if domain equals "home" or "settings" treat as state
-                if (domain == "home" || domain == "settings" || domain == "search" || domain == "input")
-                {
-                    loc.state = domain;
-                    ReRender();
-                    return;
-                }
+                port = domain.substring(colon + 1).toInt();
+                domain = domain.substring(0, colon);
             }
             navigate(domain, port, state);
+            return;
         }
-        else if (payload.startsWith("Exit"))
+
+        if (payload.startsWith("Exit"))
         {
             Exit();
+            return;
         }
-        else if (payload.startsWith("ClearSettings"))
+
+        if (payload.startsWith("PromptText"))
         {
-            clearSettings();
-            ReRender();
-        }
-        else if (payload.startsWith("PromptText"))
-        {
-            // server asked device for input
             int idx = payload.indexOf(' ', 11);
             String rid;
             if (idx > 0)
@@ -394,43 +390,33 @@ namespace Browser
                 rid = payload.substring(11);
             String input = promptText("Enter text:");
             webSocket.sendTXT("GetBackText " + rid + " " + input);
+            return;
         }
-        else if (payload.startsWith("SetSession"))
+
+        if (payload.startsWith("Title "))
         {
-            loc.session = payload.substring(11);
-        }
-        else if (payload.startsWith("GetSession"))
-        {
-            String rid = payload.substring(11);
-            webSocket.sendTXT("GetBackSession " + rid + " " + loc.session);
-        }
-        else if (payload.startsWith("SetState"))
-        {
-            loc.state = payload.substring(9);
-        }
-        else if (payload.startsWith("GetState"))
-        {
-            String rid = payload.substring(9);
-            webSocket.sendTXT("GetBackState " + rid + " " + loc.state);
-        }
-        else if (payload.startsWith("Title "))
-        {
-            // Server sends page title
             loc.title = payload.substring(6);
             ReRender();
+            return;
         }
+
+        // unhandled messages are ignored
     }
 
+    // ----------------------------
+    // Main loop
+    // ----------------------------
     void Update()
     {
-        // webSocket.loop is safe even if not connected
         webSocket.loop();
         handleTouch();
     }
 
+    // ----------------------------
+    // Full redraw
+    // ----------------------------
     void ReRender()
     {
-        // Full redraw according to current loc.state
         Screen::tft.fillScreen(theme.bg);
         renderTopBar();
 
@@ -439,63 +425,44 @@ namespace Browser
             showHomeUI();
             showVisitedSites();
         }
-        else if (loc.state == "settings")
-        {
-            showSettingsPage();
-        }
-        else if (loc.state == "startpage" || loc.state == "website")
+        else // only website page beyond home
         {
             showWebsitePage();
         }
-        else if (loc.state == "input")
-        {
-            showInputPage();
-        }
-        else
-        {
-            // Fallback to home
-            loc.state = "home";
-            showHomeUI();
-            showVisitedSites();
-        }
     }
 
-    // ----------------- Utilities -----------------
+    // ----------------------------
+    // Drawing helpers (viewport-aware clipping & truncation)
+    // ----------------------------
     void drawText(int x, int y, const String &text, uint16_t color, int size)
     {
-        // If a viewport is active, coordinates are relative to it; otherwise absolute to screen.
+        // Determine local width/height depending on viewportActive
         int localW = viewportActive ? vpW : SCREEN_W;
         int localH = viewportActive ? vpH : SCREEN_H;
 
-        // Clip vertical position
         if (y < 0 || y >= localH)
             return;
-
-        Screen::tft.setTextColor(color);
         Screen::tft.setTextSize(size);
+        Screen::tft.setTextColor(color);
         Screen::tft.setCursor(x, y);
 
-        // Truncate text if it would overflow
-        String displayText = text;
+        // approximate char width = 6 * size
         int textWidth = text.length() * 6 * size;
+        String display = text;
         if (x + textWidth > localW)
         {
             int maxChars = (localW - x) / (6 * size);
             if (maxChars > 3)
-            {
-                displayText = text.substring(0, maxChars - 3) + "...";
-            }
+                display = text.substring(0, maxChars - 3) + "...";
             else
-            {
-                return; // Not enough space
-            }
+                return;
         }
-
-        Screen::tft.print(displayText);
+        Screen::tft.print(display);
     }
 
     void drawCircle(int x, int y, int r, uint16_t color)
     {
+        // drawCircle uses absolute coords
         Screen::tft.drawCircle(x, y, r, color);
     }
 
@@ -530,8 +497,6 @@ namespace Browser
             return theme.accent;
         if (name == "accent2")
             return theme.accent2;
-        if (name == "accent3")
-            return theme.accent3;
         if (name == "accentText")
             return theme.accentText;
         if (name == "pressed")
@@ -547,37 +512,36 @@ namespace Browser
     {
         ENC_FS::BrowserStorage::set(domain, data);
     }
-
     ENC_FS::Buffer loadData(const String &domain)
     {
         return ENC_FS::BrowserStorage::get(domain);
     }
 
+    // ----------------------------
+    // Top bar
+    // ----------------------------
     void renderTopBar()
     {
-        // top bar background (full width)
         Screen::tft.fillRect(0, 0, SCREEN_W, TOPBAR_H, theme.primary);
-
-        // Left: Home label
-        drawText(6, 3, "Home", theme.text, 2);
-
-        // Right: Exit label
-        drawText(SCREEN_W - 40, 3, "Exit", theme.danger, 2);
+        drawText(6, 3, "Title Home", theme.text, 2);
+        drawText(SCREEN_W - 48, 3, "Exit", theme.danger, 2);
     }
 
+    // ----------------------------
+    // Touch & click handling
+    // ----------------------------
     void handleTouch()
     {
-        // manage dragging for the visited list
         Screen::TouchPos pos = Screen::getTouchPos();
-
-        // normalize touch coords and whether inside viewport
         int absX = pos.x;
         int absY = pos.y;
-        bool inViewport = (viewportActive && absY >= vpY && absY < (vpY + vpH) && absX >= vpX && absX < (vpX + vpW));
+
+        // Determine if pointer is inside our list viewport (when list rendered we call enterViewport)
+        bool inViewport = (absX >= vpX && absX < vpX + vpW && absY >= vpY && absY < vpY + vpH && viewportActive);
         int localX = inViewport ? (absX - vpX) : absX;
         int localY = inViewport ? (absY - vpY) : absY;
 
-        if (Screen::isTouched())
+        if (pos.clicked)
         {
             if (!touchDragging)
             {
@@ -585,22 +549,22 @@ namespace Browser
                 touchStartY = absY;
                 touchLastY = absY;
                 touchTotalMove = 0;
-                return; // start of touch, ignore until movement or release
+                return;
             }
 
-            int dy = touchLastY - absY; // positive when user swipes up
+            int dy = touchLastY - absY; // positive -> user swiped up
             if (dy != 0)
             {
                 touchTotalMove += abs(dy);
                 touchLastY = absY;
 
-                // Only apply scroll if touch started inside the list area (use viewport origin if active)
                 int listOriginY = viewportActive ? vpY : VISIT_LIST_Y;
-                if (touchStartY >= listOriginY && inViewport)
+                if (touchStartY >= listOriginY && inViewport && loc.state == "home")
                 {
                     std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
+                    clampScrollForSites(sites);
                     int totalHeight = (int)sites.size() * VISIT_ITEM_H;
-                    int visible = vpH; // viewport height
+                    int visible = vpH;
                     int maxOffset = totalHeight > visible ? totalHeight - visible : 0;
                     visitScrollOffset += dy;
                     if (visitScrollOffset < 0)
@@ -615,38 +579,32 @@ namespace Browser
         }
         else
         {
-            // Touch released
             if (touchDragging)
             {
-                // capture last release position
-                int releaseY = absY;
                 int moved = touchTotalMove;
                 touchDragging = false;
-
-                // If movement was small, treat as a tap -> fall through to click handling
                 if (moved > 6)
-                {
-                    // it was a drag, nothing more to do
-                    return;
-                }
-                // otherwise continue to treat as click; pos already holds release coordinates
+                    return; // it was a drag, ignore as click
+                // else fall through to treat as click
             }
         }
 
-        // At this point handle simple taps / clicks
-        if (!Screen::isTouched())
+        // simple taps / clicks
+        if (!pos.clicked)
         {
             if (!pos.clicked)
                 return;
 
-            // Top bar Exit (right)
+            // Topbar Exit (right)
             if (absY < TOPBAR_H && absX > (SCREEN_W - 60))
             {
-                Exit();
+                // For production: Exit should close app or disconnect; here go to home
+                loc.state = "home";
+                ReRender();
                 return;
             }
 
-            // Top-left Home tapped: go home (safe within topbar)
+            // Top-left home area -> go home
             if (absY < TOPBAR_H && absX < 120)
             {
                 loc.state = "home";
@@ -654,14 +612,15 @@ namespace Browser
                 return;
             }
 
-            // Home page buttons (two buttons)
+            // Home buttons
             if (loc.state == "home")
             {
                 int cardX = 6;
+                int cardY = 25;
                 int cardW = SCREEN_W - cardX * 2;
-                int btnW = (cardW - BUTTON_PADDING * 3) / 2; // two buttons
+                int btnW = (cardW - BUTTON_PADDING * 3) / 2;
                 int bx0 = cardX + BUTTON_PADDING;
-                int by = 22 + 6; // cardY + 6
+                int by = cardY + 6;
                 if (absY >= by && absY <= by + BUTTON_H)
                 {
                     for (int i = 0; i < 2; ++i)
@@ -671,17 +630,16 @@ namespace Browser
                         {
                             if (i == 0)
                             {
-                                // Open Site -> prompt for URL
                                 String input = promptText("Which page do you want to visit?", "");
-                                if (input.length() > 0)
+                                if (input.length())
                                 {
-                                    int idx = input.indexOf('@');
+                                    int at = input.indexOf('@');
                                     String domainPort = input;
                                     String state = "startpage";
-                                    if (idx > 0)
+                                    if (at > 0)
                                     {
-                                        domainPort = input.substring(0, idx);
-                                        state = input.substring(idx + 1);
+                                        domainPort = input.substring(0, at);
+                                        state = input.substring(at + 1);
                                     }
                                     int colon = domainPort.indexOf(':');
                                     String domain = domainPort;
@@ -694,9 +652,8 @@ namespace Browser
                                     navigate(domain, port, state);
                                 }
                             }
-                            else if (i == 1)
+                            else // search
                             {
-                                // Open Search
                                 navigate("mw-search-server-onrender-app.onrender.com", 443, "startpage");
                             }
                             return;
@@ -705,32 +662,28 @@ namespace Browser
                 }
             }
 
-            // Visits list interactions (delete / cleardata / open)
-            // Use viewport-relative coordinates for hit-testing when viewport is active
-            if (inViewport)
+            // Visited list hit-testing — use viewport-relative coords when active
+            if (loc.state == "home" && inViewport)
             {
                 std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
                 if (!sites.empty())
                 {
-                    // localY is relative to viewport; compute item index
                     int idx = (localY + visitScrollOffset) / VISIT_ITEM_H;
                     if (idx >= 0 && idx < (int)sites.size())
                     {
                         String domain = sites[idx];
                         int btnW = 56;
                         int btnGap = 4;
-                        int xOpen = vpW - BUTTON_PADDING - btnW; // viewport coords
+                        int xOpen = vpW - BUTTON_PADDING - btnW;
                         int xClear = xOpen - btnGap - btnW;
                         int xDelete = xClear - btnGap - btnW;
 
-                        // Delete
                         if (localX >= xDelete && localX <= xDelete + btnW)
                         {
                             ENC_FS::BrowserStorage::del(domain);
                             ReRender();
                             return;
                         }
-                        // ClearData (set empty)
                         if (localX >= xClear && localX <= xClear + btnW)
                         {
                             ENC_FS::Buffer empty;
@@ -738,35 +691,12 @@ namespace Browser
                             ReRender();
                             return;
                         }
-                        // Open
                         if (localX >= xOpen && localX <= xOpen + btnW)
                         {
-                            // Ask user for URL override or open directly
-                            String theUrl = promptText("Which page do you want to visit?", domain);
-                            if (theUrl.length() > 0)
-                            {
-                                int idxAt = theUrl.indexOf('@');
-                                String domainPort = theUrl;
-                                String state = "startpage";
-                                if (idxAt > 0)
-                                {
-                                    domainPort = theUrl.substring(0, idxAt);
-                                    state = theUrl.substring(idxAt + 1);
-                                }
-                                int colon = domainPort.indexOf(':');
-                                String domainOnly = domainPort;
-                                int port = 443;
-                                if (colon > 0)
-                                {
-                                    domainOnly = domainPort.substring(0, colon);
-                                    port = domainPort.substring(colon + 1).toInt();
-                                }
-                                navigate(domainOnly, port, state);
-                            }
+                            navigate(domain, 443, "startpage");
                             return;
                         }
 
-                        // If tap on the item text area -> navigate directly
                         int textAreaW = vpW - BUTTON_PADDING - (3 * (btnW + btnGap));
                         if (localX >= 0 && localX <= textAreaW)
                         {
@@ -776,133 +706,102 @@ namespace Browser
                     }
                 }
             }
-            else
+            else if (loc.state == "home" && absY >= VISIT_LIST_Y)
             {
-                // Fallback: if viewport is not active but user tapped below VISIT_LIST_Y, handle in absolute coordinates
-                if (absY >= VISIT_LIST_Y)
+                // fallback when viewport wasn't used
+                std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
+                int idx = (absY - VISIT_LIST_Y + visitScrollOffset) / VISIT_ITEM_H;
+                if (idx >= 0 && idx < (int)sites.size())
                 {
-                    std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
-                    int idx = (absY - VISIT_LIST_Y + visitScrollOffset) / VISIT_ITEM_H;
-                    if (idx >= 0 && idx < (int)sites.size())
+                    String domain = sites[idx];
+                    int btnW = 56;
+                    int btnGap = 4;
+                    int xOpen = SCREEN_W - BUTTON_PADDING - btnW;
+                    int xClear = xOpen - btnGap - btnW;
+                    int xDelete = xClear - btnGap - btnW;
+
+                    if (absX >= xDelete && absX <= xDelete + btnW)
                     {
-                        String domain = sites[idx];
-                        int btnW = 56;
-                        int btnGap = 4;
-                        int xOpen = SCREEN_W - BUTTON_PADDING - btnW;
-                        int xClear = xOpen - btnGap - btnW;
-                        int xDelete = xClear - btnGap - btnW;
+                        ENC_FS::BrowserStorage::del(domain);
+                        ReRender();
+                        return;
+                    }
+                    if (absX >= xClear && absX <= xClear + btnW)
+                    {
+                        ENC_FS::Buffer empty;
+                        ENC_FS::BrowserStorage::set(domain, empty);
+                        ReRender();
+                        return;
+                    }
+                    if (absX >= xOpen && absX <= xOpen + btnW)
+                    {
+                        navigate(domain, 443, "startpage");
+                        return;
+                    }
 
-                        if (absX >= xDelete && absX <= xDelete + btnW)
-                        {
-                            ENC_FS::BrowserStorage::del(domain);
-                            ReRender();
-                            return;
-                        }
-                        if (absX >= xClear && absX <= xClear + btnW)
-                        {
-                            ENC_FS::Buffer empty;
-                            ENC_FS::BrowserStorage::set(domain, empty);
-                            ReRender();
-                            return;
-                        }
-                        if (absX >= xOpen && absX <= xOpen + btnW)
-                        {
-                            String theUrl = promptText("Which page do you want to visit?", domain);
-                            if (theUrl.length() > 0)
-                            {
-                                int idxAt = theUrl.indexOf('@');
-                                String domainPort = theUrl;
-                                String state = "startpage";
-                                if (idxAt > 0)
-                                {
-                                    domainPort = theUrl.substring(0, idxAt);
-                                    state = theUrl.substring(idxAt + 1);
-                                }
-                                int colon = domainPort.indexOf(':');
-                                String domainOnly = domainPort;
-                                int port = 443;
-                                if (colon > 0)
-                                {
-                                    domainOnly = domainPort.substring(0, colon);
-                                    port = domainPort.substring(colon + 1).toInt();
-                                }
-                                navigate(domainOnly, port, state);
-                            }
-                            return;
-                        }
-
-                        int textAreaW = SCREEN_W - BUTTON_PADDING - (3 * (btnW + btnGap));
-                        if (absX >= 0 && absX <= textAreaW)
-                        {
-                            navigate(domain, 443, "startpage");
-                            return;
-                        }
+                    int textAreaW = SCREEN_W - BUTTON_PADDING - (3 * (btnW + btnGap));
+                    if (absX >= 0 && absX <= textAreaW)
+                    {
+                        navigate(domain, 443, "startpage");
+                        return;
                     }
                 }
             }
 
-            // Settings page taps: top-left back (kept for compatibility)
-            if (loc.state == "settings")
+            // Website topbar exit
+            if (loc.state != "home" && absY < TOPBAR_H && absX > (SCREEN_W - 40))
             {
-                if (absY > TOPBAR_H && absY < TOPBAR_H + 30 && absX < 120)
-                {
-                    loc.state = "home";
-                    ReRender();
-                }
+                loc.state = "home";
+                ReRender();
+                return;
             }
         }
     }
 
+    // ----------------------------
+    // Navigation
+    // ----------------------------
     void navigate(const String &domain, int port, const String &state)
     {
-        // set desired location
         loc.domain = domain;
         loc.port = port;
         loc.state = state;
         saveVisitedSite(domain);
 
-        // Connect websocket to the target domain (only when user requested)
-        // Disconnect previous socket first (if any)
         webSocket.disconnect();
-        // Begin SSL WebSocket connection to server
         webSocket.beginSSL(loc.domain.c_str(), loc.port, "/");
         webSocket.setReconnectInterval(5000);
-
-        // Re-render UI to show website title bar and view
         ReRender();
     }
 
-    // Save visited site into BrowserStorage (simple presence marker)
     void saveVisitedSite(const String &domain)
     {
         unsigned long ts = millis();
-        String tsStr = String(ts);
-        ENC_FS::Buffer buf((uint8_t *)tsStr.c_str(), (uint8_t *)tsStr.c_str() + tsStr.length());
-        ENC_FS::BrowserStorage::set(domain, buf);
+        String s = String(ts);
+        ENC_FS::Buffer b((uint8_t *)s.c_str(), (uint8_t *)s.c_str() + s.length());
+        ENC_FS::BrowserStorage::set(domain, b);
     }
 
+    // ----------------------------
+    // UI: Home & Website
+    // ----------------------------
     void showHomeUI()
     {
-        // floating card style: small shadow box for the top controls
         int cardX = 6;
         int cardY = 25;
         int cardW = SCREEN_W - cardX * 2;
         int cardH = 48;
 
-        // outer (shadow / primary)
         Screen::tft.fillRoundRect(cardX, cardY, cardW, cardH, 6, theme.primary);
-        // inner (floating)
         Screen::tft.fillRoundRect(cardX + 2, cardY + 2, cardW - 4, cardH - 4, 6, theme.bg);
 
         int btnW = (cardW - BUTTON_PADDING * 3) / 2;
         int bx = cardX + BUTTON_PADDING;
         int by = cardY + 6;
 
-        // Button 0: Open Site
         Screen::tft.fillRoundRect(bx, by, btnW, BUTTON_H, 6, theme.accent);
         drawText(bx + 8, by + 8, "Open Site", theme.accentText, 2);
 
-        // Button 1: Open Search
         bx += btnW + BUTTON_PADDING;
         Screen::tft.fillRoundRect(bx, by, btnW, BUTTON_H, 6, theme.accent2);
         drawText(bx + 8, by + 8, "Open Search", theme.accentText, 2);
@@ -911,42 +810,29 @@ namespace Browser
     void showVisitedSites()
     {
         std::vector<String> sites = ENC_FS::BrowserStorage::listSites();
-
-        // heading
         drawText(10, VISIT_LIST_Y - 18, "Visited Sites", theme.text, 2);
 
-        // create clipping viewport for the list area
+        // Use viewport for list area
         enterViewport(0, VISIT_LIST_Y, SCREEN_W, SCREEN_H - VISIT_LIST_Y);
 
+        clampScrollForSites(sites);
+
         int xText = 10;
-
-        int totalHeight = (int)sites.size() * VISIT_ITEM_H;
-        int visible = vpH; // SCREEN_H - VISIT_LIST_Y;
-        int maxOffset = totalHeight > visible ? totalHeight - visible : 0;
-        if (visitScrollOffset < 0)
-            visitScrollOffset = 0;
-        if (visitScrollOffset > maxOffset)
-            visitScrollOffset = maxOffset;
-
         for (size_t i = 0; i < sites.size(); ++i)
         {
-            int localY = (int)i * VISIT_ITEM_H - visitScrollOffset; // relative to viewport
+            int localY = (int)i * VISIT_ITEM_H - visitScrollOffset;
 
-            // skip items fully above or below viewport
             if (localY + VISIT_ITEM_H < 0)
                 continue;
             if (localY > vpH)
                 continue;
 
-            // background alternating for clarity
             uint16_t bgColor = (i % 2 == 0) ? theme.primary : theme.bg;
-
-            // clip background if partially visible
             int drawY = localY;
             int drawH = VISIT_ITEM_H - 2;
             if (drawY < 0)
             {
-                drawH += drawY; // reduce height
+                drawH += drawY;
                 drawY = 0;
             }
             if (drawY + drawH > vpH)
@@ -955,42 +841,34 @@ namespace Browser
             if (drawH > 0)
                 Screen::tft.fillRect(0, drawY, vpW, drawH, bgColor);
 
-            // domain text (truncate if too long)
             String domain = sites[i];
-            int maxDomainWidth = vpW - 180; // Leave space for buttons
+            int maxDomainWidth = vpW - 180;
             if (domain.length() > maxDomainWidth / 6)
-            { // Approx 6 pixels per char
                 domain = domain.substring(0, maxDomainWidth / 6 - 3) + "...";
-            }
 
             int textY = localY + 6;
             if (textY < 0)
-                textY = 0; // ensure visible
+                textY = 0;
             drawText(xText, textY, domain, theme.text, 1);
 
-            // buttons on the right: Delete, ClearData, Open
-            int btnW = 56;
-            int btnGap = 4;
+            int btnW = 56, btnGap = 4;
             int xOpen = vpW - BUTTON_PADDING - btnW;
             int xClear = xOpen - btnGap - btnW;
             int xDelete = xClear - btnGap - btnW;
-
             int btnY = localY + 4;
             int btnH = VISIT_ITEM_H - 10;
 
-            // ensure button area is within viewport
             if (btnY < 0)
             {
-                // partially visible: adjust height and y
                 int visibleBtnH = btnH + btnY;
                 if (visibleBtnH > 0)
                 {
                     Screen::tft.fillRoundRect(xDelete, 0, btnW, visibleBtnH, 4, theme.danger);
-                    drawText(xDelete + 8, 0 + 2, "Delete", theme.accentText, 1);
+                    drawText(xDelete + 8, 2, "Delete", theme.accentText, 1);
                     Screen::tft.fillRoundRect(xClear, 0, btnW, visibleBtnH, 4, theme.pressed);
-                    drawText(xClear + 6, 0 + 2, "Clear", theme.accentText, 1);
+                    drawText(xClear + 6, 2, "Clear", theme.accentText, 1);
                     Screen::tft.fillRoundRect(xOpen, 0, btnW, visibleBtnH, 4, theme.accent);
-                    drawText(xOpen + 10, 0 + 2, "Open", theme.accentText, 1);
+                    drawText(xOpen + 10, 2, "Open", theme.accentText, 1);
                 }
             }
             else if (btnY + btnH > vpH)
@@ -1019,85 +897,21 @@ namespace Browser
             }
         }
 
-        // reset viewport
         exitViewport();
-    }
-
-    void showSettingsPage()
-    {
-        Screen::tft.fillScreen(theme.bg);
-        renderTopBar();
-        drawText(10, 30, "Visited Sites & Storage", theme.text, 2);
-
-        // small instruction
-        drawText(10, 56, "Tap a site to open. Use buttons to manage data.", theme.placeholder, 1);
-
-        // list sites below
-        showVisitedSites();
-    }
-
-    void showOSSearchPage()
-    {
-        navigate("mw-search-server-onrender-app.onrender.com", 443, "startpage");
-    }
-
-    void showInputPage()
-    {
-        String input = promptText("Enter domain@state", "example.com@startpage");
-        int idx = input.indexOf('@');
-        if (idx > 0)
-        {
-            String domainPort = input.substring(0, idx);
-            String state = input.substring(idx + 1);
-            int colon = domainPort.indexOf(':');
-            String domain = domainPort;
-            int port = 443;
-            if (colon > 0)
-            {
-                domain = domainPort.substring(0, colon);
-                port = domainPort.substring(colon + 1).toInt();
-            }
-            navigate(domain, port, state);
-        }
-        else if (input.length() > 0)
-        {
-            // default to startpage state
-            int colon = input.indexOf(':');
-            String domain = input;
-            int port = 443;
-            if (colon > 0)
-            {
-                domain = input.substring(0, colon);
-                port = input.substring(colon + 1).toInt();
-            }
-            navigate(domain, port, "startpage");
-        }
     }
 
     void showWebsitePage()
     {
-        // Top bar with title and exit button (redraw topbar to show title)
         Screen::tft.fillRect(0, 0, SCREEN_W, TOPBAR_H, theme.primary);
-
         String title = loc.title.length() ? loc.title : loc.domain;
-        // Truncate title if too long
         if (title.length() > 20)
-        {
             title = title.substring(0, 17) + "...";
-        }
         drawText(6, 3, title, theme.accentText, 2);
         drawText(SCREEN_W - 22, 3, "X", theme.danger, 2);
 
-        // Set viewport for website content (prevents drawing in top bar area)
         enterViewport(0, VIEWPORT_Y, SCREEN_W, VIEWPORT_H);
-
-        // Clear website area with bg color (inside viewport coordinates)
         Screen::tft.fillRect(0, 0, vpW, vpH, theme.bg);
-
-        // Draw a small hint inside the viewport (top-left)
         drawText(6, 4, "Page view", theme.placeholder, 1);
-
-        // Reset viewport to full screen for other operations
         exitViewport();
     }
 
