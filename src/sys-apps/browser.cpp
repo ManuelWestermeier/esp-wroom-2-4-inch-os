@@ -1,13 +1,5 @@
 // File: browser.cpp
-// Combined browser implementation: merges working LittleFS-based storage & menu (from the
-// simple WiFiClient example) with the production-ready WebSocket-driven renderer and viewport/touch
-// handling. This file assumes the rest of your project provides:
-// - Screen::tft and Screen::getTouchPos() (screen/index.hpp)
-// - readString(question, default) (io/read-string.hpp)
-// - Style::Colors (styles/global.hpp)
-// - base64EncodeSafe(const String&) (browser/base64encode.hpp)
-// - LittleFS is initialized elsewhere (LittleFS.begin())
-// Adjust includes/paths if your project structure differs.
+// Combined browser implementation — cleaned, consistent with browser.hpp.
 
 #include "browser.hpp"
 
@@ -20,9 +12,11 @@
 #include "../screen/index.hpp"
 #include "../io/read-string.hpp"
 #include "../styles/global.hpp"
+#include "../fs/enc-fs.hpp"
 
 #include "nanosvg.h"
 
+// small helper: filesystem-safe base64 (already used elsewhere)
 String base64EncodeSafe(const String &input)
 {
     const char *base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -61,12 +55,9 @@ String base64EncodeSafe(const String &input)
 
         for (int j = 0; j < i + 1; j++)
             encoded += base64_chars[char_array_4[j]];
-
-        // Padding characters, not needed for filenames
-        // encoded += String((i == 1) ? "==" : "=");
     }
 
-    // Remove unsafe characters for filesystem
+    // Make filename-safe
     encoded.replace("+", "-");
     encoded.replace(String("/"), "_");
     encoded.replace("=", "");
@@ -126,10 +117,7 @@ namespace Browser
     static std::vector<String> recentInputs;
 
     // ---------------------------
-    // Simple browser storage using LittleFS
-    // Path layout:
-    //   /browser/storage/<base64(domain)>.data
-    // Also provide listSites() by scanning directory.
+    // LocalStorage: LittleFS-backed, binary-friendly
     // ---------------------------
     namespace LocalStorage
     {
@@ -142,7 +130,6 @@ namespace Browser
         {
             if (!fullPath.startsWith("/"))
                 return;
-            // make directories up to final dir
             String path = "";
             int from = 1;
             while (true)
@@ -157,7 +144,6 @@ namespace Browser
                 }
                 from = next + 1;
             }
-            // ensure parent of file exists
             if (!fullPath.endsWith("/"))
             {
                 int lastSlash = fullPath.lastIndexOf('/');
@@ -170,6 +156,7 @@ namespace Browser
             }
         }
 
+        // write string
         void set(const String &key, const String &val)
         {
             String p = toPath(key);
@@ -181,6 +168,20 @@ namespace Browser
             f.close();
         }
 
+        // write binary
+        void set(const String &key, const ENC_FS::Buffer &buf)
+        {
+            String p = toPath(key);
+            ensureDir(p);
+            File f = LittleFS.open(p, "w");
+            if (!f)
+                return;
+            if (!buf.empty())
+                f.write(buf.data(), buf.size());
+            f.close();
+        }
+
+        // read string (for older usage)
         String get(const String &key)
         {
             String p = toPath(key);
@@ -194,6 +195,26 @@ namespace Browser
             return s;
         }
 
+        // read binary buffer
+        ENC_FS::Buffer getBuffer(const String &key)
+        {
+            String p = toPath(key);
+            ENC_FS::Buffer out;
+            if (!LittleFS.exists(p))
+                return out;
+            File f = LittleFS.open(p, "r");
+            if (!f)
+                return out;
+            size_t sz = f.size();
+            out.resize(sz);
+            if (sz > 0)
+            {
+                f.readBytes((char *)out.data(), sz);
+            }
+            f.close();
+            return out;
+        }
+
         void del(const String &key)
         {
             String p = toPath(key);
@@ -203,20 +224,19 @@ namespace Browser
 
         void clearAll()
         {
-            // naive recursive remove of /browser/storage
-            if (LittleFS.exists("/browser/storage"))
+            if (!LittleFS.exists("/browser/storage"))
+                return;
+            File root = LittleFS.open("/browser/storage", "r");
+            if (!root)
+                return;
+            File file;
+            while (file = root.openNextFile())
             {
-                // iterate files
-                File root = LittleFS.open("/browser/storage", "r");
-                File file;
-                while (file = root.openNextFile())
-                {
-                    String name = String(file.name());
-                    file.close();
-                    LittleFS.remove(name);
-                }
-                root.close();
+                String name = String(file.name());
+                file.close();
+                LittleFS.remove(name);
             }
+            root.close();
         }
 
         std::vector<String> listSites()
@@ -230,11 +250,8 @@ namespace Browser
             File file;
             while (file = root.openNextFile())
             {
-                String name = String(file.name()); // e.g. /browser/storage/<b64>.data
-                file.close();
-                // strip folder and .data then decode base64 - but we don't implement decoding here,
-                // instead return the base64 token; the UI will present it (or you can store domain plaintext as value).
-                // To keep things simple we save the readable domain as the file content on saveVisitedSite.
+                String name = String(file.name()); // full path
+                // try to read human-readable content; if not present, fall back to base filename
                 String content;
                 File f = LittleFS.open(name, "r");
                 if (f)
@@ -244,11 +261,20 @@ namespace Browser
                     if (content.length())
                         out.push_back(content);
                     else
-                        out.push_back(name); // fallback
+                    {
+                        // fallback: get filename portion (without path and extension)
+                        int lastSlash = name.lastIndexOf('/');
+                        int dot = name.lastIndexOf('.');
+                        String token = name.substring(lastSlash + 1, dot > lastSlash ? dot : name.length());
+                        out.push_back(token);
+                    }
                 }
                 else
                 {
-                    out.push_back(name);
+                    int lastSlash = name.lastIndexOf('/');
+                    int dot = name.lastIndexOf('.');
+                    String token = name.substring(lastSlash + 1, dot > lastSlash ? dot : name.length());
+                    out.push_back(token);
                 }
             }
             root.close();
@@ -257,9 +283,9 @@ namespace Browser
     } // namespace LocalStorage
 
     // ---------------------------
-    // Viewport helpers
+    // Viewport helpers (definition matches header)
     // ---------------------------
-    static inline void enterViewport(int x, int y, int w, int h)
+    void enterViewport(int x, int y, int w, int h)
     {
         if (x < 0)
             x = 0;
@@ -282,7 +308,7 @@ namespace Browser
         Serial.printf("[Browser] enterViewport x=%d y=%d w=%d h=%d\n", vpX, vpY, vpW, vpH);
     }
 
-    static inline void exitViewport()
+    void exitViewport()
     {
         viewportActive = false;
         vpX = 0;
@@ -294,7 +320,7 @@ namespace Browser
     }
 
     // ---------------------------
-    // Drawing helpers (viewport aware)
+    // Drawing helpers
     // ---------------------------
     void drawText(int x, int y, const String &text, uint16_t color, int size)
     {
@@ -323,23 +349,17 @@ namespace Browser
         Screen::tft.drawCircle(x, y, r, color);
     }
 
-    // Very small wrapper: parse & draw SVG via nanosvg helper (assumes implementation elsewhere)
     void drawSVG(const String &svgStr, int x, int y, int w, int h, uint16_t color)
     {
-        // use nanosvg helpers from project (createSVG/drawSVGString). If not available, ignore.
         NSVGimage *img = createSVG(svgStr);
         if (img)
-        {
             drawSVGString(svgStr, x, y, w, h, color);
-        }
         else
-        {
             Serial.println("[Browser] drawSVG: parse failed");
-        }
     }
 
     // ---------------------------
-    // Utility: clamp scroll offset
+    // clamp helper
     // ---------------------------
     static inline void clampScrollForSites(const std::vector<String> &sites)
     {
@@ -353,7 +373,7 @@ namespace Browser
     }
 
     // ---------------------------
-    // Prompt & input helpers
+    // Prompt helper
     // ---------------------------
     String promptText(const String &question, const String &defaultValue)
     {
@@ -433,7 +453,6 @@ namespace Browser
             unsigned int c = 0;
             if (sscanf(payload.c_str(), "DrawSVG %d %d %d %d %u", &x, &y, &w, &h, &c) == 5)
             {
-                // find header end (after 5 tokens)
                 int countSpaces = 0, headerEnd = -1;
                 for (int i = 0; i < (int)payload.length(); ++i)
                 {
@@ -471,7 +490,7 @@ namespace Browser
             return;
         }
 
-        // Theme
+        // Theme / storage / navigation
         if (payload.startsWith("SetThemeColor"))
         {
             int idx = payload.indexOf(' ', 13);
@@ -599,7 +618,7 @@ namespace Browser
                 rid = payload.substring(11);
             ReRender();
             String input = promptText("Enter text:", "");
-            // store last input
+            // store last input (string)
             LocalStorage::set("_last_input", input);
             if (input.length())
             {
@@ -668,9 +687,8 @@ namespace Browser
     // ---------------------------
     void saveVisitedSite(const String &domain)
     {
-        unsigned long ts = millis();
-        String s = domain; // store readable domain as file content
-        LocalStorage::set(domain, s);
+        // store readable domain as file content (so listSites shows it)
+        LocalStorage::set(domain, domain);
         Serial.printf("[Browser] saveVisitedSite '%s'\n", domain.c_str());
     }
 
@@ -683,14 +701,13 @@ namespace Browser
         saveVisitedSite(domain);
         webSocket.disconnect();
         delay(10);
-        // open secure websocket
         webSocket.beginSSL(loc.domain.c_str(), loc.port, "/");
         webSocket.setReconnectInterval(5000);
         ReRender();
     }
 
     // ---------------------------
-    // UI rendering: topbar, home, list, website
+    // UI & rendering
     // ---------------------------
     void renderTopBar()
     {
@@ -1154,13 +1171,29 @@ namespace Browser
     }
 
     // store/load raw data helpers for external use
-    void storeData(const String &domain, const String &data)
+    void storeData(const String &domain, const ENC_FS::Buffer &data)
     {
         LocalStorage::set(domain, data);
     }
-    String loadData(const String &domain)
+
+    ENC_FS::Buffer loadData(const String &domain)
     {
-        return LocalStorage::get(domain);
+        return LocalStorage::getBuffer(domain);
     }
 
 } // namespace Browser
+
+// file: src/sys-apps/browser.cpp
+// add at file end (outside namespace Browser)
+
+void openBrowser()
+{
+    Browser::isRunning = true;
+    Browser::Start();
+    while (Browser::isRunning)
+    {
+        Browser::Update();
+        vTaskDelay(10);
+    }
+    Browser::OnExit();
+}

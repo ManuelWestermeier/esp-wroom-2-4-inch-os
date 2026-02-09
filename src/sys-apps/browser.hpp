@@ -60,17 +60,8 @@ namespace Browser
     // Viewport helpers
     void enterViewport(int x, int y, int w, int h);
     void exitViewport();
-}
+} // namespace Browser
 
-// ---- Blocking browser runner ----
-static inline void openBrowser()
-{
-    Browser::isRunning = true;
-    Browser::Start();
-    while (Browser::isRunning)
-    {
-        Browser::Update();
-        vTaskDelay(10);
-    }
-    Browser::OnExit();
-}
+// file: src/sys-apps/browser.hpp
+// add near the end of the header (outside namespace Browser)
+void openBrowser();
