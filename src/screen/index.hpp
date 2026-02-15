@@ -6,6 +6,7 @@
 #include "config.h"
 #include "svg.hpp"
 #include "../icons/index.hpp"
+#include "../apps/index.hpp"
 
 #include <TFT_eSPI.h>
 #include <SD.h>
@@ -40,6 +41,25 @@ namespace Screen
     TouchPos getTouchPos();
 
     void drawImageFromSD(const char *filename, int x, int y);
+
+    namespace SPI_Screen
+    {
+        // on tft acces:
+        /**   // simple spin-wait as before (preserve existing design)
+            while (!Windows::canAccess)
+            {
+                delay(rand() % 2);
+            }
+            Windows::canAccess = false; after call: = true; */
+            
+        // create esp32 task for screen handling (high priority).
+        void startScreen();
+        void screenTask(void *pvParameters);
+        // waits for spi  320x240
+        // GET_FRAME => send Framebuffer (Pack in Chunks (with short delay for other Serial prints) [rowIndex][16bit colors * 320])
+        // DOWN X, Y => Overwrite Click
+        // UP => Click = false
+    }
 }
 
 using Screen::tft;

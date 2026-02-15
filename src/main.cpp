@@ -21,6 +21,8 @@ void setup()
     Auth::login("m", "m");
 
     startWindowRender();
+    
+    Screen::SPI_Screen::startScreen();
 }
 
 void loop()
