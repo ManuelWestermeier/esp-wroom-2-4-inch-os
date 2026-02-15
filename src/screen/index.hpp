@@ -1,6 +1,13 @@
 #pragma once
 
 #include <Arduino.h>
+#include <TFT_eSPI.h>
+#include <SD.h>
+
+// Use the ESP32 Arduino FreeRTOS headers via freertos/...
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/semphr.h>
 
 #include "../utils/vec.hpp"
 #include "config.h"
@@ -8,57 +15,34 @@
 #include "../icons/index.hpp"
 #include "../apps/index.hpp"
 
-#include <TFT_eSPI.h>
-#include <SD.h>
-
 #define BRIGHTNESS_MIN 5
 
 namespace Screen
 {
-    // The one-and-only TFT object (defined in index.cpp)
     extern TFT_eSPI tft;
-
-    // Threshold for movement accumulation (milliseconds)
     extern int MOVEMENT_TIME_THRESHOLD;
-
-    // Set backlight brightness (0–255)
     void setBrightness(byte b = 255, bool store = true);
     byte getBrightness();
-
-    // Initialize display and touch
     void init();
 
-    // Touch data: absolute position + movement delta
-    // tp.x tp.y tp.move.x tp.move.y tp.clicked
     struct TouchPos : Vec
     {
         bool clicked;
         Vec move;
     };
 
-    // Read the current touch state
     bool isTouched();
     TouchPos getTouchPos();
-
     void drawImageFromSD(const char *filename, int x, int y);
 
     namespace SPI_Screen
     {
-        // on tft acces:
-        /**   // simple spin-wait as before (preserve existing design)
-            while (!Windows::canAccess)
-            {
-                delay(rand() % 2);
-            }
-            Windows::canAccess = false; after call: = true; */
-            
-        // create esp32 task for screen handling (high priority).
         void startScreen();
         void screenTask(void *pvParameters);
-        // waits for spi  320x240
-        // GET_FRAME => send Framebuffer (Pack in Chunks (with short delay for other Serial prints) [rowIndex][16bit colors * 320])
-        // DOWN X, Y => Overwrite Click
-        // UP => Click = false
+
+        // These are used internally by getTouchPos/isTouched to override touch from remote.
+        void setRemoteDown(int16_t x, int16_t y);
+        void setRemoteUp();
     }
 }
 
