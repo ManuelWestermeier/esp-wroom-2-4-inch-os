@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Uploader</title>
+</head>
+<body>
+       const port = await navigator.serial.requestPort();
+      await port.open({ baudRate: 921600 });
+
+    upload file in selected directory. create your own protocol. show process on both sides. send the files using chunks [index, data [1024], checksum] => [ok] / not
+    first [filename for folder, create folder / file length, ...]
+</body>
+</html>

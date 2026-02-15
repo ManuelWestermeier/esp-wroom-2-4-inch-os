@@ -200,3 +200,5 @@ end
 ```
 
 [debug screen: os.manuel-westermeier.de/debug-screen.html](https://os.manuel-westermeier.de/docs/debug-screen.html)
+
+[File Uploader](http://os.manuel-westermeier.de/docs/file-uploader.html)

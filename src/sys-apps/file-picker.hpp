@@ -579,5 +579,6 @@ namespace FilePicker
 // Public API
 static inline String filePicker(String path = "/")
 {
+    // tell the user to open the file uploader on
     return FilePicker::filePickerImpl(path);
 }
