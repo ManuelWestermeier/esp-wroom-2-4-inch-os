@@ -52,17 +52,12 @@
         let reader = null;
         let readLoopRunning = false;
 
-        // frame buffer as Uint16 (RGB565)
         const frameBuf = new Uint16Array(W * H);
-
-        // draw buffer (ImageData)
         const imageData = ctx.createImageData(W, H);
 
         function updateCanvas() {
-          // convert frameBuf RGB565 -> RGBA
           for (let i = 0; i < W * H; ++i) {
             const v = frameBuf[i];
-            // decode RGB565
             const r = ((v >> 11) & 0x1f) << 3;
             const g = ((v >> 5) & 0x3f) << 2;
             const b = (v & 0x1f) << 3;
@@ -75,12 +70,10 @@
           ctx.putImageData(imageData, 0, 0);
         }
 
-        // framing helpers
         function cmdGetFrame() {
-          // header 0xAA 0x55, cmd 0x01, checksum (cmd)
-          const arr = new Uint8Array([0xaa, 0x55, 0x01, 0x01]);
-          writer.write(arr);
+          writer.write(new Uint8Array([0xaa, 0x55, 0x01, 0x01]));
         }
+
         function cmdDown(x, y) {
           const xb = [(x >> 8) & 0xff, x & 0xff];
           const yb = [(y >> 8) & 0xff, y & 0xff];
@@ -88,40 +81,28 @@
           const payload = [xb[0], xb[1], yb[0], yb[1]];
           let sum = cmd;
           for (const b of payload) sum = (sum + b) & 0xff;
-          const arr = new Uint8Array([0xaa, 0x55, cmd, ...payload, sum]);
-          writer.write(arr);
+          writer.write(new Uint8Array([0xaa, 0x55, cmd, ...payload, sum]));
         }
+
         function cmdUp() {
-          const cmd = 0x03;
-          const arr = new Uint8Array([0xaa, 0x55, cmd, cmd]); // checksum equals cmd
-          writer.write(arr);
+          writer.write(new Uint8Array([0xaa, 0x55, 0x03, 0x03]));
         }
 
-        // parse incoming stream: look for 'F' 'R' header (0x46 0x52) then read row(2) count(2) payload count*2 checksum(1)
-        async function readLoop() {
+        async function readLoop(readerStream) {
           readLoopRunning = true;
-          const textDecoder = new TextDecoder();
-          const readerStream = port.readable.getReader();
-
-          // we use a sliding Uint8 buffer for arbitrary data arrival
           let buf = new Uint8Array(0);
-
           try {
             while (true) {
               const { value, done } = await readerStream.read();
               if (done) break;
               if (value) {
-                // append to buf
                 const newBuf = new Uint8Array(buf.length + value.length);
                 newBuf.set(buf, 0);
                 newBuf.set(value, buf.length);
                 buf = newBuf;
 
-                // try to parse any FR frames inside
                 let offset = 0;
                 while (offset + 6 <= buf.length) {
-                  // minimal header + row + count
-                  // find 'F' 'R'
                   if (buf[offset] !== 0x46 || buf[offset + 1] !== 0x52) {
                     offset++;
                     continue;
@@ -130,56 +111,41 @@
                   const row = (buf[offset + 2] << 8) | buf[offset + 3];
                   const count = (buf[offset + 4] << 8) | buf[offset + 5];
                   const payloadBytes = count * 2;
-                  const totalLen = 2 + 2 + 2 + payloadBytes + 1; // 'FR' + row(2) + count(2) + payload + checksum
-                  if (offset + totalLen > buf.length) break; // wait for more data
-                  const payloadStart = offset + 6;
-                  const payload = buf.slice(
-                    payloadStart,
-                    payloadStart + payloadBytes,
-                  );
-                  const chk = buf[payloadStart + payloadBytes];
+                  const totalLen = 2 + 2 + 2 + payloadBytes + 1;
+                  if (offset + totalLen > buf.length) break;
 
-                  // compute checksum (sum of header bytes + row bytes + count bytes + payload), mod 256
+                  const payload = buf.slice(
+                    offset + 6,
+                    offset + 6 + payloadBytes,
+                  );
+                  const chk = buf[offset + 6 + payloadBytes];
+
                   let sum = 0;
-                  sum += 0x46;
-                  sum += 0x52;
-                  sum += buf[offset + 2];
-                  sum += buf[offset + 3];
-                  sum += buf[offset + 4];
-                  sum += buf[offset + 5];
-                  for (let i = 0; i < payload.length; ++i)
+                  sum +=
+                    0x46 +
+                    0x52 +
+                    buf[offset + 2] +
+                    buf[offset + 3] +
+                    buf[offset + 4] +
+                    buf[offset + 5];
+                  for (let i = 0; i < payload.length; i++)
                     sum = (sum + payload[i]) & 0xff;
 
-                  if (sum === chk) {
-                    // write payload into frameBuf at row
-                    if (row < H) {
-                      // payload is big-endian uint16 per pixel
-                      for (let i = 0; i < count && i < W; ++i) {
-                        const hi = payload[i * 2];
-                        const lo = payload[i * 2 + 1];
-                        frameBuf[row * W + i] = (hi << 8) | lo;
-                      }
-                      // update only the row area on canvas
-                      // For simplicity, update entire canvas after chunk
-                      updateCanvas();
+                  if (sum === chk && row < H) {
+                    for (let i = 0; i < count && i < W; i++) {
+                      frameBuf[row * W + i] =
+                        (payload[i * 2] << 8) | payload[i * 2 + 1];
                     }
-                  } else {
-                    console.warn("checksum mismatch for chunk", row);
+                    updateCanvas();
                   }
-
                   offset += totalLen;
-                } // while parsing
-
-                // keep remainder
-                if (offset < buf.length) {
-                  buf = buf.slice(offset);
-                } else {
-                  buf = new Uint8Array(0);
                 }
-              } // if value
-            } // while true
-          } catch (err) {
-            console.error("readloop err", err);
+                buf =
+                  offset < buf.length ? buf.slice(offset) : new Uint8Array(0);
+              }
+            }
+          } catch (e) {
+            console.error("readLoop error", e);
           } finally {
             readerStream.releaseLock();
             readLoopRunning = false;
@@ -195,9 +161,8 @@
             statusEl.textContent = "Connected";
             getFrameBtn.disabled = false;
 
-            // start read loop
             if (!readLoopRunning) {
-              readLoop().catch((e) => console.error(e));
+              readLoop(reader).catch((e) => console.error(e));
             }
           } catch (e) {
             console.error(e);
@@ -209,7 +174,6 @@
           if (!port) {
             await connect();
           } else {
-            // disconnect
             try {
               if (writer) {
                 writer.releaseLock();
@@ -229,18 +193,15 @@
           }
         };
 
-        getFrameBtn.onclick = async () => {
-          if (!writer) return;
-          cmdGetFrame();
+        getFrameBtn.onclick = () => {
+          if (writer) cmdGetFrame();
         };
 
-        // canvas mouse handlers to send DOWN/UP
         let mouseDown = false;
         function canvasToScreenCoords(evt) {
           const rect = canvas.getBoundingClientRect();
           const cx = evt.clientX - rect.left;
           const cy = evt.clientY - rect.top;
-          // scale to 320x240
           const sx = Math.floor(cx * (W / rect.width));
           const sy = Math.floor(cy * (H / rect.height));
           return {
@@ -255,21 +216,17 @@
           const p = canvasToScreenCoords(e);
           cmdDown(p.x, p.y);
         });
-
         canvas.addEventListener("pointermove", (e) => {
           if (!writer || !mouseDown) return;
           const p = canvasToScreenCoords(e);
-          // send DOWN repeatedly to emulate movement
           cmdDown(p.x, p.y);
         });
-
         window.addEventListener("pointerup", (e) => {
           if (!writer || !mouseDown) return;
           mouseDown = false;
           cmdUp();
         });
 
-        // keyboard shortcuts
         window.addEventListener("keydown", (e) => {
           if (e.key === "g") getFrameBtn.click();
         });

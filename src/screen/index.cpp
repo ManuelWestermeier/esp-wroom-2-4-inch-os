@@ -2,10 +2,12 @@
 
 #include <Arduino.h>
 
+#include "../apps/windows.hpp"
 #include "../styles/global.hpp"
 #include "../sys-apps/designer.hpp"
 #include "../led/index.hpp"
 #include "../fs/index.hpp"
+#include "../apps/index.hpp"
 
 using namespace Screen;
 
@@ -267,6 +269,12 @@ namespace Screen
         // Primary screenTask
         void screenTask(void *pvParameters)
         {
+            // simple spin-wait as before (preserve existing design)
+            while (!Windows::canAccess)
+            {
+                delay(rand() % 2);
+            }
+            Windows::canAccess = false;
             // Buffer to hold a single row of pixels
             static uint16_t rowBuf[320];
 
@@ -341,7 +349,7 @@ namespace Screen
                             vTaskDelay(1);
                         }
                         // read 4 payload bytes
-                        uint8_t p[4] = {0,0,0,0};
+                        uint8_t p[4] = {0, 0, 0, 0};
                         for (int i = 0; i < 4 && Serial.available(); ++i)
                             p[i] = Serial.read();
                         // read checksum
@@ -395,6 +403,7 @@ namespace Screen
                 // small delay
                 vTaskDelay(2);
             } // for
+            Windows::canAccess = true;
         }
 
         void startScreen()
@@ -406,8 +415,6 @@ namespace Screen
             const BaseType_t priority = configMAX_PRIORITIES - 2; // high but not absolute max
             const uint32_t stack = 8 * 1024;
             xTaskCreatePinnedToCore(screenTask, "ScreenTask", stack / sizeof(StackType_t), NULL, priority, NULL, 1);
-            // ensure Serial is started (USB CDC)
-            Serial.begin(115200);
             // small pause
             delay(50);
         }
