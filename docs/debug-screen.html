@@ -1,3 +1,4 @@
+<!-- esp32-screen-viewer.html (full file, updated) -->
 <!doctype html>
 <html lang="en">
   <head>
@@ -55,6 +56,15 @@
         const frameBuf = new Uint16Array(W * H);
         const imageData = ctx.createImageData(W, H);
 
+        // command constants
+        const CMD_GET_FRAME = 0x01;
+        const CMD_DOWN = 0x02;
+        const CMD_UP = 0x03;
+        const CMD_MOVE = 0x04; // new
+
+        // suppress cursor transmissions while a GET_FRAME is running
+        let suppressCursor = false;
+
         function updateCanvas() {
           for (let i = 0; i < W * H; ++i) {
             const v = frameBuf[i];
@@ -71,13 +81,26 @@
         }
 
         function cmdGetFrame() {
-          writer.write(new Uint8Array([0xaa, 0x55, 0x01, 0x01]));
+          // checksum byte included (simple 0x01 as in previous implementation)
+          if (writer) writer.write(new Uint8Array([0xaa, 0x55, CMD_GET_FRAME, 0x01]));
         }
 
         function cmdDown(x, y) {
+          if (!writer) return;
           const xb = [(x >> 8) & 0xff, x & 0xff];
           const yb = [(y >> 8) & 0xff, y & 0xff];
-          const cmd = 0x02;
+          const cmd = CMD_DOWN;
+          const payload = [xb[0], xb[1], yb[0], yb[1]];
+          let sum = cmd;
+          for (const b of payload) sum = (sum + b) & 0xff;
+          writer.write(new Uint8Array([0xaa, 0x55, cmd, ...payload, sum]));
+        }
+
+        function cmdMove(x, y) {
+          if (!writer) return;
+          const xb = [(x >> 8) & 0xff, x & 0xff];
+          const yb = [(y >> 8) & 0xff, y & 0xff];
+          const cmd = CMD_MOVE;
           const payload = [xb[0], xb[1], yb[0], yb[1]];
           let sum = cmd;
           for (const b of payload) sum = (sum + b) & 0xff;
@@ -85,7 +108,10 @@
         }
 
         function cmdUp() {
-          writer.write(new Uint8Array([0xaa, 0x55, 0x03, 0x03]));
+          if (!writer) return;
+          const cmd = CMD_UP;
+          // simple checksum: repeat the cmd (keeps compatibility with device)
+          writer.write(new Uint8Array([0xaa, 0x55, cmd, cmd]));
         }
 
         async function readLoop(readerStream) {
@@ -132,11 +158,21 @@
                     sum = (sum + payload[i]) & 0xff;
 
                   if (sum === chk && row < H) {
+                    // If we've started receiving a frame, suppress cursor sends until last row arrives
+                    if (row === 0) {
+                      suppressCursor = true;
+                    }
+
                     for (let i = 0; i < count && i < W; i++) {
                       frameBuf[row * W + i] =
                         (payload[i * 2] << 8) | payload[i * 2 + 1];
                     }
                     updateCanvas();
+
+                    // If this is the last row (H-1), re-enable cursor transmissions
+                    if (row === H - 1) {
+                      suppressCursor = false;
+                    }
                   }
                   offset += totalLen;
                 }
@@ -147,8 +183,10 @@
           } catch (e) {
             console.error("readLoop error", e);
           } finally {
-            readerStream.releaseLock();
+            try { readerStream.releaseLock(); } catch(e){}
             readLoopRunning = false;
+            // ensure cursor not suppressed permanently on disconnect
+            suppressCursor = false;
           }
         }
 
@@ -176,11 +214,11 @@
           } else {
             try {
               if (writer) {
-                writer.releaseLock();
+                try { writer.releaseLock(); } catch(e){}
                 writer = null;
               }
               if (reader) {
-                reader.releaseLock();
+                try { reader.releaseLock(); } catch(e){}
                 reader = null;
               }
               await port.close();
@@ -190,11 +228,16 @@
             port = null;
             statusEl.textContent = "Disconnected";
             getFrameBtn.disabled = true;
+            suppressCursor = false;
           }
         };
 
         getFrameBtn.onclick = () => {
-          if (writer) cmdGetFrame();
+          if (writer) {
+            // immediately stop sending cursor positions
+            suppressCursor = true;
+            cmdGetFrame();
+          }
         };
 
         let mouseDown = false;
@@ -211,18 +254,24 @@
         }
 
         canvas.addEventListener("pointerdown", (e) => {
-          if (!writer) return;
+          if (!writer || suppressCursor) return;
           mouseDown = true;
           const p = canvasToScreenCoords(e);
           cmdDown(p.x, p.y);
         });
         canvas.addEventListener("pointermove", (e) => {
-          if (!writer || !mouseDown) return;
+          if (!writer || suppressCursor) return;
           const p = canvasToScreenCoords(e);
-          cmdDown(p.x, p.y);
+          // continuous streaming of cursor position (MOVE)
+          cmdMove(p.x, p.y);
+          // if pressed, also send DOWN to represent an active press/move
+          if (mouseDown) cmdDown(p.x, p.y);
         });
         window.addEventListener("pointerup", (e) => {
-          if (!writer || !mouseDown) return;
+          if (!writer || suppressCursor) {
+            mouseDown = false;
+            return;
+          }
           mouseDown = false;
           cmdUp();
         });

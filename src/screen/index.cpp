@@ -1,3 +1,4 @@
+// index.hpp (full file as provided, updated)
 #include "index.hpp"
 
 #include <Arduino.h>
@@ -17,16 +18,21 @@ TFT_eSPI Screen::tft = TFT_eSPI(320, 240);
 // Global threshold for movement timing
 int Screen::MOVEMENT_TIME_THRESHOLD = 250;
 
+// Remote timeout (ms) — if last remote cursor update is older than this,
+// remote input is ignored and local touch is used.
+static const uint32_t REMOTE_TIMEOUT_MS = 500;
+
 // Internal state for touch calculations (adapted to allow remote override)
-static uint16_t touchY = 0, touchX = 0;
-static uint16_t lastTouchY = UINT16_MAX, lastTouchX = 0;
+static uint16_t touchX = 0, touchY = 0;
+static uint16_t lastTouchX = UINT16_MAX, lastTouchY = 0;
 static uint32_t lastTime = 0;
 static int screenBrightNess = -1;
 
-// Remote override variables (set by SPI_Screen when remote DOWN/UP received)
+// Remote override variables (set by SPI_Screen when remote DOWN/UP/ MOVE received)
 static volatile bool remoteOverrideClicked = false;
 static volatile uint16_t remoteOverrideX = 0;
 static volatile uint16_t remoteOverrideY = 0;
+static volatile uint32_t lastRemoteMillis = 0; // timestamp of last remote activity (down/move/up)
 
 // Mutex for TFT access (prevents concurrent access from other tasks)
 static SemaphoreHandle_t tftMutex = NULL;
@@ -84,15 +90,36 @@ void Screen::init()
 #endif
 }
 
-// isTouched considers local touch sensor *or* remote override clicks from the web client
+// isTouched considers local touch sensor *or* a recent remote override click from the web client
 bool Screen::isTouched()
 {
-    // remote override has priority (so web clicks simulate touch)
-    if (remoteOverrideClicked)
+    // remote override click has priority but only when recent
+    if (remoteOverrideClicked && (millis() - lastRemoteMillis <= REMOTE_TIMEOUT_MS))
         return true;
 
-    // otherwise query the real touch controller
-    return tft.getTouch(&touchY, &touchX);
+    // otherwise query the real touch controller once
+    // NOTE: getTouch expects pointers x,y in that order
+    bool touched = false;
+    if (tftMutex)
+    {
+        // attempt to take mutex but don't block forever
+        if (xSemaphoreTake(tftMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+        {
+            touched = tft.getTouch(&touchX, &touchY);
+            xSemaphoreGive(tftMutex);
+        }
+        else
+        {
+            // could not obtain mutex: assume not touched to avoid blocking UI
+            touched = false;
+        }
+    }
+    else
+    {
+        touched = tft.getTouch(&touchX, &touchY);
+    }
+
+    return touched;
 }
 
 Screen::TouchPos Screen::getTouchPos()
@@ -100,14 +127,14 @@ Screen::TouchPos Screen::getTouchPos()
     TouchPos pos{};
     uint32_t now = millis();
 
-    // If remote override is active, return the override coordinates as a stable "click"
-    if (remoteOverrideClicked)
+    // If a remote click override is very recent, treat it as a stable "click"
+    if (remoteOverrideClicked && (now - lastRemoteMillis <= REMOTE_TIMEOUT_MS))
     {
         pos.clicked = true;
         pos.x = remoteOverrideX;
         pos.y = remoteOverrideY;
 
-        // Movement from remote is not provided, return zeroed movement
+        // Movement from remote click-down is not provided, return zeroed movement
         pos.move = {0, 0};
 
         // seed lastTouch values so local touch movement calculations continue later
@@ -117,18 +144,20 @@ Screen::TouchPos Screen::getTouchPos()
         return pos;
     }
 
-    // Local touch path
-    pos.clicked = tft.getTouch(&touchY, &touchX);
-    if (pos.clicked)
+    // If a remote cursor position (non-click) is recent, use it as positional input
+    if ((now - lastRemoteMillis <= REMOTE_TIMEOUT_MS) && lastRemoteMillis != 0)
     {
-        // Map raw touch to screen coords (same mapping as original)
-        pos.x = touchX * 32 / 24;
-        pos.y = (320 - touchY) * 24 / 32;
+        // Remote sends cursor updates (MOVE) without click. Provide the coordinates
+        // but mark clicked = false so UI knows it's only a cursor.
+        pos.clicked = false;
+        pos.x = remoteOverrideX;
+        pos.y = remoteOverrideY;
 
-        if (lastTouchY == UINT16_MAX)
+        // compute move similar to local touch movement logic
+        if (lastTouchX == UINT16_MAX)
         {
-            lastTouchY = pos.y;
             lastTouchX = pos.x;
+            lastTouchY = pos.y;
         }
 
         uint32_t delta = now - lastTime;
@@ -142,11 +171,74 @@ Screen::TouchPos Screen::getTouchPos()
             pos.move = {0, 0};
         }
 
-        lastTouchY = pos.y;
         lastTouchX = pos.x;
+        lastTouchY = pos.y;
+        lastTime = now;
+        return pos;
+    }
+
+    // Local touch path - call getTouch only once
+    uint16_t rawX = 0, rawY = 0;
+    bool clicked = false;
+
+    if (tftMutex)
+    {
+        if (xSemaphoreTake(tftMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+        {
+            clicked = tft.getTouch(&rawX, &rawY);
+            xSemaphoreGive(tftMutex);
+        }
+        else
+        {
+            clicked = false;
+        }
+    }
+    else
+    {
+        clicked = tft.getTouch(&rawX, &rawY);
+    }
+
+    if (clicked)
+    {
+        // Map raw touch to screen coords.
+        // Typical raw values are 0..4095 for resistive touch; clamp defensively.
+        const uint16_t rawMax = 4095;
+        uint16_t sw = tft.width();
+        uint16_t sh = tft.height();
+
+        // scale and clamp
+        uint32_t sx = (uint32_t)rawX * (uint32_t)sw;
+        uint32_t sy = (uint32_t)rawY * (uint32_t)sh;
+        pos.x = constrain((int)(sx / rawMax), 0, sw - 1);
+        pos.y = constrain((int)(sy / rawMax), 0, sh - 1);
+
+        // If your rotation inverts axes, adjust here (example commented):
+        // uint8_t rot = tft.getRotation();
+        // if (rot == 1 || rot == 3) { swap(pos.x, pos.y); /* and/or invert */ }
+
+        if (lastTouchX == UINT16_MAX)
+        {
+            lastTouchX = pos.x;
+            lastTouchY = pos.y;
+        }
+
+        uint32_t delta = now - lastTime;
+        if (delta < MOVEMENT_TIME_THRESHOLD)
+        {
+            pos.move.x = pos.x - lastTouchX;
+            pos.move.y = pos.y - lastTouchY;
+        }
+        else
+        {
+            pos.move = {0, 0};
+        }
+
+        lastTouchX = pos.x;
+        lastTouchY = pos.y;
         lastTime = now;
     }
 
+    pos.clicked = clicked;
     return pos;
 }
 
@@ -175,24 +267,7 @@ void Screen::drawImageFromSD(const char *filename, int x, int y)
 
 //
 // SPI_Screen implementation: simple framed protocol over Serial (USB CDC).
-// Robust to other Serial prints by scanning for headers and using chunk framing.
 //
-// Protocol (host -> device):
-//  Header: 0xAA 0x55
-//  Cmd: 0x01 = GET_FRAME (no payload)
-//       0x02 = DOWN (payload: x_hi x_lo y_hi y_lo) (uint16 big-endian)
-//       0x03 = UP (no payload)
-//  Checksum: 1 byte (sum of all bytes after header up to checksum-1) & 0xFF
-//
-// Protocol (device -> host) for frame chunks:
-//  ASCII header 'F' 'R' (0x46 0x52)
-//  row: uint16_t big-endian (row index 0..239)
-//  count: uint16_t big-endian (number of pixels in this chunk; typically 320)
-//  payload: count * 2 bytes (RGB565 big-endian per pixel)
-//  checksum: uint8_t (sum of header bytes + row bytes + count bytes + payload bytes) & 0xFF
-//
-// The viewer expects rows sent in any order but typically sequential 0..239. After each chunk we yield to let other tasks (and stray Serial prints) run.
-
 namespace Screen
 {
     namespace SPI_Screen
@@ -200,6 +275,7 @@ namespace Screen
         static const uint8_t CMD_GET_FRAME = 0x01;
         static const uint8_t CMD_DOWN = 0x02;
         static const uint8_t CMD_UP = 0x03;
+        static const uint8_t CMD_MOVE = 0x04; // new: update cursor position without click
 
         // helper to read uint16 BE
         static inline uint16_t be16(const uint8_t *p) { return (uint16_t(p[0]) << 8) | uint16_t(p[1]); }
@@ -216,11 +292,21 @@ namespace Screen
             remoteOverrideX = (uint16_t)x;
             remoteOverrideY = (uint16_t)y;
             remoteOverrideClicked = true;
+            lastRemoteMillis = millis();
         }
 
         void setRemoteUp()
         {
             remoteOverrideClicked = false;
+            lastRemoteMillis = millis();
+        }
+
+        // set remote cursor position (no click)
+        void setRemoteMove(int16_t x, int16_t y)
+        {
+            remoteOverrideX = (uint16_t)x;
+            remoteOverrideY = (uint16_t)y;
+            lastRemoteMillis = millis();
         }
 
         // send a single row chunk (row index [0..239], count px, payload 2*count bytes)
@@ -269,29 +355,22 @@ namespace Screen
         // Primary screenTask
         void screenTask(void *pvParameters)
         {
-            // simple spin-wait as before (preserve existing design)
-            while (!Windows::canAccess)
-            {
-                delay(rand() % 2);
-            }
-            Windows::canAccess = false;
             // Buffer to hold a single row of pixels
             static uint16_t rowBuf[320];
 
             for (;;)
             {
-                // Non-blocking read loop: scan for header sequence 0xAA 0x55
                 if (Serial.available())
                 {
-                    // try to find header
+                    // try to find header 0xAA
                     int b = Serial.read();
                     if (b != 0xAA)
                     {
-                        // skip and continue
                         vTaskDelay(1);
                         continue;
                     }
-                    // try next
+
+                    // wait for second header byte
                     uint32_t t0 = millis();
                     while (!Serial.available())
                     {
@@ -305,42 +384,70 @@ namespace Screen
                     if (b2 != 0x55)
                         continue;
 
-                    // read command and payload+checksum properly
-                    // read cmd
+                    // read cmd (wait)
                     while (!Serial.available())
                         vTaskDelay(1);
                     uint8_t cmd = Serial.read();
 
-                    // Determine payload length
+                    // If GET_FRAME, consume checksum byte if present (client sends checksum byte)
                     if (cmd == CMD_GET_FRAME)
                     {
-                        // GET_FRAME: send full framebuffer in row chunks.
-                        // Acquire tft mutex while reading each row (short lock)
-                        for (uint16_t row = 0; row < 240; ++row)
+                        // read/discard checksum (do not block forever)
+                        uint32_t tchk = millis();
+                        while (!Serial.available())
                         {
-                            // read row pixels into rowBuf
-                            if (tftMutex)
-                                xSemaphoreTake(tftMutex, portMAX_DELAY);
-                            // tft.readPixel is used repeatedly — may be slow but acceptable
-                            for (uint16_t x = 0; x < 320; ++x)
-                            {
-                                uint16_t c = tft.readPixel(x, row);
-                                rowBuf[x] = c;
-                            }
-                            if (tftMutex)
-                                xSemaphoreGive(tftMutex);
-
-                            // send row chunk
-                            sendRowChunk(row, rowBuf, 320);
-
-                            // small yield so other tasks and stray Serial prints can run
+                            if (millis() - tchk > 200)
+                                break;
                             vTaskDelay(1);
                         }
+                        if (Serial.available())
+                            (void)Serial.read();
+
+                        while (!Windows::canAccess)
+                        {
+                            delay(rand() % 2);
+                        }
+                        Windows::canAccess = false;
+
+                        // GET_FRAME: send full framebuffer in row chunks.
+                        for (uint16_t row = 0; row < 240; ++row)
+                        {
+                            // copy row pixels into rowBuf under mutex, but avoid blocking forever
+                            if (tftMutex)
+                            {
+                                if (xSemaphoreTake(tftMutex, pdMS_TO_TICKS(200)) == pdTRUE)
+                                {
+                                    // read pixels (may be slow depending on driver)
+                                    for (uint16_t x = 0; x < 320; ++x)
+                                    {
+                                        rowBuf[x] = tft.readPixel(x, row);
+                                    }
+                                    xSemaphoreGive(tftMutex);
+                                }
+                                else
+                                {
+                                    // failed to lock: fill with blank row to avoid much delay for client
+                                    for (uint16_t x = 0; x < 320; ++x)
+                                        rowBuf[x] = 0;
+                                }
+                            }
+                            else
+                            {
+                                for (uint16_t x = 0; x < 320; ++x)
+                                    rowBuf[x] = tft.readPixel(x, row);
+                            }
+
+                            // send row chunk (this may block for USB; it's expected)
+                            sendRowChunk(row, rowBuf, 320);
+
+                            // yield so other tasks can run
+                            vTaskDelay(1);
+                        }
+                        Windows::canAccess = true;
                     }
                     else if (cmd == CMD_DOWN)
                     {
-                        // read payload (4 bytes) + checksum (1)
-                        // wait for 5 bytes
+                        // read payload (4 bytes) + checksum (1) with timeout
                         uint32_t t1 = millis();
                         while (Serial.available() < 5)
                         {
@@ -348,11 +455,9 @@ namespace Screen
                                 break;
                             vTaskDelay(1);
                         }
-                        // read 4 payload bytes
                         uint8_t p[4] = {0, 0, 0, 0};
                         for (int i = 0; i < 4 && Serial.available(); ++i)
                             p[i] = Serial.read();
-                        // read checksum
                         uint8_t chk = 0;
                         if (Serial.available())
                             chk = Serial.read();
@@ -375,7 +480,7 @@ namespace Screen
                     }
                     else if (cmd == CMD_UP)
                     {
-                        // read checksum byte
+                        // read checksum byte (non-blocking with timeout)
                         uint32_t t2 = millis();
                         while (!Serial.available())
                         {
@@ -386,7 +491,6 @@ namespace Screen
                         if (Serial.available())
                         {
                             uint8_t chk = Serial.read();
-                            // verify checksum is equal to cmd
                             if (chk == cmd)
                                 setRemoteUp();
                         }
@@ -395,27 +499,57 @@ namespace Screen
                             setRemoteUp();
                         }
                     }
+                    else if (cmd == CMD_MOVE)
+                    {
+                        // new: cursor move without click. read payload (4 bytes) + checksum (1) with timeout
+                        uint32_t t3 = millis();
+                        while (Serial.available() < 5)
+                        {
+                            if (millis() - t3 > 200)
+                                break;
+                            vTaskDelay(1);
+                        }
+                        uint8_t p[4] = {0, 0, 0, 0};
+                        for (int i = 0; i < 4 && Serial.available(); ++i)
+                            p[i] = Serial.read();
+                        uint8_t chk = 0;
+                        if (Serial.available())
+                            chk = Serial.read();
+
+                        // verify checksum: cmd + payload sum
+                        uint8_t sum = cmd;
+                        for (int i = 0; i < 4; ++i)
+                            sum += p[i];
+                        if (sum == chk)
+                        {
+                            uint16_t x = be16(p);
+                            uint16_t y = be16(p + 2);
+                            // clamp to screen
+                            if (x >= 320)
+                                x = 319;
+                            if (y >= 240)
+                                y = 239;
+                            setRemoteMove(x, y);
+                        }
+                    }
                     else
                     {
-                        // unknown command: skip
+                        // unknown command -> ignore
                     }
                 }
-                // small delay
+                // small delay so CPU isn't fully busy
                 vTaskDelay(2);
             } // for
-            Windows::canAccess = true;
         }
 
         void startScreen()
         {
-            // create the task pinned to core 1, high priority
             if (tftMutex == NULL)
                 tftMutex = xSemaphoreCreateMutex();
 
-            const BaseType_t priority = configMAX_PRIORITIES - 2; // high but not absolute max
+            const BaseType_t priority = configMAX_PRIORITIES - 2;
             const uint32_t stack = 8 * 1024;
             xTaskCreatePinnedToCore(screenTask, "ScreenTask", stack / sizeof(StackType_t), NULL, priority, NULL, 1);
-            // small pause
             delay(50);
         }
     } // namespace SPI_Screen
