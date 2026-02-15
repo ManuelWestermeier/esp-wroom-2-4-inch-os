@@ -180,29 +180,50 @@ namespace Screen
             Serial.write('F');
             Serial.write('R');
             uint8_t chksum = 'F' + 'R';
-            uint8_t rhi = (row >> 8) & 0xFF;
+
+            uint8_t rhi = row >> 8;
             uint8_t rlo = row & 0xFF;
             Serial.write(rhi);
             chksum += rhi;
             Serial.write(rlo);
             chksum += rlo;
-            uint8_t chi = (count >> 8) & 0xFF;
+
+            // count now means pixel count (still 320)
+            uint8_t chi = count >> 8;
             uint8_t clo = count & 0xFF;
             Serial.write(chi);
             chksum += chi;
             Serial.write(clo);
             chksum += clo;
 
-            for (uint16_t i = 0; i < count; ++i)
+            for (uint16_t i = 0; i < count; i += 2)
             {
-                uint16_t color = pixels[i];
-                uint8_t hi = (color >> 8) & 0xFF;
-                uint8_t lo = color & 0xFF;
-                Serial.write(hi);
-                chksum += hi;
-                Serial.write(lo);
-                chksum += lo;
+                auto toGray4 = [](uint16_t c) -> uint8_t
+                {
+                    uint8_t r = (c >> 11) & 0x1F;
+                    uint8_t g = (c >> 5) & 0x3F;
+                    uint8_t b = c & 0x1F;
+
+                    // expand to 8-bit
+                    uint8_t r8 = (r << 3) | (r >> 2);
+                    uint8_t g8 = (g << 2) | (g >> 4);
+                    uint8_t b8 = (b << 3) | (b >> 2);
+
+                    // luminance
+                    uint8_t gray8 = (r8 * 30 + g8 * 59 + b8 * 11) / 100;
+
+                    return gray8 >> 4; // 0–15 (4-bit)
+                };
+
+                uint8_t g1 = toGray4(pixels[i]);
+                uint8_t g2 = (i + 1 < count) ? toGray4(pixels[i + 1]) : g1;
+
+                uint8_t packed = (g1 << 4) | g2;
+
+                Serial.write(packed);
+                chksum += packed;
             }
+
             Serial.write(chksum);
         }
 

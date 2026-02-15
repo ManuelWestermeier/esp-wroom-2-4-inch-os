@@ -1,152 +1,185 @@
-<!-- esp32-screen-viewer.html (updated) -->
 <!doctype html>
+
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>ESP32 Screen Viewer</title>
-    <style>
-      body {
-        font-family:
-          system-ui,
-          -apple-system,
-          Segoe UI,
-          Roboto,
-          sans-serif;
-        padding: 12px;
-      }
-      #canvas {
-        image-rendering: pixelated;
-        width: 640px;
-        height: 480px;
-        border: 1px solid #222;
-        touch-action: none;
-      }
-      button {
-        margin-right: 6px;
-      }
-      #status {
-        margin-left: 8px;
-        color: #555;
-      }
-    </style>
-  </head>
-  <body>
-    <div>
-      <button id="connectBtn">Connect</button>
-      <button id="getFrameBtn" disabled>Get Frame</button>
-      <span id="status">Disconnected</span>
-    </div>
-    <canvas id="canvas" width="320" height="240"></canvas>
+<head>
+  <meta charset="utf-8" />
+  <title>ESP32 Screen Viewer (4-bit Grayscaled Stream)</title>
 
-    <script>
-      (async () => {
-        const canvas = document.getElementById("canvas");
-        const ctx = canvas.getContext("2d");
-        const connectBtn = document.getElementById("connectBtn");
-        const getFrameBtn = document.getElementById("getFrameBtn");
-        const statusText = document.getElementById("status");
+  <style>
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      padding: 12px;
+      background: #f4f4f4;
+    }
 
-        const W = canvas.width,
-          H = canvas.height;
-        const frameBuf = new Uint16Array(W * H);
-        const imageData = ctx.createImageData(W, H);
+    #canvas {
+      image-rendering: pixelated;
+      width: 640px;
+      height: 480px;
+      border: 1px solid #222;
+      background: #000;
+      touch-action: none;
+      display: block;
+      margin-top: 10px;
+    }
 
-        let port = null;
-        let writer = null;
-        let reader = null;
+    button {
+      margin-right: 6px;
+      padding: 6px 12px;
+      font-size: 14px;
+    }
 
-        const CMD_GET_FRAME = 0x01;
+    #status {
+      margin-left: 8px;
+      color: #555;
+      font-weight: 500;
+    }
+  </style>
 
-        function updateCanvas() {
-          for (let i = 0; i < W * H; i++) {
-            const v = frameBuf[i];
+</head>
 
-            // Extract RGB565 components
-            // Red is 5 bits, Green is 6 bits, Blue is 5 bits
-            const r5 = (v >> 11) & 0x1f;
-            const g6 = (v >> 5) & 0x3f;
-            const b5 = v & 0x1f;
+<body>
 
-            // Bit Replication:
-            // Instead of just shifting (r5 << 3), we fill the bottom bits
-            // with the top bits of the same color for a full 0-255 range.
-            imageData.data[i * 4] = (r5 << 3) | (r5 >> 2); // Red (8-bit)
-            imageData.data[i * 4 + 1] = (g6 << 2) | (g6 >> 4); // Green (8-bit)
-            imageData.data[i * 4 + 2] = (b5 << 3) | (b5 >> 2); // Blue (8-bit)
-            imageData.data[i * 4 + 3] = 255; // Alpha (Opaque)
-          }
-          ctx.putImageData(imageData, 0, 0);
+  <div>
+    <button id="connectBtn">Connect</button>
+    <button id="getFrameBtn" disabled>Get Frame</button>
+    <span id="status">Disconnected</span>
+  </div>
+
+<canvas id="canvas" width="320" height="240"></canvas>
+
+<script>
+(async () => {
+
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+
+  const connectBtn = document.getElementById("connectBtn");
+  const getFrameBtn = document.getElementById("getFrameBtn");
+  const statusText = document.getElementById("status");
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  // Stores grayscale values (0–15)
+  const frameBuf = new Uint8Array(W * H);
+
+  const imageData = ctx.createImageData(W, H);
+
+  let port = null;
+  let writer = null;
+  let reader = null;
+
+  const CMD_GET_FRAME = 0x01;
+
+  // Convert 4-bit grayscale → display
+  function updateCanvas() {
+    for (let i = 0; i < frameBuf.length; i++) {
+      const g8 = frameBuf[i] * 17; // scale 0–15 → 0–255
+
+      const idx = i * 4;
+      imageData.data[idx] = g8;
+      imageData.data[idx + 1] = g8;
+      imageData.data[idx + 2] = g8;
+      imageData.data[idx + 3] = 255;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  async function readLoop(readerStream) {
+    let buffer = new Uint8Array(0);
+
+    while (true) {
+      const { value, done } = await readerStream.read();
+      if (done) break;
+      if (!value) continue;
+
+      // merge buffers
+      const merged = new Uint8Array(buffer.length + value.length);
+      merged.set(buffer);
+      merged.set(value, buffer.length);
+      buffer = merged;
+
+      let offset = 0;
+
+      while (offset + 6 <= buffer.length) {
+
+        // find frame header "FR"
+        if (buffer[offset] !== 0x46 || buffer[offset + 1] !== 0x52) {
+          offset++;
+          continue;
         }
 
-        async function readLoop(readerStream) {
-          let buf = new Uint8Array(0);
-          while (true) {
-            const { value, done } = await readerStream.read();
-            if (done) break;
-            if (!value) continue;
+        const row = (buffer[offset + 2] << 8) | buffer[offset + 3];
+        const count = (buffer[offset + 4] << 8) | buffer[offset + 5];
 
-            const newBuf = new Uint8Array(buf.length + value.length);
-            newBuf.set(buf, 0);
-            newBuf.set(value, buf.length);
-            buf = newBuf;
+        const payloadBytes = Math.ceil(count / 2);
 
-            let offset = 0;
-            while (offset + 6 <= buf.length) {
-              if (buf[offset] !== 0x46 || buf[offset + 1] !== 0x52) {
-                // 'FR'
-                offset++;
-                continue;
-              }
-              const row = (buf[offset + 2] << 8) | buf[offset + 3];
-              const count = (buf[offset + 4] << 8) | buf[offset + 5];
-              const payloadBytes = count * 2;
-              if (offset + 6 + payloadBytes + 1 > buf.length) break;
+        if (offset + 6 + payloadBytes + 1 > buffer.length) break;
 
-              const payload = buf.slice(offset + 6, offset + 6 + payloadBytes);
-              for (let i = 0; i < count && i < W; i++) {
-                frameBuf[row * W + i] =
-                  (payload[i * 2] << 8) | payload[i * 2 + 1];
-              }
-              updateCanvas();
-              offset += 6 + payloadBytes + 1;
-            }
-            buf = offset < buf.length ? buf.slice(offset) : new Uint8Array(0);
-          }
+        const payload = buffer.slice(offset + 6, offset + 6 + payloadBytes);
+
+        let px = 0;
+
+        for (let i = 0; i < payload.length; i++) {
+          const byte = payload[i];
+
+          const g1 = byte >> 4;
+          const g2 = byte & 0x0F;
+
+          if (px < count)
+            frameBuf[row * W + px++] = g1;
+
+          if (px < count)
+            frameBuf[row * W + px++] = g2;
         }
 
-        // --- KEY CHANGES HERE ---
+        updateCanvas();
 
-        connectBtn.onclick = async () => {
-          try {
-            statusText.innerText = "Requesting port...";
-            port = await navigator.serial.requestPort();
-            await port.open({ baudRate: 921600 });
+        offset += 6 + payloadBytes + 1;
+      }
 
-            writer = port.writable.getWriter();
-            reader = port.readable.getReader();
+      buffer = offset < buffer.length
+        ? buffer.slice(offset)
+        : new Uint8Array(0);
+    }
+  }
 
-            statusText.innerText = "Connected";
-            connectBtn.disabled = true;
-            getFrameBtn.disabled = false;
+  connectBtn.onclick = async () => {
+    try {
+      statusText.textContent = "Requesting port…";
 
-            readLoop(reader).catch((err) => {
-              console.error(err);
-              statusText.innerText = "Read Error";
-            });
-          } catch (err) {
-            console.error(err);
-            statusText.innerText = "Connection Failed";
-          }
-        };
+      port = await navigator.serial.requestPort();
+      await port.open({ baudRate: 921600 });
 
-        getFrameBtn.onclick = () => {
-          if (writer) {
-            // [0xAA, 0x55, CMD, CHKSUM]
-            // For CMD_GET_FRAME (0x01), checksum is 0x01
-            writer.write(new Uint8Array([0xaa, 0x55, CMD_GET_FRAME, 0x01]));
-          }
-        };
-      })();
-    </script>
-  </body>
+      writer = port.writable.getWriter();
+      reader = port.readable.getReader();
+
+      connectBtn.disabled = true;
+      getFrameBtn.disabled = false;
+      statusText.textContent = "Connected";
+
+      readLoop(reader).catch(err => {
+        console.error(err);
+        statusText.textContent = "Read error";
+      });
+
+    } catch (err) {
+      console.error(err);
+      statusText.textContent = "Connection failed";
+    }
+  };
+
+  getFrameBtn.onclick = () => {
+    if (!writer) return;
+
+    // packet: 0xAA 0x55 CMD CHECKSUM
+    writer.write(new Uint8Array([0xAA, 0x55, CMD_GET_FRAME, CMD_GET_FRAME]));
+  };
+
+})();
+</script>
+
+</body>
 </html>
