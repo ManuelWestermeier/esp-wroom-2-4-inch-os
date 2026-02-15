@@ -9,6 +9,8 @@
 #include <cctype>
 #include <algorithm>
 
+#define DERIVE_ITERATIONS 1
+
 namespace ENC_FS
 {
     // ---------- Helpers ----------
@@ -109,7 +111,7 @@ namespace ENC_FS
         if (created)
             return key;
 
-        String in = Crypto::HASH::sha256StringMul(Auth::username + String(":") + Auth::password, 10000);
+        String in = Crypto::HASH::sha256StringMul(Auth::username + String(":") + Auth::password, DERIVE_ITERATIONS);
         Buffer h = sha256(in); // 32 bytes
         memcpy(key.data(), h.data(), 32);
 

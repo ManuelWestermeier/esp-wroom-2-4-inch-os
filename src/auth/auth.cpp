@@ -3,7 +3,7 @@
 #include "../sys-apps/designer.hpp"
 #include "../styles/global.hpp"
 
-#define HASH_IT 300
+#define HASH_IT 1
 
 namespace Auth
 {
