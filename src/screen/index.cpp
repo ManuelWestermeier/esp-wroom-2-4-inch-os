@@ -274,6 +274,7 @@ namespace Screen
                             {
                                 memset(rowBuf, 0, sizeof(rowBuf));
                             }
+                            vTaskDelay(1);
                             // Send the high-quality 16-bit data to the browser
                             sendRowChunk(row, rowBuf, 320);
 
