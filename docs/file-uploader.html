@@ -1,129 +1,273 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Serial File Uploader</title>
-<style>
-body { font-family: Arial; padding:20px; }
-progress { width: 100%; height: 20px; }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Serial File Manager</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #toolbar { margin-bottom: 10px; }
+    button { padding: 8px 16px; margin-right: 8px; }
+    #status { margin-top: 10px; font-weight: bold; }
+    progress { width: 100%; height: 20px; margin-top: 10px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    .file { color: blue; }
+    .dir { color: green; font-weight: bold; cursor: pointer; }
+  </style>
 </head>
 <body>
+  <h1>Serial File Manager</h1>
+  <div id="toolbar">
+    <button id="connect">Connect</button>
+    <button id="refresh" disabled>Refresh List</button>
+    <button id="createDir" disabled>Create Directory</button>
+    <input type="file" id="uploadFile" style="display:none;">
+    <button id="uploadBtn" disabled>Upload File</button>
+  </div>
+  <p>Current folder: <span id="currentFolder">/</span></p>
+  <div id="status">Disconnected</div>
+  <progress id="progress" value="0" max="100"></progress>
+  <table id="fileList">
+    <thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead>
+    <tbody></tbody>
+  </table>
 
-<h2>Serial File Uploader</h2>
+  <script>
+    let port, reader, writer;
+    let connected = false;
+    let currentPath = "/";   // always ends with slash
 
-<button id="connect">Connect Device</button>
-<br><br>
+    const CHUNK_SIZE = 1024; // must match device's chunk size
 
-<input type="file" id="files" webkitdirectory multiple>
-<br><br>
-
-<button id="upload">Upload</button>
-
-<p id="status"></p>
-<progress id="progress" value="0" max="100"></progress>
-
-<script>
-let port, reader, writer;
-
-const CHUNK = 1024;
-
-function crc32(buf) {
-    let table = new Uint32Array(256).map((_, i) => {
+    // ---------- CRC32 (same as device) ----------
+    function crc32(buf) {
+      let table = new Uint32Array(256).map((_, i) => {
         let c = i;
         for (let k = 0; k < 8; k++)
-            c = ((c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1));
+          c = ((c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1));
         return c >>> 0;
-    });
-    let crc = 0 ^ (-1);
-    for (let i = 0; i < buf.length; i++)
+      });
+      let crc = 0 ^ (-1);
+      for (let i = 0; i < buf.length; i++)
         crc = (crc >>> 8) ^ table[(crc ^ buf[i]) & 0xFF];
-    return (crc ^ (-1)) >>> 0;
-}
+      return (crc ^ (-1)) >>> 0;
+    }
 
-async function readLine() {
-    let line = "";
-    while (true) {
-        const { value } = await reader.read();
-        if (!value) continue;
+    // ---------- Serial line helpers ----------
+    async function readLine() {
+      let line = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
         for (let b of value) {
-            if (b === 10) return line.trim();
-            line += String.fromCharCode(b);
+          if (b === 10) return line.trim();
+          line += String.fromCharCode(b);
         }
+      }
+      return "";
     }
-}
 
-async function sendLine(s) {
-    await writer.write(new TextEncoder().encode(s + "\n"));
-}
-
-async function sendChunk(index, data) {
-    const checksum = crc32(data);
-
-    await sendLine("CHUNK");
-    await sendLine(index);
-    await sendLine(data.length);
-    await sendLine(checksum);
-
-    await writer.write(data);
-
-    while (true) {
-        const resp = await readLine();
-        if (resp === "OK " + index) return true;
-        if (resp === "RESEND " + index) break;
+    async function sendLine(s) {
+      await writer.write(new TextEncoder().encode(s + "\n"));
     }
-    return false;
-}
 
-document.getElementById("connect").onclick = async () => {
-    port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 921600 });
-
-    writer = port.writable.getWriter();
-    reader = port.readable.getReader();
-
-    await sendLine("HELLO");
-    const r = await readLine();
-    document.getElementById("status").innerText = r;
-};
-
-document.getElementById("upload").onclick = async () => {
-    const files = document.getElementById("files").files;
-
-    for (const file of files) {
-
-        const data = new Uint8Array(await file.arrayBuffer());
-        const totalChunks = Math.ceil(data.length / CHUNK);
-
-        document.getElementById("status").innerText = "Sending " + file.webkitRelativePath;
-
-        await sendLine("FILE");
-        await sendLine(file.webkitRelativePath);
-        await sendLine(data.length);
-        await sendLine(CHUNK);
-        await sendLine(crc32(data));
-
-        await readLine(); // OK
-
-        for (let i = 0; i < totalChunks; i++) {
-            const start = i * CHUNK;
-            const end = Math.min(start + CHUNK, data.length);
-            const chunk = data.slice(start, end);
-
-            while (!(await sendChunk(i, chunk))) {}
-
-            const progress = Math.floor((i + 1) / totalChunks * 100);
-            document.getElementById("progress").value = progress;
+    // Helper that reads lines and handles unsolicited STATUS/PROGRESS
+    async function readCommandResponse() {
+      while (true) {
+        const line = await readLine();
+        if (line.startsWith("STATUS ")) {
+          document.getElementById("status").innerText = line.substring(7);
+        } else if (line.startsWith("PROGRESS ")) {
+          const val = parseInt(line.substring(9));
+          document.getElementById("progress").value = val;
+        } else {
+          return line;
         }
-
-        await sendLine("DONE");
-        console.log(await readLine());
+      }
     }
 
-    await sendLine("END");
-    document.getElementById("status").innerText = "Upload complete";
-};
-</script>
+    // ---------- Connect ----------
+    document.getElementById("connect").onclick = async () => {
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 921600 });
+        writer = port.writable.getWriter();
+        reader = port.readable.getReader();
+
+        // handshake
+        await sendLine("HELLO");
+        const reply = await readCommandResponse();
+        if (reply === "READY") {
+          connected = true;
+          document.getElementById("status").innerText = "Connected";
+          document.querySelectorAll("button").forEach(btn => btn.disabled = false);
+          document.getElementById("connect").disabled = true;
+          // request initial folder list
+          await sendLine("GET_LIST");
+          await readList();
+        } else {
+          document.getElementById("status").innerText = "Handshake failed: " + reply;
+        }
+      } catch (e) {
+        document.getElementById("status").innerText = "Connection error: " + e;
+      }
+    };
+
+    // ---------- Read and display directory listing ----------
+    async function readList() {
+      const tbody = document.querySelector("#fileList tbody");
+      tbody.innerHTML = "";
+      let line;
+      while (true) {
+        line = await readCommandResponse();
+        if (line.startsWith("PATH ")) {
+          currentPath = line.substring(5);
+          if (!currentPath.endsWith("/")) currentPath += "/";
+          document.getElementById("currentFolder").innerText = currentPath;
+          continue;
+        }
+        if (line === "LIST_START") continue;
+        if (line === "LIST_END") break;
+        if (line.startsWith("FILE ")) {
+          let parts = line.split(' ');
+          let name = parts[1];
+          let size = parts[2];
+          let row = tbody.insertRow();
+          row.classList.add("file");
+          row.innerHTML = `<td>${name}</td><td>${size} B</td><td>
+            <button class="deleteFile" data-path="${currentPath}${name}">Delete</button>
+          </td>`;
+        } else if (line.startsWith("DIR ")) {
+          let name = line.substring(4);
+          let row = tbody.insertRow();
+          row.classList.add("dir");
+          row.innerHTML = `<td>${name}/</td><td>-</td><td>
+            <button class="deleteDir" data-path="${currentPath}${name}">Delete</button>
+          </td>`;
+        }
+      }
+      // attach delete handlers
+      document.querySelectorAll(".deleteFile").forEach(btn => {
+        btn.onclick = () => deleteFile(btn.dataset.path);
+      });
+      document.querySelectorAll(".deleteDir").forEach(btn => {
+        btn.onclick = () => deleteDir(btn.dataset.path);
+      });
+    }
+
+    // ---------- Refresh ----------
+    document.getElementById("refresh").onclick = async () => {
+      await sendLine("GET_LIST");
+      await readList();
+    };
+
+    // ---------- Create Directory ----------
+    document.getElementById("createDir").onclick = async () => {
+      let name = prompt("Enter directory name:");
+      if (!name) return;
+      let fullPath = currentPath + name;
+      await sendLine("CREATE_DIR " + fullPath);
+      let resp = await readCommandResponse();
+      if (resp === "OK") {
+        document.getElementById("status").innerText = "Directory created";
+        await sendLine("GET_LIST");
+        await readList();
+      } else {
+        document.getElementById("status").innerText = "Create failed: " + resp;
+      }
+    };
+
+    // ---------- Upload File ----------
+    document.getElementById("uploadBtn").onclick = () => {
+      document.getElementById("uploadFile").click();
+    };
+    document.getElementById("uploadFile").onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const data = new Uint8Array(await file.arrayBuffer());
+      const totalChunks = Math.ceil(data.length / CHUNK_SIZE);
+      const fileCrc = crc32(data);
+      const path = currentPath + file.name;
+
+      // Start upload
+      await sendLine(`UPLOAD_START ${path} ${data.length} ${CHUNK_SIZE} ${fileCrc}`);
+      let resp = await readCommandResponse();
+      if (resp !== "OK") {
+        document.getElementById("status").innerText = "Upload rejected: " + resp;
+        return;
+      }
+
+      document.getElementById("status").innerText = "Uploading " + file.name;
+
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, data.length);
+        const chunk = data.slice(start, end);
+        const chunkCrc = crc32(chunk);
+
+        let resend = true;
+        while (resend) {
+          await sendLine(`UPLOAD_CHUNK ${i} ${chunk.length} ${chunkCrc}`);
+          // send raw binary
+          await writer.write(chunk);
+          // wait for response (may include STATUS/PROGRESS)
+          const ack = await readCommandResponse();
+          if (ack === `OK ${i}`) {
+            resend = false;
+            const percent = Math.floor((i + 1) / totalChunks * 100);
+            document.getElementById("progress").value = percent;
+          } else if (ack.startsWith("RESEND")) {
+            // will resend
+          } else {
+            document.getElementById("status").innerText = "Unexpected: " + ack;
+            return;
+          }
+        }
+      }
+
+      await sendLine("UPLOAD_END");
+      resp = await readCommandResponse();
+      if (resp === "DONE") {
+        document.getElementById("status").innerText = "Upload complete";
+        document.getElementById("progress").value = 100;
+        // refresh list
+        await sendLine("GET_LIST");
+        await readList();
+      } else {
+        document.getElementById("status").innerText = "Upload finalize failed: " + resp;
+      }
+    };
+
+    // ---------- Delete File ----------
+    async function deleteFile(path) {
+      if (!confirm(`Delete ${path}?`)) return;
+      await sendLine("DELETE_FILE " + path);
+      let resp = await readCommandResponse();
+      if (resp === "OK") {
+        document.getElementById("status").innerText = "File deleted";
+        await sendLine("GET_LIST");
+        await readList();
+      } else {
+        document.getElementById("status").innerText = "Delete failed: " + resp;
+      }
+    }
+
+    // ---------- Delete Directory ----------
+    async function deleteDir(path) {
+      if (!confirm(`Delete directory ${path}?`)) return;
+      await sendLine("DELETE_DIR " + path);
+      let resp = await readCommandResponse();
+      if (resp === "OK") {
+        document.getElementById("status").innerText = "Directory deleted";
+        await sendLine("GET_LIST");
+        await readList();
+      } else {
+        document.getElementById("status").innerText = "Delete failed: " + resp;
+      }
+    }
+  </script>
 </body>
 </html>
