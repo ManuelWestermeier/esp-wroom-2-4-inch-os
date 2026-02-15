@@ -198,3 +198,5 @@ while not WIN_closed(win) do
     delay(16) -- ~60 FPS
 end
 ```
+
+[debug screen: os.manuel-westermeier.de/debug-screen.html](https://os.manuel-westermeier.de/docs/debug-screen.html)
