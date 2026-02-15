@@ -1,4 +1,4 @@
-<!-- esp32-screen-viewer.html (full file, updated) -->
+<!-- esp32-screen-viewer.html (updated) -->
 <!doctype html>
 <html lang="en">
   <head>
@@ -40,245 +40,102 @@
 
     <script>
       (async () => {
-        const connectBtn = document.getElementById("connectBtn");
-        const getFrameBtn = document.getElementById("getFrameBtn");
-        const statusEl = document.getElementById("status");
         const canvas = document.getElementById("canvas");
         const ctx = canvas.getContext("2d");
+        const connectBtn = document.getElementById("connectBtn");
+        const getFrameBtn = document.getElementById("getFrameBtn");
+        const statusText = document.getElementById("status");
+
         const W = canvas.width,
           H = canvas.height;
+        const frameBuf = new Uint16Array(W * H);
+        const imageData = ctx.createImageData(W, H);
 
         let port = null;
         let writer = null;
         let reader = null;
-        let readLoopRunning = false;
 
-        const frameBuf = new Uint16Array(W * H);
-        const imageData = ctx.createImageData(W, H);
-
-        // command constants
         const CMD_GET_FRAME = 0x01;
-        const CMD_DOWN = 0x02;
-        const CMD_UP = 0x03;
-        const CMD_MOVE = 0x04; // new
-
-        // suppress cursor transmissions while a GET_FRAME is running
-        let suppressCursor = false;
 
         function updateCanvas() {
-          for (let i = 0; i < W * H; ++i) {
+          for (let i = 0; i < W * H; i++) {
             const v = frameBuf[i];
-            const r = ((v >> 11) & 0x1f) << 3;
-            const g = ((v >> 5) & 0x3f) << 2;
-            const b = (v & 0x1f) << 3;
-            const idx = i * 4;
-            imageData.data[idx] = r;
-            imageData.data[idx + 1] = g;
-            imageData.data[idx + 2] = b;
-            imageData.data[idx + 3] = 255;
+            imageData.data[i * 4] = ((v >> 11) & 0x1f) << 3;
+            imageData.data[i * 4 + 1] = ((v >> 5) & 0x3f) << 2;
+            imageData.data[i * 4 + 2] = (v & 0x1f) << 3;
+            imageData.data[i * 4 + 3] = 255;
           }
           ctx.putImageData(imageData, 0, 0);
         }
 
-        function cmdGetFrame() {
-          // checksum byte included (simple 0x01 as in previous implementation)
-          if (writer) writer.write(new Uint8Array([0xaa, 0x55, CMD_GET_FRAME, 0x01]));
-        }
-
-        function cmdDown(x, y) {
-          if (!writer) return;
-          const xb = [(x >> 8) & 0xff, x & 0xff];
-          const yb = [(y >> 8) & 0xff, y & 0xff];
-          const cmd = CMD_DOWN;
-          const payload = [xb[0], xb[1], yb[0], yb[1]];
-          let sum = cmd;
-          for (const b of payload) sum = (sum + b) & 0xff;
-          writer.write(new Uint8Array([0xaa, 0x55, cmd, ...payload, sum]));
-        }
-
-        function cmdMove(x, y) {
-          if (!writer) return;
-          const xb = [(x >> 8) & 0xff, x & 0xff];
-          const yb = [(y >> 8) & 0xff, y & 0xff];
-          const cmd = CMD_MOVE;
-          const payload = [xb[0], xb[1], yb[0], yb[1]];
-          let sum = cmd;
-          for (const b of payload) sum = (sum + b) & 0xff;
-          writer.write(new Uint8Array([0xaa, 0x55, cmd, ...payload, sum]));
-        }
-
-        function cmdUp() {
-          if (!writer) return;
-          const cmd = CMD_UP;
-          // simple checksum: repeat the cmd (keeps compatibility with device)
-          writer.write(new Uint8Array([0xaa, 0x55, cmd, cmd]));
-        }
-
         async function readLoop(readerStream) {
-          readLoopRunning = true;
           let buf = new Uint8Array(0);
-          try {
-            while (true) {
-              const { value, done } = await readerStream.read();
-              if (done) break;
-              if (value) {
-                const newBuf = new Uint8Array(buf.length + value.length);
-                newBuf.set(buf, 0);
-                newBuf.set(value, buf.length);
-                buf = newBuf;
+          while (true) {
+            const { value, done } = await readerStream.read();
+            if (done) break;
+            if (!value) continue;
 
-                let offset = 0;
-                while (offset + 6 <= buf.length) {
-                  if (buf[offset] !== 0x46 || buf[offset + 1] !== 0x52) {
-                    offset++;
-                    continue;
-                  }
-                  if (offset + 6 > buf.length) break;
-                  const row = (buf[offset + 2] << 8) | buf[offset + 3];
-                  const count = (buf[offset + 4] << 8) | buf[offset + 5];
-                  const payloadBytes = count * 2;
-                  const totalLen = 2 + 2 + 2 + payloadBytes + 1;
-                  if (offset + totalLen > buf.length) break;
+            const newBuf = new Uint8Array(buf.length + value.length);
+            newBuf.set(buf, 0);
+            newBuf.set(value, buf.length);
+            buf = newBuf;
 
-                  const payload = buf.slice(
-                    offset + 6,
-                    offset + 6 + payloadBytes,
-                  );
-                  const chk = buf[offset + 6 + payloadBytes];
-
-                  let sum = 0;
-                  sum +=
-                    0x46 +
-                    0x52 +
-                    buf[offset + 2] +
-                    buf[offset + 3] +
-                    buf[offset + 4] +
-                    buf[offset + 5];
-                  for (let i = 0; i < payload.length; i++)
-                    sum = (sum + payload[i]) & 0xff;
-
-                  if (sum === chk && row < H) {
-                    // If we've started receiving a frame, suppress cursor sends until last row arrives
-                    if (row === 0) {
-                      suppressCursor = true;
-                    }
-
-                    for (let i = 0; i < count && i < W; i++) {
-                      frameBuf[row * W + i] =
-                        (payload[i * 2] << 8) | payload[i * 2 + 1];
-                    }
-                    updateCanvas();
-
-                    // If this is the last row (H-1), re-enable cursor transmissions
-                    if (row === H - 1) {
-                      suppressCursor = false;
-                    }
-                  }
-                  offset += totalLen;
-                }
-                buf =
-                  offset < buf.length ? buf.slice(offset) : new Uint8Array(0);
+            let offset = 0;
+            while (offset + 6 <= buf.length) {
+              if (buf[offset] !== 0x46 || buf[offset + 1] !== 0x52) {
+                // 'FR'
+                offset++;
+                continue;
               }
+              const row = (buf[offset + 2] << 8) | buf[offset + 3];
+              const count = (buf[offset + 4] << 8) | buf[offset + 5];
+              const payloadBytes = count * 2;
+              if (offset + 6 + payloadBytes + 1 > buf.length) break;
+
+              const payload = buf.slice(offset + 6, offset + 6 + payloadBytes);
+              for (let i = 0; i < count && i < W; i++) {
+                frameBuf[row * W + i] =
+                  (payload[i * 2] << 8) | payload[i * 2 + 1];
+              }
+              updateCanvas();
+              offset += 6 + payloadBytes + 1;
             }
-          } catch (e) {
-            console.error("readLoop error", e);
-          } finally {
-            try { readerStream.releaseLock(); } catch(e){}
-            readLoopRunning = false;
-            // ensure cursor not suppressed permanently on disconnect
-            suppressCursor = false;
+            buf = offset < buf.length ? buf.slice(offset) : new Uint8Array(0);
           }
         }
 
-        async function connect() {
-          try {
-            port = await navigator.serial.requestPort();
-            await port.open({ baudRate: 115200 });
-            writer = port.writable.getWriter();
-            reader = port.readable.getReader();
-            statusEl.textContent = "Connected";
-            getFrameBtn.disabled = false;
-
-            if (!readLoopRunning) {
-              readLoop(reader).catch((e) => console.error(e));
-            }
-          } catch (e) {
-            console.error(e);
-            statusEl.textContent = "Connection failed";
-          }
-        }
+        // --- KEY CHANGES HERE ---
 
         connectBtn.onclick = async () => {
-          if (!port) {
-            await connect();
-          } else {
-            try {
-              if (writer) {
-                try { writer.releaseLock(); } catch(e){}
-                writer = null;
-              }
-              if (reader) {
-                try { reader.releaseLock(); } catch(e){}
-                reader = null;
-              }
-              await port.close();
-            } catch (e) {
-              console.warn(e);
-            }
-            port = null;
-            statusEl.textContent = "Disconnected";
-            getFrameBtn.disabled = true;
-            suppressCursor = false;
+          try {
+            statusText.innerText = "Requesting port...";
+            port = await navigator.serial.requestPort();
+            await port.open({ baudRate: 115200 });
+
+            writer = port.writable.getWriter();
+            reader = port.readable.getReader();
+
+            statusText.innerText = "Connected";
+            connectBtn.disabled = true;
+            getFrameBtn.disabled = false;
+
+            readLoop(reader).catch((err) => {
+              console.error(err);
+              statusText.innerText = "Read Error";
+            });
+          } catch (err) {
+            console.error(err);
+            statusText.innerText = "Connection Failed";
           }
         };
 
         getFrameBtn.onclick = () => {
           if (writer) {
-            // immediately stop sending cursor positions
-            suppressCursor = true;
-            cmdGetFrame();
+            // [0xAA, 0x55, CMD, CHKSUM]
+            // For CMD_GET_FRAME (0x01), checksum is 0x01
+            writer.write(new Uint8Array([0xaa, 0x55, CMD_GET_FRAME, 0x01]));
           }
         };
-
-        let mouseDown = false;
-        function canvasToScreenCoords(evt) {
-          const rect = canvas.getBoundingClientRect();
-          const cx = evt.clientX - rect.left;
-          const cy = evt.clientY - rect.top;
-          const sx = Math.floor(cx * (W / rect.width));
-          const sy = Math.floor(cy * (H / rect.height));
-          return {
-            x: Math.max(0, Math.min(W - 1, sx)),
-            y: Math.max(0, Math.min(H - 1, sy)),
-          };
-        }
-
-        canvas.addEventListener("pointerdown", (e) => {
-          if (!writer || suppressCursor) return;
-          mouseDown = true;
-          const p = canvasToScreenCoords(e);
-          cmdDown(p.x, p.y);
-        });
-        canvas.addEventListener("pointermove", (e) => {
-          if (!writer || suppressCursor) return;
-          const p = canvasToScreenCoords(e);
-          // continuous streaming of cursor position (MOVE)
-          cmdMove(p.x, p.y);
-          // if pressed, also send DOWN to represent an active press/move
-          if (mouseDown) cmdDown(p.x, p.y);
-        });
-        window.addEventListener("pointerup", (e) => {
-          if (!writer || suppressCursor) {
-            mouseDown = false;
-            return;
-          }
-          mouseDown = false;
-          cmdUp();
-        });
-
-        window.addEventListener("keydown", (e) => {
-          if (e.key === "g") getFrameBtn.click();
-        });
       })();
     </script>
   </body>
