@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "../sys-apps/wifi-menager.hpp"
-#include "../sys-apps/file-picker.hpp"
+#include "../sys-apps/tft-file-manager.hpp"
 #include "../sys-apps/app-menager.hpp"
 #include "../sys-apps/settings.hpp"
 #include "../sys-apps/browser.hpp"
@@ -384,8 +384,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     }
                     else if (shortCut.name == "Folders")
                     {
-                        Serial.println(ENC_FS::readFileString(
-                            ENC_FS::str2Path(filePicker("/"))));
+                        TFTFileManager::run();
                         return;
                     }
                     else if (shortCut.name == "WiFi")
