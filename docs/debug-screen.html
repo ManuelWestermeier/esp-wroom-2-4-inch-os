@@ -60,10 +60,20 @@
         function updateCanvas() {
           for (let i = 0; i < W * H; i++) {
             const v = frameBuf[i];
-            imageData.data[i * 4] = ((v >> 11) & 0x1f) << 3;
-            imageData.data[i * 4 + 1] = ((v >> 5) & 0x3f) << 2;
-            imageData.data[i * 4 + 2] = (v & 0x1f) << 3;
-            imageData.data[i * 4 + 3] = 255;
+
+            // Extract RGB565 components
+            // Red is 5 bits, Green is 6 bits, Blue is 5 bits
+            const r5 = (v >> 11) & 0x1f;
+            const g6 = (v >> 5) & 0x3f;
+            const b5 = v & 0x1f;
+
+            // Bit Replication:
+            // Instead of just shifting (r5 << 3), we fill the bottom bits
+            // with the top bits of the same color for a full 0-255 range.
+            imageData.data[i * 4] = (r5 << 3) | (r5 >> 2); // Red (8-bit)
+            imageData.data[i * 4 + 1] = (g6 << 2) | (g6 >> 4); // Green (8-bit)
+            imageData.data[i * 4 + 2] = (b5 << 3) | (b5 >> 2); // Blue (8-bit)
+            imageData.data[i * 4 + 3] = 255; // Alpha (Opaque)
           }
           ctx.putImageData(imageData, 0, 0);
         }
@@ -110,7 +120,7 @@
           try {
             statusText.innerText = "Requesting port...";
             port = await navigator.serial.requestPort();
-            await port.open({ baudRate: 115200 });
+            await port.open({ baudRate: 921600 });
 
             writer = port.writable.getWriter();
             reader = port.readable.getReader();

@@ -228,6 +228,7 @@ namespace Screen
                         vTaskDelay(1);
                     uint8_t cmd = Serial.read();
 
+                    // Inside Screen::SPI_Screen::screenTask loop
                     if (cmd == CMD_GET_FRAME)
                     {
                         // Discard client checksum
@@ -239,17 +240,23 @@ namespace Screen
 
                         for (uint16_t row = 0; row < 240; ++row)
                         {
-                            if (tftMutex && xSemaphoreTake(tftMutex, pdMS_TO_TICKS(100)) == pdTRUE)
+                            if (tftMutex && xSemaphoreTake(tftMutex, pdMS_TO_TICKS(50)) == pdTRUE)
                             {
                                 for (uint16_t x = 0; x < 320; ++x)
+                                {
+                                    // Use the public readPixel method
                                     rowBuf[x] = tft.readPixel(x, row);
+                                }
                                 xSemaphoreGive(tftMutex);
                             }
                             else
                             {
                                 memset(rowBuf, 0, sizeof(rowBuf));
                             }
+                            // Send the high-quality 16-bit data to the browser
                             sendRowChunk(row, rowBuf, 320);
+
+                            // Slight yield to keep the ESP32 stable
                             vTaskDelay(1);
                         }
                     }
