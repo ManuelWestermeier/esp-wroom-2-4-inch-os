@@ -26,7 +26,7 @@ void initializeSetup()
     // disableCore1WDT();
     esp_task_wdt_delete(NULL); // unregister this task
 
-    Serial.begin(921600);
+    Serial.begin(250000);
     Serial.println("MW-MINI-OS");
 
     // Audio::init(60);

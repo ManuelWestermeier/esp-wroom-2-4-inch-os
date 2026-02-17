@@ -92,7 +92,7 @@
     document.getElementById("connect").onclick = async () => {
       try {
         port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 921600 });
+        await port.open({ baudRate: 250000 });
         writer = port.writable.getWriter();
         reader = port.readable.getReader();
 
