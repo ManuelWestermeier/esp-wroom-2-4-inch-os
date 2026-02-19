@@ -12,9 +12,22 @@
 #include "../anim/entry.hpp"
 #include "../led/index.hpp"
 #include "../config.hpp"
+#include "../sys-apps/app-menager.hpp"
 
 #include "startup.hpp"
 #include "sd-setup.hpp"
+
+void testInstallApps()
+{
+    while (!Windows::canAccess)
+        ;
+    Windows::canAccess = false; // Reset access flag for next operations
+    // AppManager::install("mwsearchapp");
+    AppManager::install("https://mwsearchapp.onrender.com/2");
+    AppManager::install("https://mwsearchapp.onrender.com/3");
+    AppManager::install("https://mwsearchapp.onrender.com/4");
+    Windows::canAccess = true; // Allow access again after installations
+}
 
 void initializeSetup()
 {

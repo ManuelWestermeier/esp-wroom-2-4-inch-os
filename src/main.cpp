@@ -22,7 +22,8 @@ void setup()
 
     startWindowRender();
     
-    Screen::SPI_Screen::startScreen();
+    testInstallApps();
+    // Screen::SPI_Screen::startScreen();
 }
 
 void loop()

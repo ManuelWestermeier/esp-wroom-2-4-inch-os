@@ -35,7 +35,7 @@ namespace AppManager
 
     // ---------- helpers ----------
 
-    String trimLines(const String &s)
+    inline String trimLines(const String &s)
     {
         int start = 0;
         int end = s.length() - 1;
@@ -1156,6 +1156,38 @@ namespace AppManager
             drawSuccess(folderExists ? "Updated successfully" : "Installed successfully");
         else
             drawError(folderExists ? "Update failed" : "Install failed");
+    }
+
+    static bool install(String appId)
+    {
+        appId.trim();
+        if (appId.length() == 0)
+        {
+            drawError("No App ID entered");
+            return false;
+        }
+
+        // Derive folder name from the input id (not from fetched name). This ensures input-based folder naming behavior.
+        String folderName = sanitizeFolderNameFromInput(appId);
+
+        // If programs/folderName exists, treat this as an update
+        bool folderExists = ENC_FS::exists({"programs", folderName});
+
+        clearScreen();
+        Screen::tft.setTextColor(TEXT, BG);
+        {
+            const String __t = String(folderExists ? "Prepare Update" : "Preparing Installation");
+            int __font = TITLE_FONT;
+            int __w = Screen::tft.textWidth(__t.c_str(), __font);
+            int __x = (screenW() - __w) / 2;
+            __x = std::max(__x, LEFT_MARGIN);
+            __x = std::min(__x, screenW() - __w - RIGHT_MARGIN);
+            int __y = TOP_MARGIN;
+            Screen::tft.drawString(__t, __x, __y, __font);
+        }
+        drawMessage("Please wait...", TOP_MARGIN + Screen::tft.fontHeight(TITLE_FONT) + 8, TEXT, BG, HEADING_FONT);
+
+        return installApp(appId, folderName, folderExists);
     }
 
 } // namespace AppManager
