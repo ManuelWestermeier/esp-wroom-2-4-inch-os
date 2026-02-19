@@ -18,7 +18,7 @@ void setup()
     // UserWiFi::addPublicWifi("io", "hhhhhh90");
 
     // Auth::init();
-    Auth::login("tz", "x");
+    Auth::login("c", "c");
 
     startWindowRender();
     
