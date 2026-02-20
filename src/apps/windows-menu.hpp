@@ -210,6 +210,10 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     Rect programsView = {{10, topSelect.pos.y + topSelect.dimensions.y},
                          {itemWidth, screen.dimensions.y - topSelect.dimensions.y - topSelect.pos.y}};
 
+    // position the new scroll button in the right gutter:
+    // placed at the right edge, under topSelect, above the time button
+    Rect scrollBtnRect = {{screen.dimensions.x - 5 - 42, programsView.pos.y + (programsView.dimensions.y - 46) / 2}, {42, 42}};
+
     // persistent app list + state
     static std::vector<AppRenderData> apps;
     static std::vector<ENC_FS::Path> lastPaths;
@@ -247,13 +251,18 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         tft.fillScreen(BG);
     }
 
+    // compute scroll bounds for the app list (clamp scrollYOff between min/max)
+    int visibleH = programsView.dimensions.y - 10; // we used +10 when setting viewport
+    int totalH = ((int)apps.size() + 2) * itemHeight;
+    int minScrollY = min(SCROLL_OFF_Y_MENU_START, visibleH - totalH); // typically negative if content taller than view
+
     // --- handle scroll gestures ---
     if (programsView.isIn(pos) && state == MouseState::Held)
     {
         int newScroll = min(SCROLL_OFF_Y_MENU_START, scrollYOff + move.y);
         if (newScroll != scrollYOff)
         {
-            scrollYOff = newScroll;
+            scrollYOff = max(minScrollY, newScroll);
             needRedraw = bottomRedraw = true;
         }
     }
@@ -268,7 +277,43 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         }
     }
 
-    // --- handle clicks (apps + shortcuts) ---
+    // handle hold on our new scroll button for continuous scrolling
+    if (scrollBtnRect.isIn(pos) && state == MouseState::Held)
+    {
+        // small continuous step while held
+        const int step = 4;
+        int halfY = scrollBtnRect.pos.y + (scrollBtnRect.dimensions.y / 2);
+        if (pos.y < halfY)
+        {
+            int newScroll = min(SCROLL_OFF_Y_MENU_START, scrollYOff + step);
+            if (newScroll != scrollYOff)
+            {
+                scrollYOff = max(minScrollY, newScroll);
+                needRedraw = bottomRedraw = true;
+            }
+        }
+        else
+        {
+            int newScroll = max(minScrollY, scrollYOff - step);
+            if (newScroll != scrollYOff)
+            {
+                scrollYOff = newScroll;
+                needRedraw = bottomRedraw = true;
+            }
+        }
+    }
+
+    if (topSelect.isIn(pos) && state == MouseState::Held)
+    {
+        int newScroll = min(0, scrollXOff + move.x);
+        if (newScroll != scrollXOff)
+        {
+            scrollXOff = newScroll;
+            needRedraw = topRedraw = true;
+        }
+    }
+
+    // --- handle clicks (apps + shortcuts + scroll button) ---
     if (state == MouseState::Down)
     {
         if (programsView.isIn(pos))
@@ -420,6 +465,30 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                 scXPos += w + 5;
             }
         }
+        else if (scrollBtnRect.isIn(pos))
+        {
+            // Single tap behavior: top half = page/step up, bottom half = page/step down
+            int halfY = scrollBtnRect.pos.y + (scrollBtnRect.dimensions.y / 2);
+            const int step = itemHeight / 3; // step by one item
+            if (pos.y < halfY)
+            {
+                int newScroll = min(SCROLL_OFF_Y_MENU_START, scrollYOff + step);
+                if (newScroll != scrollYOff)
+                {
+                    scrollYOff = max(minScrollY, newScroll);
+                    needRedraw = bottomRedraw = true;
+                }
+            }
+            else
+            {
+                int newScroll = max(minScrollY, scrollYOff - step);
+                if (newScroll != scrollYOff)
+                {
+                    scrollYOff = newScroll;
+                    needRedraw = bottomRedraw = true;
+                }
+            }
+        }
     }
 
     if (!needRedraw)
@@ -529,6 +598,25 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         }
 
         Screen::tft.resetViewport();
+    }
+
+    // draw the new scroll button in the right gutter (outside of viewports)
+    {
+        // draw up triangle (centered in upper half)
+        int cx = scrollBtnRect.pos.x + (scrollBtnRect.dimensions.x / 2);
+        int upCy = scrollBtnRect.pos.y + (scrollBtnRect.dimensions.y / 4);
+        int triHalf = 6;
+        // triangle points: (cx, upCy - triHalf) (cx - triHalf, upCy + triHalf) (cx + triHalf, upCy + triHalf)
+        tft.fillTriangle(cx, upCy - triHalf,
+                         cx - triHalf, upCy + triHalf,
+                         cx + triHalf, upCy + triHalf, ACCENT);
+
+        // draw down triangle (centered in lower half)
+        int downCy = scrollBtnRect.pos.y + (3 * scrollBtnRect.dimensions.y / 4);
+        // triangle points: (cx, downCy + triHalf) (cx - triHalf, downCy - triHalf) (cx + triHalf, downCy - triHalf)
+        tft.fillTriangle(cx, downCy + triHalf,
+                         cx - triHalf, downCy - triHalf,
+                         cx + triHalf, downCy - triHalf, ACCENT);
     }
 
     drawTime();
