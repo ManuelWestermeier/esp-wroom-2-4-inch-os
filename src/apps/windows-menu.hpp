@@ -153,7 +153,7 @@ struct ShortCut
     String svg;
 };
 
-unsigned long menuUpdateTime = 0;
+bool updatedAppList = false;
 
 #define SCROLL_OFF_Y_MENU_START 20
 
@@ -203,12 +203,12 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     static int scrollYOff = SCROLL_OFF_Y_MENU_START;
     static int scrollXOff = 0;
     const int itemHeight = 30;
-    const int itemWidth = 250;
+    const int itemWidth = 320 - 20 - 42; // screen width - horizontal padding - time btn
 
     Rect screen = {{0, 0}, {320, 240}};
     Rect topSelect = {{10, 10}, {300, 60}};
     Rect programsView = {{10, topSelect.pos.y + topSelect.dimensions.y},
-                         {300, screen.dimensions.y - topSelect.dimensions.y - topSelect.pos.y}};
+                         {itemWidth, screen.dimensions.y - topSelect.dimensions.y - topSelect.pos.y}};
 
     // persistent app list + state
     static std::vector<AppRenderData> apps;
@@ -221,10 +221,16 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     bool topRedraw = false, bottomRedraw = false;
 
     // periodic directory check (only every 10s)
-    if (menuUpdateTime == 0 || millis() - menuUpdateTime > 45000)
+    if (!updatedAppList)
     {
-        menuUpdateTime = millis();
+        updatedAppList = true;
+        tft.fillScreen(BG);
+        tft.setTextSize(2);
+        tft.setTextColor(TEXT);
+        tft.setTextDatum(MC_DATUM);
+        tft.drawString("Loading Apps...", 160, 120);
         updateAppList(apps, lastPaths, appsChanged);
+        tft.fillScreen(BG);
     }
 
     // determine redraw needs
@@ -314,6 +320,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
 
                         // call installer (synchronous assumption)
                         AppManager::installApp(app.id, folderName, true);
+                        updatedAppList = false;
                         Screen::tft.fillScreen(BG);
                         Screen::tft.setTextSize(2);
                         Screen::tft.setTextColor(TEXT);
@@ -401,7 +408,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                         Screen::tft.drawString("Finished Updates...", 160, 120);
                         Screen::tft.setTextSize(1);
                         delay(1000);
-                        updateAppList(apps, lastPaths, appsChanged);
+                        updatedAppList = false;
                         return;
                     }
                     else if (shortCut.name == "Browser")
@@ -421,6 +428,8 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     // ---------- RENDER TOP (SHORTCUTS + SVGs) ----------
     if (topRedraw)
     {
+        tft.setTextSize(1);
+
         // draw rounded container
         tft.fillRoundRect(topSelect.pos.x, topSelect.pos.y, topSelect.dimensions.x, topSelect.dimensions.y, 5, PRIMARY);
 
@@ -460,7 +469,6 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     // ---------- RENDER BOTTOM (PROGRAM LIST with icons, clipped & scrolled) ----------
     if (bottomRedraw)
     {
-        tft.setTextSize(2);
         // viewport offset +10 px top padding so items don't overlap top bar
         tft.setViewport(programsView.pos.x, programsView.pos.y + 10, programsView.dimensions.x, programsView.dimensions.y, false);
 
@@ -470,6 +478,8 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
         int i = 0;
         for (auto &app : apps)
         {
+            tft.setTextSize(2);
+            tft.setTextDatum(TL_DATUM);
             i++;
             Rect appRect = {{10, (scrollYOff + (i + 1) * itemHeight)}, {itemWidth, itemHeight}};
 
@@ -494,18 +504,16 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
             tft.setCursor(appRect.pos.x + 30, appRect.pos.y + 5);
             tft.print(app.name);
 
-            // draw update button on the right
-            const int btnW = 50;
-            Rect updateRect = {{appRect.pos.x + appRect.dimensions.x - btnW - 5, appRect.pos.y + 5}, {btnW, appRect.dimensions.y - 20}};
-            tft.fillRoundRect(updateRect.pos.x, updateRect.pos.y, updateRect.dimensions.x, updateRect.dimensions.y, 3, PH);
-            tft.setTextSize(1);
-            tft.setTextDatum(CC_DATUM);
-            tft.drawString("Update", updateRect.pos.x + updateRect.dimensions.x / 2, updateRect.pos.y + (updateRect.dimensions.y / 2));
-
             // optionally show id under the name if present (small text)
             if (app.id.length() > 0)
             {
+                // draw update button on the right
+                const int btnW = 50;
+                Rect updateRect = {{appRect.pos.x + appRect.dimensions.x - btnW - 5, appRect.pos.y + 5}, {btnW, appRect.dimensions.y - 20}};
+                tft.fillRoundRect(updateRect.pos.x, updateRect.pos.y, updateRect.dimensions.x, updateRect.dimensions.y, 3, PH);
                 tft.setTextSize(1);
+                tft.setTextDatum(CC_DATUM);
+                tft.drawString("Update", updateRect.pos.x + updateRect.dimensions.x / 2, updateRect.pos.y + (updateRect.dimensions.y / 2));
                 tft.setTextDatum(CC_DATUM);
                 String clippedId = app.id;
                 if (clippedId.length() > 14)
@@ -517,8 +525,6 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                 tft.drawString(clippedId,
                                updateRect.pos.x + updateRect.dimensions.x / 2,
                                updateRect.pos.y + (updateRect.dimensions.y / 2) + 10);
-                tft.setTextSize(2);
-                tft.setTextDatum(TL_DATUM);
             }
         }
 

@@ -316,53 +316,64 @@ load("/");
     void handleUpload()
     {
         HTTPUpload &up = server.upload();
-
-        static long uploadedSoFar = 0; // track cumulative bytes
+        static size_t uploadedSoFar = 0;
 
         if (up.status == UPLOAD_FILE_START)
         {
             uploadPath = str2Path(server.arg("path"));
-            deleteFile(uploadPath); // remove existing file
+            deleteFile(uploadPath); // remove existing file to overwrite
             safeWriteStatus("Uploading...", 0);
             uploadedSoFar = 0;
             if (stateMutex)
             {
-                xSemaphoreTake(stateMutex, 10);
-                progress = 0;
-                xSemaphoreGive(stateMutex);
+                if (xSemaphoreTake(stateMutex, (TickType_t)10))
+                {
+                    progress = 0;
+                    xSemaphoreGive(stateMutex);
+                }
             }
         }
         else if (up.status == UPLOAD_FILE_WRITE)
         {
             if (up.currentSize > 0)
             {
+                // up.buf is a small chunk (HTTP_UPLOAD_BUFLEN, ~1436 bytes)
+                // append directly without extra large allocations:
                 Buffer b(up.currentSize);
                 memcpy(b.data(), up.buf, up.currentSize);
-                appendFile(uploadPath, b); // append chunk
-                b.clear();
+                appendFile(uploadPath, b);
                 uploadedSoFar += up.currentSize;
             }
 
             if (stateMutex)
             {
-                xSemaphoreTake(stateMutex, 10);
-                if (up.totalSize > 0)
-                    progress = min(100, (int)((uploadedSoFar * 100) / up.totalSize));
-                else
-                    progress = min(100, progress + 2); // best-effort
-                xSemaphoreGive(stateMutex);
+                if (xSemaphoreTake(stateMutex, (TickType_t)10))
+                {
+                    if (up.totalSize > 0)
+                        progress = min(100, (int)((uploadedSoFar * 100) / up.totalSize));
+                    else
+                        progress = min(100, progress + 2); // best-effort
+                    xSemaphoreGive(stateMutex);
+                }
             }
 
-            vTaskDelay(pdMS_TO_TICKS(1)); // yield
+            // yield so WDT doesn't fire and other tasks run
+            vTaskDelay(pdMS_TO_TICKS(1));
         }
-        else if (up.status == UPLOAD_FILE_END)
+        else if (up.status == UPLOAD_FILE_END || up.status == UPLOAD_FILE_ABORTED)
         {
-            safeWriteStatus("Upload done", 100);
+            if (up.status == UPLOAD_FILE_END)
+                safeWriteStatus("Upload done", 100);
+            else
+                safeWriteStatus("Upload aborted", progress);
+
             if (stateMutex)
             {
-                xSemaphoreTake(stateMutex, 10);
-                progress = 100;
-                xSemaphoreGive(stateMutex);
+                if (xSemaphoreTake(stateMutex, (TickType_t)10))
+                {
+                    progress = (up.status == UPLOAD_FILE_END) ? 100 : progress;
+                    xSemaphoreGive(stateMutex);
+                }
             }
             uploadedSoFar = 0;
             vTaskDelay(pdMS_TO_TICKS(1));
