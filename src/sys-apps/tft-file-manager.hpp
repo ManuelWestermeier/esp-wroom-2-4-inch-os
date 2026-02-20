@@ -88,14 +88,61 @@ namespace TFTFileManager
         }
     }
 
-    // ---------- UI drawing ----------
-    void drawButton(bool pressed)
+    // ---------- UI helpers ----------
+    static String clipText(const String &s, int maxChars)
+    {
+        if (maxChars <= 3)
+            return s.substring(0, maxChars);
+        if ((int)s.length() <= maxChars)
+            return s;
+        return s.substring(0, maxChars - 3) + "...";
+    }
+
+    // draw primitives that only repaint the necessary areas
+    void drawHeader(const String &title)
+    {
+        auto &tft = Screen::tft;
+        // header background
+        tft.fillRect(0, 0, 320, 34, PRIMARY);
+        tft.setTextDatum(MC_DATUM);
+        tft.setTextColor(TEXT, PRIMARY);
+        tft.drawString(clipText(title, 22), 160, 17, 2);
+    }
+
+    void drawIPandStatus(const String &ip, const String &status)
+    {
+        auto &tft = Screen::tft;
+        // clear area
+        tft.fillRect(0, 34, 320, 96, BG);
+
+        tft.setTextDatum(TL_DATUM);
+        tft.setTextColor(TEXT, BG);
+        // limit length to avoid overflow; IP is short but keep safe
+        tft.drawString("IP: " + clipText(ip, 28), 10, 50, 2);
+        tft.drawString("Status:", 10, 80, 2);
+        tft.drawString(clipText(status, 36), 10, 100, 2);
+    }
+
+    void drawProgressBar(int prog)
+    {
+        auto &tft = Screen::tft;
+        // draw progress bar background and progress
+        tft.drawRect(10, 130, 300, 12, TEXT);
+        int w = map(prog, 0, 100, 0, 296);
+        // clear inner area first
+        tft.fillRect(12, 132, 296, 8, BG);
+        if (w > 0)
+            tft.fillRect(12, 132, w, 8, ACCENT);
+    }
+
+    void drawMainButton(bool pressed)
     {
         auto &tft = Screen::tft;
         uint16_t col = serverRunning ? ACCENT : PRIMARY;
         if (pressed)
             col = TEXT;
         String label = serverRunning ? "STOP SERVER" : "START SERVER";
+        label = clipText(label, 20);
         tft.fillRoundRect(60, 170, 200, 40, 10, col);
         tft.setTextDatum(MC_DATUM);
         tft.setTextColor(pressed ? BG : TEXT, col);
@@ -106,34 +153,24 @@ namespace TFTFileManager
     {
         auto &tft = Screen::tft;
         uint16_t col = pressed ? ACCENT : PRIMARY;
+        String label = "< BACK";
+        label = clipText(label, 12);
         tft.fillRoundRect(6, 36, 44, 28, 6, col);
         tft.setTextDatum(MC_DATUM);
         tft.setTextColor(pressed ? BG : TEXT, col);
-        tft.drawString("< BACK", 28, 50, 1);
+        tft.drawString(label, 28, 50, 1);
     }
 
-    void drawUI_once(const String &ip, const String &status, int prog)
+    // Combined full initial draw
+    void drawFull(const String &ip, const String &status, int prog, bool mainPressed, bool exitPressed)
     {
         auto &tft = Screen::tft;
         tft.fillScreen(BG);
-
-        tft.fillRect(0, 0, 320, 34, PRIMARY);
-        tft.setTextColor(TEXT, PRIMARY);
-        tft.setTextDatum(MC_DATUM);
-        tft.drawString("Remote File Manager", 160, 17, 2);
-
-        tft.setTextDatum(TL_DATUM);
-        tft.setTextColor(TEXT, BG);
-        tft.drawString("IP: " + ip, 10, 50, 2);
-        tft.drawString("Status:", 10, 80, 2);
-        tft.drawString(status, 10, 100, 2);
-
-        tft.drawRect(10, 130, 300, 12, TEXT);
-        int w = map(prog, 0, 100, 0, 296);
-        tft.fillRect(12, 132, w, 8, ACCENT);
-
-        drawButton(false);
-        drawExitButton(false);
+        drawHeader("Remote File Manager");
+        drawIPandStatus(ip, status);
+        drawProgressBar(prog);
+        drawMainButton(mainPressed);
+        drawExitButton(exitPressed);
     }
 
     // ---------- MIME helper ----------
@@ -168,6 +205,9 @@ namespace TFTFileManager
     String htmlPage()
     {
         // keep as single string literal to reduce stack usage
+        // JS improvements:
+        //  - Upload uses FormData so server.upload() receives multipart form-data
+        //  - Path handling normalized (always ensure trailing slash for folders)
         static const char page[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -179,22 +219,44 @@ namespace TFTFileManager
 <input type="file" id="file"/><button onclick="upload()">Upload</button><button onclick="mkdir()">New Folder</button>
 <script>
 let path="/";
+function normPath(p){
+  if(!p) return "/";
+  if(!p.startsWith("/")) p = "/"+p;
+  if(!p.endsWith("/")) p = p + "/";
+  return p;
+}
 function load(p){
- path=p;
+ path = normPath(p);
  fetch('/api/list?path='+encodeURIComponent(path)).then(r=>r.json()).then(d=>{
   document.getElementById('path').innerText=path;
   let html='';
-  if(path!='/'){ let up=path.split('/').slice(0,-2).join('/')+'/'; html += '<li><a href="#" onclick="load(\\''+up+'\\')">[..]</a></li>'; }
+  if(path!='/'){ let parts = path.split('/').filter(Boolean); parts.pop(); let up='/' + (parts.length? parts.join('/') + '/':''); html += '<li><a href="#" onclick="load(\''+up+'\')">[..]</a></li>'; }
   d.forEach(e=>{
-    if(e.dir) html += '<li>[DIR] <a href="#" onclick="load(\\''+path+e.name+'/\\')\">'+e.name+'</a> <button onclick="del(\\''+path+e.name+'\\',true)">del</button></li>';
-    else html += '<li><a href=\"/api/download?path='+encodeURIComponent(path+e.name)+'\">'+e.name+'</a> ('+e.size+') <button onclick="del(\\''+path+e.name+'\\',false)">del</button></li>';
+    if(e.dir) html += '<li>[DIR] <a href="#" onclick="load(\''+path+e.name+'/\')">'+e.name+'</a> <button onclick="del(\''+path+e.name+'\',true)">del</button></li>';
+    else html += '<li><a href="/api/download?path='+encodeURIComponent(path+e.name)+'">'+e.name+'</a> ('+e.size+') <button onclick="del(\''+path+e.name+'\',false)">del</button></li>';
   });
   document.getElementById('list').innerHTML = html;
- });
+ }).catch(err=>{ console.error(err); document.getElementById('list').innerText = 'Error loading'; });
 }
-function del(p,isDir){ fetch('/api/'+(isDir?'dir':'file')+'?path='+encodeURIComponent(p),{method:'DELETE'}).then(()=>load(path)); }
-function mkdir(){ let name=prompt('Folder name'); if(!name) return; fetch('/api/mkdir?path='+path+name,{method:'POST'}).then(()=>load(path)); }
-function upload(){ let f=document.getElementById('file').files[0]; if(!f) return; fetch('/api/upload?path='+path+f.name,{method:'POST',body:f}).then(()=>load(path)); }
+function del(p,isDir){
+  if(!confirm('Delete '+p+' ?')) return;
+  fetch('/api/'+(isDir?'dir':'file')+'?path='+encodeURIComponent(p),{method:'DELETE'}).then(()=>load(path)).catch(e=>{console.error(e);});
+}
+function mkdir(){
+  let name=prompt('Folder name');
+  if(!name) return;
+  // ensure no slashes in folder name
+  name = name.replace(/\//g,'');
+  fetch('/api/mkdir?path='+encodeURIComponent(path+name+'/'),{method:'POST'}).then(()=>load(path)).catch(e=>{console.error(e);});
+}
+function upload(){
+  let f=document.getElementById('file').files[0];
+  if(!f){ alert('No file selected'); return; }
+  let fd = new FormData();
+  fd.append('file', f);
+  // send target path (folder + filename) as query param so server.arg("path") is available
+  fetch('/api/upload?path='+encodeURIComponent(path+f.name),{method:'POST',body:fd}).then(()=>{ load(path); document.getElementById('file').value=''; }).catch(e=>{console.error(e);});
+}
 load("/");
 </script>
 </body>
@@ -231,19 +293,22 @@ load("/");
 
     void handleDeleteFile()
     {
-        deleteFile(str2Path(server.arg("path")));
+        Path p = str2Path(server.arg("path"));
+        deleteFile(p);
         server.send(200, "text/plain", "OK");
     }
 
     void handleDeleteDir()
     {
-        rmDir(str2Path(server.arg("path")));
+        Path p = str2Path(server.arg("path"));
+        rmDir(p);
         server.send(200, "text/plain", "OK");
     }
 
     void handleMkdir()
     {
-        mkDir(str2Path(server.arg("path")));
+        Path p = str2Path(server.arg("path"));
+        mkDir(p);
         server.send(200, "text/plain", "OK");
     }
 
@@ -254,26 +319,48 @@ load("/");
         HTTPUpload &up = server.upload();
         if (up.status == UPLOAD_FILE_START)
         {
+            // Expecting full target path (folder + filename) in query param "path"
             uploadPath = str2Path(server.arg("path"));
+            // remove any existing file so upload overwrites
+            deleteFile(uploadPath);
             // update status buffer (UI thread will pick it up)
             safeWriteStatus("Uploading...", 0);
+            // reset progress
+            if (xSemaphoreTake(stateMutex, (TickType_t)10))
+            {
+                progress = 0;
+                xSemaphoreGive(stateMutex);
+            }
         }
         else if (up.status == UPLOAD_FILE_WRITE)
         {
-            Buffer b(up.currentSize);
-            memcpy(b.data(), up.buf, up.currentSize);
-            appendFile(uploadPath, b);
+            // up.currentSize indicates the size of this chunk
+            if (up.currentSize > 0)
+            {
+                Buffer b(up.currentSize);
+                memcpy(b.data(), up.buf, up.currentSize);
+                appendFile(uploadPath, b);
+            }
 
-            // small progress bump (best-effort)
+            // update progress if totalSize is known
             if (xSemaphoreTake(stateMutex, (TickType_t)10))
             {
-                progress = min(100, progress + 2);
+                if (up.totalSize > 0)
+                    progress = min(100, (int)((up.currentSize * 100) / up.totalSize));
+                else
+                    progress = min(100, progress + 2); // best-effort increment
                 xSemaphoreGive(stateMutex);
             }
         }
         else if (up.status == UPLOAD_FILE_END)
         {
             safeWriteStatus("Upload done", 100);
+            // ensure final progress state
+            if (xSemaphoreTake(stateMutex, (TickType_t)10))
+            {
+                progress = 100;
+                xSemaphoreGive(stateMutex);
+            }
         }
     }
 
@@ -322,6 +409,7 @@ load("/");
         server.on("/api/file", HTTP_DELETE, handleDeleteFile);
         server.on("/api/dir", HTTP_DELETE, handleDeleteDir);
         server.on("/api/mkdir", HTTP_POST, handleMkdir);
+        // upload: POST multipart form-data expected (JS sends FormData)
         server.on("/api/upload", HTTP_POST, []()
                   { server.send(200); }, handleUpload);
         server.on("/api/download", HTTP_GET, handleDownload);
@@ -505,13 +593,20 @@ load("/");
             xTaskCreate(serverTask, "TFT_ServerTask", 8192, nullptr, 1, nullptr);
         }
 
-        // initial draw
+        // initial state copies for dirty redraw
+        String prevIP = "";
+        String prevStatus = "";
+        int prevProg = -1;
+        bool prevMainPressed = false;
+        bool prevExitPressed = false;
+
+        // initial read + draw
         String curIP, curStatus;
         int curProg;
         safeReadState(curIP, curStatus, curProg);
-        drawUI_once(curIP, curStatus, curProg);
+        drawFull(curIP, curStatus, curProg, false, false);
 
-        // Autostart server on open
+        // Autostart server on open (ensure started once)
         startServerImmediate();
 
         bool actionQueued = false;
@@ -522,35 +617,45 @@ load("/");
             // read UI-safe copies of state
             safeReadState(curIP, curStatus, curProg);
 
-            // update display (redraw every loop; acceptable cost)
-            drawUI_once(curIP, curStatus, curProg);
-
+            // read touch
             auto t = Screen::getTouchPos();
             bool inside = hit(t.x, t.y, 60, 170, 200, 40);
             bool insideExit = hit(t.x, t.y, 6, 36, 44, 28);
 
-            // visual press feedback on main button
-            if (t.clicked && inside && !buttonPressedVisual)
-            {
-                buttonPressedVisual = true;
-                drawButton(true);
-            }
-            if ((!t.clicked || !inside) && buttonPressedVisual)
-            {
-                buttonPressedVisual = false;
-                drawButton(false);
-            }
+            // compute desired visuals
+            bool desiredMainPressed = (t.clicked && inside) ? true : false;
+            bool desiredExitPressed = (t.clicked && insideExit) ? true : false;
 
-            // visual press feedback on exit button
-            if (t.clicked && insideExit && !exitPressedVisual)
+            // Redraw only when values changed (dirty rendering)
+            if (curIP != prevIP || curStatus != prevStatus || curProg != prevProg)
             {
-                exitPressedVisual = true;
-                drawExitButton(true);
+                // update only the changed parts
+                drawHeader("Remote File Manager");
+                drawIPandStatus(curIP, curStatus);
+                drawProgressBar(curProg);
+                // buttons may need serverRunning-aware color
+                drawMainButton(desiredMainPressed);
+                drawExitButton(desiredExitPressed);
+
+                prevIP = curIP;
+                prevStatus = curStatus;
+                prevProg = curProg;
+                prevMainPressed = desiredMainPressed;
+                prevExitPressed = desiredExitPressed;
             }
-            if ((!t.clicked || !insideExit) && exitPressedVisual)
+            else
             {
-                exitPressedVisual = false;
-                drawExitButton(false);
+                // only update buttons / press visuals if they changed
+                if (desiredMainPressed != prevMainPressed)
+                {
+                    drawMainButton(desiredMainPressed);
+                    prevMainPressed = desiredMainPressed;
+                }
+                if (desiredExitPressed != prevExitPressed)
+                {
+                    drawExitButton(desiredExitPressed);
+                    prevExitPressed = desiredExitPressed;
+                }
             }
 
             // queue action on release (non-blocking)
