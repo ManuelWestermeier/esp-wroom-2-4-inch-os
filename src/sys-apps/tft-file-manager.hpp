@@ -315,52 +315,57 @@ load("/");
     Path uploadPath;
     void handleUpload()
     {
-        // using server.upload() as before; ENC_FS appendFile streams
         HTTPUpload &up = server.upload();
+
+        static long uploadedSoFar = 0; // track cumulative bytes
+
         if (up.status == UPLOAD_FILE_START)
         {
-            // Expecting full target path (folder + filename) in query param "path"
             uploadPath = str2Path(server.arg("path"));
-            // remove any existing file so upload overwrites
-            deleteFile(uploadPath);
-            // update status buffer (UI thread will pick it up)
+            deleteFile(uploadPath); // remove existing file
             safeWriteStatus("Uploading...", 0);
-            // reset progress
-            if (xSemaphoreTake(stateMutex, (TickType_t)10))
+            uploadedSoFar = 0;
+            if (stateMutex)
             {
+                xSemaphoreTake(stateMutex, 10);
                 progress = 0;
                 xSemaphoreGive(stateMutex);
             }
         }
         else if (up.status == UPLOAD_FILE_WRITE)
         {
-            // up.currentSize indicates the size of this chunk
             if (up.currentSize > 0)
             {
                 Buffer b(up.currentSize);
                 memcpy(b.data(), up.buf, up.currentSize);
-                appendFile(uploadPath, b);
+                appendFile(uploadPath, b); // append chunk
+                b.clear();
+                uploadedSoFar += up.currentSize;
             }
 
-            // update progress if totalSize is known
-            if (xSemaphoreTake(stateMutex, (TickType_t)10))
+            if (stateMutex)
             {
+                xSemaphoreTake(stateMutex, 10);
                 if (up.totalSize > 0)
-                    progress = min(100, (int)((up.currentSize * 100) / up.totalSize));
+                    progress = min(100, (int)((uploadedSoFar * 100) / up.totalSize));
                 else
-                    progress = min(100, progress + 2); // best-effort increment
+                    progress = min(100, progress + 2); // best-effort
                 xSemaphoreGive(stateMutex);
             }
+
+            vTaskDelay(pdMS_TO_TICKS(1)); // yield
         }
         else if (up.status == UPLOAD_FILE_END)
         {
             safeWriteStatus("Upload done", 100);
-            // ensure final progress state
-            if (xSemaphoreTake(stateMutex, (TickType_t)10))
+            if (stateMutex)
             {
+                xSemaphoreTake(stateMutex, 10);
                 progress = 100;
                 xSemaphoreGive(stateMutex);
             }
+            uploadedSoFar = 0;
+            vTaskDelay(pdMS_TO_TICKS(1));
         }
     }
 

@@ -221,7 +221,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     bool topRedraw = false, bottomRedraw = false;
 
     // periodic directory check (only every 10s)
-    if (menuUpdateTime == 0 || millis() - menuUpdateTime > 25000)
+    if (menuUpdateTime == 0 || millis() - menuUpdateTime > 45000)
     {
         menuUpdateTime = millis();
         updateAppList(apps, lastPaths, appsChanged);
