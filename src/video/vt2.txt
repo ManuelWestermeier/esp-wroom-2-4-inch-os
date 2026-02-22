@@ -10,7 +10,7 @@
 #define HEIGHT 240
 
 // WiFi credentials
-const char *WIFI_SSID = "LocalHost";
+const char *WIFI_SSID = "io";
 const char *WIFI_PASS = "hhhhhhhy";
 
 // URL to stream from
