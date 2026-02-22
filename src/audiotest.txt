@@ -1,8 +1,8 @@
-// ESP32 WAV streamer/player with selectable output modes:
-// Supports output modes:
-//   MODE_22K_8   -> 22,050 Hz, 8-bit PCM (unsigned)
-//   MODE_22K_4   -> 22,050 Hz, 4-bit simulated (stored as 8-bit values with 16 levels)
-//   MODE_10K_4   -> 10,000 Hz, 4-bit simulated (stored as 8-bit values with 16 levels)
+// ESP32 WAV streamer/player with selectable output sample rates (always 8-bit unsigned):
+// Supports output sample rates:
+//   MODE_22K_8  -> 22,050 Hz, 8-bit PCM (unsigned)
+//   MODE_11K_8  -> 11,025 Hz, 8-bit PCM (unsigned)
+//   MODE_5K5_8  -> 5,512  Hz, 8-bit PCM (unsigned)
 //
 // Configure OUTPUT_MODE below.
 
@@ -26,12 +26,12 @@
 
 // Output mode selection (compile-time)
 #define MODE_22K_8 0
-#define MODE_22K_4 1
-#define MODE_10K_4 2
+#define MODE_11K_8 1
+#define MODE_5K5_8 2
 
 // Choose one:
 #ifndef OUTPUT_MODE
-#define OUTPUT_MODE MODE_10K_4
+#define OUTPUT_MODE MODE_5K5_8
 #endif
 
 // --- Globals ---------------------------------------------------------------
@@ -290,23 +290,19 @@ void loop()
     return;
   }
 
-  // Decide output sample rate and output bit depth based on OUTPUT_MODE
+  // Decide desired output sample rate based on OUTPUT_MODE
   uint32_t desiredOutRate;
-  uint8_t outBitDepth; // 8 or 4 (4 simulated as 16-level values stored in 8-bit bytes)
   if (OUTPUT_MODE == MODE_22K_8)
   {
     desiredOutRate = 22050;
-    outBitDepth = 8;
   }
-  else if (OUTPUT_MODE == MODE_22K_4)
+  else if (OUTPUT_MODE == MODE_11K_8)
   {
-    desiredOutRate = 22050;
-    outBitDepth = 4;
+    desiredOutRate = 11025;
   }
-  else /* MODE_10K_4 */
+  else /* MODE_5K5_8 */
   {
-    desiredOutRate = 10000;
-    outBitDepth = 4;
+    desiredOutRate = 5512;
   }
 
   // If the input sample rate is lower than desiredOutRate, use input rate (avoid upsampling)
@@ -314,11 +310,9 @@ void loop()
   if (sampleRate >= desiredOutRate)
     outSampleRate = desiredOutRate;
   else
-  {
-    // if input sample rate smaller, keep input rate but still honor 4-bit/8-bit mapping
     outSampleRate = sampleRate;
-  }
-  Serial.printf("Selected outSampleRate=%u Hz, outBitDepth=%u-bit(sim)\n", outSampleRate, outBitDepth);
+
+  Serial.printf("Selected outSampleRate=%u Hz, outBitDepth=8-bit(unsigned)\n", outSampleRate);
 
   // prepare playback
   doneFeeding = false;
@@ -353,14 +347,13 @@ void loop()
     }
     readTotal += got;
 
-    // Convert and push into circ buffer with decimation/resampling and bit depth mapping
+    // Convert and push into circ buffer with decimation/resampling and bit depth mapping (always 8-bit unsigned)
     if (bitsPerSample == 16)
     {
       int sampleCount = got / 2;
       int idx = 0;
       while (idx < sampleCount)
       {
-        // read input sample (mono or stereo mix)
         int16_t s;
         if (numChannels == 1)
         {
@@ -377,29 +370,15 @@ void loop()
           idx += 2;
         }
 
-        // Decimation decision
         acc += targetRate;
         if (acc >= inRate)
         {
           acc -= inRate;
-          // Wait for room
           while (circFree() < 1)
             delay(1);
 
-          uint8_t outSample;
-          if (outBitDepth == 8)
-          {
-            // map signed int16 [-32768..32767] -> unsigned 0..255
-            outSample = (uint8_t)(((uint16_t)(s + 32768)) >> 8);
-          }
-          else
-          {
-            // 4-bit simulated: map to 16 levels 0..15 then scale to 0..255
-            uint8_t level = (uint8_t)(((uint32_t)(s + 32768) * 16) / 65536); // 0..15
-            if (level > 15)
-              level = 15;
-            outSample = (uint8_t)(level * 17); // scale 0..255
-          }
+          // map signed int16 [-32768..32767] -> unsigned 0..255
+          uint8_t outSample = (uint8_t)(((uint16_t)(s + 32768)) >> 8);
           circWriteByte(outSample);
         }
       }
@@ -419,17 +398,7 @@ void loop()
             acc -= inRate;
             while (circFree() < 1)
               delay(1);
-            uint8_t outSample;
-            if (outBitDepth == 8)
-            {
-              outSample = a; // unsigned 8-bit PCM: pass through
-            }
-            else
-            {
-              // input 8-bit unsigned 0..255 -> 4-bit level 0..15
-              uint8_t level = a >> 4;
-              outSample = (uint8_t)(level * 17);
-            }
+            uint8_t outSample = a; // unsigned 8-bit PCM: pass through
             circWriteByte(outSample);
           }
         }
@@ -447,16 +416,7 @@ void loop()
             acc -= inRate;
             while (circFree() < 1)
               delay(1);
-            uint8_t outSample;
-            if (outBitDepth == 8)
-            {
-              outSample = (uint8_t)mix;
-            }
-            else
-            {
-              uint8_t level = (uint8_t)(mix >> 4);
-              outSample = (uint8_t)(level * 17);
-            }
+            uint8_t outSample = (uint8_t)mix;
             circWriteByte(outSample);
           }
         }
