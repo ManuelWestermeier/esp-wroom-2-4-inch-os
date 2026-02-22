@@ -1,211 +1,214 @@
 <!doctype html>
 <html lang="en">
+
 <head>
-<meta charset="utf-8" />
-<title>ESP32 Screen Viewer</title>
+  <meta charset="utf-8" />
+  <title>ESP32 Screen Viewer</title>
 
-<style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: #000;
-    height: 100%;
-    overflow: hidden;
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  }
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      height: 100%;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
 
-  #controls {
-    padding: 14px;
-    background: #f4f4f4;
-  }
+    #controls {
+      padding: 14px;
+      background: #f4f4f4;
+    }
 
-  button {
-    padding: 8px 16px;
-    font-size: 15px;
-  }
+    button {
+      padding: 8px 16px;
+      font-size: 15px;
+    }
 
-  #status {
-    margin-left: 10px;
-    color: #555;
-    font-weight: 500;
-  }
+    #status {
+      margin-left: 10px;
+      color: #555;
+      font-weight: 500;
+    }
 
-  /* container centers canvas and creates black bars */
-  #viewer {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: #000;
-    align-items: center;
-    justify-content: center;
-  }
+    /* container centers canvas and creates black bars */
+    #viewer {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #000;
+      align-items: center;
+      justify-content: center;
+    }
 
-  canvas {
-    image-rendering: pixelated;
-    background: #000;
-  }
-</style>
+    canvas {
+      image-rendering: pixelated;
+      background: #000;
+    }
+  </style>
 </head>
 
 <body>
 
-<div id="controls">
-  <button id="connectBtn">Connect</button>
-  <span id="status">Disconnected</span>
-</div>
+  <div id="controls">
+    <button id="connectBtn">Connect</button>
+    <span id="status">Disconnected</span>
+  </div>
 
-<div id="viewer">
-  <canvas id="canvas" width="320" height="240"></canvas>
-</div>
+  <div id="viewer">
+    <canvas id="canvas" width="320" height="240"></canvas>
+  </div>
 
-<script>
-(async () => {
+  <script>
+    (async () => {
 
-  const canvas = document.getElementById("canvas");
-  const ctx = canvas.getContext("2d");
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
 
-  const connectBtn = document.getElementById("connectBtn");
-  const statusText = document.getElementById("status");
-  const controls = document.getElementById("controls");
-  const viewer = document.getElementById("viewer");
+      const connectBtn = document.getElementById("connectBtn");
+      const statusText = document.getElementById("status");
+      const controls = document.getElementById("controls");
+      const viewer = document.getElementById("viewer");
 
-  const W = canvas.width;
-  const H = canvas.height;
-  const ASPECT = W / H;
+      const W = canvas.width;
+      const H = canvas.height;
+      const ASPECT = W / H;
 
-  const frameBuf = new Uint8Array(W * H);
-  const imageData = ctx.createImageData(W, H);
+      const frameBuf = new Uint8Array(W * H);
+      const imageData = ctx.createImageData(W, H);
 
-  let writer = null;
-  let reader = null;
+      let writer = null;
+      let reader = null;
 
-  const CMD_GET_FRAME = 0x01;
+      const CMD_GET_FRAME = 0x01;
 
-  function resizeCanvas() {
-    const ww = window.innerWidth;
-    const wh = window.innerHeight;
+      function resizeCanvas() {
+        const ww = window.innerWidth;
+        const wh = window.innerHeight;
 
-    let newW = ww;
-    let newH = ww / ASPECT;
+        let newW = ww;
+        let newH = ww / ASPECT;
 
-    if (newH > wh) {
-      newH = wh;
-      newW = wh * ASPECT;
-    }
-
-    canvas.style.width = newW + "px";
-    canvas.style.height = newH + "px";
-  }
-
-  window.addEventListener("resize", resizeCanvas);
-
-  function updateCanvas() {
-    for (let i = 0; i < frameBuf.length; i++) {
-      const g8 = frameBuf[i] * 17;
-      const idx = i * 4;
-      imageData.data[idx] = g8;
-      imageData.data[idx + 1] = g8;
-      imageData.data[idx + 2] = g8;
-      imageData.data[idx + 3] = 255;
-    }
-    ctx.putImageData(imageData, 0, 0);
-  }
-
-  async function readLoop(readerStream) {
-    let buffer = new Uint8Array(0);
-
-    while (true) {
-      const { value, done } = await readerStream.read();
-      if (done) break;
-      if (!value) continue;
-
-      const merged = new Uint8Array(buffer.length + value.length);
-      merged.set(buffer);
-      merged.set(value, buffer.length);
-      buffer = merged;
-
-      let offset = 0;
-
-      while (offset + 6 <= buffer.length) {
-
-        if (buffer[offset] !== 0x46 || buffer[offset + 1] !== 0x52) {
-          offset++;
-          continue;
+        if (newH > wh) {
+          newH = wh;
+          newW = wh * ASPECT;
         }
 
-        const row = (buffer[offset + 2] << 8) | buffer[offset + 3];
-        const count = (buffer[offset + 4] << 8) | buffer[offset + 5];
-        const payloadBytes = Math.ceil(count / 2);
-
-        if (offset + 6 + payloadBytes + 1 > buffer.length) break;
-
-        const payload = buffer.slice(offset + 6, offset + 6 + payloadBytes);
-
-        let px = 0;
-
-        for (let i = 0; i < payload.length; i++) {
-          const byte = payload[i];
-          const g1 = byte >> 4;
-          const g2 = byte & 0x0F;
-
-          if (px < count)
-            frameBuf[row * W + px++] = g1;
-
-          if (px < count)
-            frameBuf[row * W + px++] = g2;
-        }
-
-        offset += 6 + payloadBytes + 1;
+        canvas.style.width = newW + "px";
+        canvas.style.height = newH + "px";
       }
 
-      buffer = offset < buffer.length
-        ? buffer.slice(offset)
-        : new Uint8Array(0);
+      window.addEventListener("resize", resizeCanvas);
 
-      updateCanvas();
-    }
-  }
+      function updateCanvas() {
+        for (let i = 0; i < frameBuf.length; i++) {
+          const g8 = frameBuf[i] * 17;
+          const idx = i * 4;
+          imageData.data[idx] = g8;
+          imageData.data[idx + 1] = g8;
+          imageData.data[idx + 2] = g8;
+          imageData.data[idx + 3] = 255;
+        }
+        ctx.putImageData(imageData, 0, 0);
+      }
 
-  async function requestFrame() {
-    if (!writer) return;
-    writer.write(new Uint8Array([0xAA, 0x55, CMD_GET_FRAME, CMD_GET_FRAME]));
-  }
+      async function readLoop(readerStream) {
+        let buffer = new Uint8Array(0);
 
-  connectBtn.onclick = async () => {
-    try {
-      statusText.textContent = "Requesting port…";
+        while (true) {
+          const { value, done } = await readerStream.read();
+          if (done) break;
+          if (!value) continue;
 
-      const port = await navigator.serial.requestPort();
-      await port.open({ baudRate: 250000 });
+          const merged = new Uint8Array(buffer.length + value.length);
+          merged.set(buffer);
+          merged.set(value, buffer.length);
+          buffer = merged;
 
-      writer = port.writable.getWriter();
-      reader = port.readable.getReader();
+          let offset = 0;
 
-      controls.style.display = "none";
-      viewer.style.display = "flex";
+          while (offset + 6 <= buffer.length) {
 
-      resizeCanvas();
+            if (buffer[offset] !== 0x46 || buffer[offset + 1] !== 0x52) {
+              offset++;
+              continue;
+            }
 
-      statusText.textContent = "Connected";
+            const row = (buffer[offset + 2] << 8) | buffer[offset + 3];
+            const count = (buffer[offset + 4] << 8) | buffer[offset + 5];
+            const payloadBytes = Math.ceil(count / 2);
 
-      readLoop(reader).catch(err => {
-        console.error(err);
-        statusText.textContent = "Read error";
-      });
+            if (offset + 6 + payloadBytes + 1 > buffer.length) break;
 
-      requestFrame();
+            const payload = buffer.slice(offset + 6, offset + 6 + payloadBytes);
 
-    } catch (err) {
-      console.error(err);
-      statusText.textContent = "Connection failed";
-    }
-  };
+            let px = 0;
 
-  canvas.addEventListener("click", requestFrame);
-  canvas.addEventListener("touchstart", requestFrame);
+            for (let i = 0; i < payload.length; i++) {
+              const byte = payload[i];
+              const g1 = byte >> 4;
+              const g2 = byte & 0x0F;
 
-})();
-</script>
+              if (px < count)
+                frameBuf[row * W + px++] = g1;
+
+              if (px < count)
+                frameBuf[row * W + px++] = g2;
+            }
+
+            offset += 6 + payloadBytes + 1;
+          }
+
+          buffer = offset < buffer.length
+            ? buffer.slice(offset)
+            : new Uint8Array(0);
+
+          updateCanvas();
+        }
+      }
+
+      async function requestFrame() {
+        if (!writer) return;
+        writer.write(new Uint8Array([0xAA, 0x55, CMD_GET_FRAME, CMD_GET_FRAME]));
+      }
+
+      connectBtn.onclick = async () => {
+        try {
+          statusText.textContent = "Requesting port…";
+
+          const port = await navigator.serial.requestPort();
+          await port.open({ baudRate: 115200 });
+
+          writer = port.writable.getWriter();
+          reader = port.readable.getReader();
+
+          controls.style.display = "none";
+          viewer.style.display = "flex";
+
+          resizeCanvas();
+
+          statusText.textContent = "Connected";
+
+          readLoop(reader).catch(err => {
+            console.error(err);
+            statusText.textContent = "Read error";
+          });
+
+          requestFrame();
+
+        } catch (err) {
+          console.error(err);
+          statusText.textContent = "Connection failed";
+        }
+      };
+
+      canvas.addEventListener("click", requestFrame);
+      canvas.addEventListener("touchstart", requestFrame);
+
+    })();
+  </script>
 
 </body>
+
 </html>

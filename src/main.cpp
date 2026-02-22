@@ -21,7 +21,7 @@ void setup()
     Auth::login("c", "c");
 
     startWindowRender();
-    
+
     // testInstallApps();
     // Screen::SPI_Screen::startScreen();
 }
