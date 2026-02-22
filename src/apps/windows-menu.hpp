@@ -257,7 +257,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     int minScrollY = min(SCROLL_OFF_Y_MENU_START, visibleH - totalH); // typically negative if content taller than view
 
     // --- handle scroll gestures ---
-    if (programsView.isIn(pos) && state == MouseState::Held)
+    if (Rect{programsView.pos, {programsView.dimensions.x + 60, programsView.dimensions.y}}.isIn(pos) && state == MouseState::Held)
     {
         int newScroll = min(SCROLL_OFF_Y_MENU_START, scrollYOff + move.y);
         if (newScroll != scrollYOff)
@@ -316,7 +316,31 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
     // --- handle clicks (apps + shortcuts + scroll button) ---
     if (state == MouseState::Down)
     {
-        if (programsView.isIn(pos))
+        if (scrollBtnRect.isIn(pos))
+        {
+            // Single tap behavior: top half = page/step up, bottom half = page/step down
+            int halfY = scrollBtnRect.pos.y + (scrollBtnRect.dimensions.y / 2);
+            const int step = itemHeight / 3; // step by one item
+            if (pos.y < halfY)
+            {
+                int newScroll = min(SCROLL_OFF_Y_MENU_START, scrollYOff + step);
+                if (newScroll != scrollYOff)
+                {
+                    scrollYOff = max(minScrollY, newScroll);
+                    needRedraw = bottomRedraw = true;
+                }
+            }
+            else
+            {
+                int newScroll = max(minScrollY, scrollYOff - step);
+                if (newScroll != scrollYOff)
+                {
+                    scrollYOff = newScroll;
+                    needRedraw = bottomRedraw = true;
+                }
+            }
+        }
+        else if (programsView.isIn(pos))
         {
             int i = 0;
             for (auto &app : apps)
@@ -329,10 +353,6 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                 // define update button area on the right side of the app card
                 const int btnW = 60;
                 Rect updateRect = {{appRect.pos.x + appRect.dimensions.x - btnW - 5, appRect.pos.y + 5}, {btnW, appRect.dimensions.y - 10}};
-
-                // skip if not visible in programsView
-                if (!appRect.intersects(programsView))
-                    continue;
 
                 // check update button click first
                 if (updateRect.isIn(pos))
@@ -463,30 +483,6 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                     break;
                 }
                 scXPos += w + 5;
-            }
-        }
-        else if (scrollBtnRect.isIn(pos))
-        {
-            // Single tap behavior: top half = page/step up, bottom half = page/step down
-            int halfY = scrollBtnRect.pos.y + (scrollBtnRect.dimensions.y / 2);
-            const int step = itemHeight / 3; // step by one item
-            if (pos.y < halfY)
-            {
-                int newScroll = min(SCROLL_OFF_Y_MENU_START, scrollYOff + step);
-                if (newScroll != scrollYOff)
-                {
-                    scrollYOff = max(minScrollY, newScroll);
-                    needRedraw = bottomRedraw = true;
-                }
-            }
-            else
-            {
-                int newScroll = max(minScrollY, scrollYOff - step);
-                if (newScroll != scrollYOff)
-                {
-                    scrollYOff = newScroll;
-                    needRedraw = bottomRedraw = true;
-                }
             }
         }
     }
