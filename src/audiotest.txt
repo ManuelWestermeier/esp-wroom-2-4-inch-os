@@ -1,0 +1,523 @@
+// ESP32 WAV streamer/player with selectable output modes:
+// Supports output modes:
+//   MODE_22K_8   -> 22,050 Hz, 8-bit PCM (unsigned)
+//   MODE_22K_4   -> 22,050 Hz, 4-bit simulated (stored as 8-bit values with 16 levels)
+//   MODE_10K_4   -> 10,000 Hz, 4-bit simulated (stored as 8-bit values with 16 levels)
+//
+// Configure OUTPUT_MODE below.
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include "driver/dac.h"
+
+// --- User config -----------------------------------------------------------
+#define WIFI_SSID "io"
+#define WIFI_PASS "hhhhhhhy"
+#define WAV_URL "https://manuelwestermeier.github.io/test.wav"
+
+// DAC settings
+#define DAC_CHANNEL DAC_CHANNEL_2 // GPIO26
+
+// Tunable buffer sizes (powers of two)
+#define RAW_BUF_SIZE 4096    // bytes read from WiFi stream per chunk
+#define CIRC_BUF_SIZE 16384  // circular buffer size in bytes (power-of-two)
+#define PREFILL_SAMPLES 2048 // how many samples to buffer before starting timer
+
+// Output mode selection (compile-time)
+#define MODE_22K_8 0
+#define MODE_22K_4 1
+#define MODE_10K_4 2
+
+// Choose one:
+#ifndef OUTPUT_MODE
+#define OUTPUT_MODE MODE_10K_4
+#endif
+
+// --- Globals ---------------------------------------------------------------
+static uint8_t rawBuf[RAW_BUF_SIZE];
+static volatile uint8_t circBuf[CIRC_BUF_SIZE];
+static volatile uint32_t circHead = 0;    // write position (next free)
+static volatile uint32_t circTail = 0;    // read position (next to output)
+static volatile bool doneFeeding = false; // set by feeder when EOF of data chunk reached
+static hw_timer_t *timer = nullptr;
+portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+
+struct WavHeader
+{
+  char riff[4];
+  uint32_t size;
+  char wave[4];
+};
+
+// little-endian helpers
+static inline uint32_t le32(const uint8_t *p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24); }
+static inline uint16_t le16(const uint8_t *p) { return (uint16_t)p[0] | ((uint16_t)p[1] << 8); }
+
+// Forward
+void setupTimer(uint32_t sampleRateHz);
+void changeTimerPeriod(uint32_t sampleRateHz);
+
+// --- Circular buffer helpers (not IRQ) -------------------------------------
+static inline uint32_t circFree()
+{
+  uint32_t h = circHead;
+  uint32_t t = circTail;
+  if (h >= t)
+    return CIRC_BUF_SIZE - (h - t) - 1;
+  return (t - h) - 1;
+}
+static inline uint32_t circAvailable()
+{
+  uint32_t h = circHead;
+  uint32_t t = circTail;
+  if (h >= t)
+    return h - t;
+  return CIRC_BUF_SIZE - (t - h);
+}
+
+static inline void circWriteByte(uint8_t v)
+{
+  portENTER_CRITICAL(&timerMux);
+  circBuf[circHead] = v;
+  circHead = (circHead + 1) & (CIRC_BUF_SIZE - 1);
+  portEXIT_CRITICAL(&timerMux);
+}
+
+// --- Timer ISR: called at sample rate, outputs one 8-bit sample to DAC ----
+IRAM_ATTR void onTimer()
+{
+  uint8_t out = 128; // silence (mid)
+  portENTER_CRITICAL_ISR(&timerMux);
+  if (circTail != circHead)
+  {
+    out = circBuf[circTail];
+    circTail = (circTail + 1) & (CIRC_BUF_SIZE - 1);
+  }
+  portEXIT_CRITICAL_ISR(&timerMux);
+  dac_output_voltage(DAC_CHANNEL, out);
+
+  // If feeder signalled done and buffer emptied, stop timer to save CPU
+  if (doneFeeding)
+  {
+    portENTER_CRITICAL_ISR(&timerMux);
+    bool empty = (circTail == circHead);
+    portEXIT_CRITICAL_ISR(&timerMux);
+    if (empty)
+    {
+      timerAlarmDisable(timer);
+    }
+  }
+}
+
+void setupTimer(uint32_t sampleRate)
+{
+  // prescaler 80 -> 1 tick = 1 microsecond on 80MHz APB
+  if (!timer)
+  {
+    timer = timerBegin(0, 80, true);
+    timerAttachInterrupt(timer, &onTimer, true);
+  }
+  changeTimerPeriod(sampleRate);
+}
+
+void changeTimerPeriod(uint32_t sampleRateHz)
+{
+  if (sampleRateHz == 0)
+    sampleRateHz = 1;
+  uint32_t period_us = (uint32_t)(1000000.0 / (double)sampleRateHz + 0.5);
+  if (period_us < 1)
+    period_us = 1;
+  timerAlarmWrite(timer, period_us, true);
+}
+
+// --- Setup/Loop ------------------------------------------------------------
+void setup()
+{
+  Serial.begin(115200);
+  delay(50);
+
+  // sanity checks
+  if ((CIRC_BUF_SIZE & (CIRC_BUF_SIZE - 1)) != 0)
+  {
+    Serial.println("CIRC_BUF_SIZE must be power of two!");
+    while (1)
+      delay(1000);
+  }
+  if (PREFILL_SAMPLES >= CIRC_BUF_SIZE - 2)
+  {
+    Serial.println("PREFILL_SAMPLES must be smaller than CIRC_BUF_SIZE");
+    while (1)
+      delay(1000);
+  }
+
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.print("WiFi connecting");
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(300);
+    Serial.print('.');
+    if (millis() - start > 15000)
+    {
+      Serial.println("\nWiFi timeout, continuing and will retry in loop()");
+      break;
+    }
+  }
+  Serial.println(" OK");
+
+  // enable DAC now (timer will be enabled later when enough samples available)
+  dac_output_enable(DAC_CHANNEL);
+}
+
+void loop()
+{
+  HTTPClient http;
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.println("WiFi not connected, retrying...");
+    WiFi.reconnect();
+    delay(1000);
+  }
+
+  Serial.println("Requesting WAV...");
+  http.begin(WAV_URL);
+  int httpCode = http.GET();
+  if (httpCode != HTTP_CODE_OK)
+  {
+    Serial.printf("HTTP error: %d\n", httpCode);
+    http.end();
+    delay(2000);
+    return; // try again next loop
+  }
+
+  WiFiClient *stream = http.getStreamPtr();
+
+  // Read RIFF header
+  WavHeader wh;
+  if (stream->readBytes((char *)&wh, sizeof(wh)) != (int)sizeof(wh))
+  {
+    Serial.println("Failed to read RIFF header");
+    http.end();
+    return;
+  }
+  if (memcmp(wh.riff, "RIFF", 4) != 0 || memcmp(wh.wave, "WAVE", 4) != 0)
+  {
+    Serial.println("Not a WAV file");
+    http.end();
+    return;
+  }
+
+  // parse chunks for "fmt " and "data"
+  uint16_t audioFormat = 0, numChannels = 0, bitsPerSample = 0;
+  uint32_t sampleRate = 0, dataChunkSize = 0;
+  while (stream->connected() && stream->available())
+  {
+    uint8_t hdr[8];
+    if (stream->readBytes((char *)hdr, 8) != 8)
+    {
+      Serial.println("Failed reading chunk header");
+      break;
+    }
+    uint32_t chunkSize = le32(hdr + 4);
+    if (memcmp(hdr, "fmt ", 4) == 0)
+    {
+      if (chunkSize > RAW_BUF_SIZE)
+      {
+        uint8_t *fmt = (uint8_t *)malloc(chunkSize);
+        if (!fmt)
+        {
+          Serial.println("fmt malloc fail");
+          http.end();
+          return;
+        }
+        if (stream->readBytes((char *)fmt, chunkSize) != (int)chunkSize)
+        {
+          free(fmt);
+          Serial.println("fmt read fail");
+          http.end();
+          return;
+        }
+        audioFormat = le16(fmt + 0);
+        numChannels = le16(fmt + 2);
+        sampleRate = le32(fmt + 4);
+        bitsPerSample = le16(fmt + 14);
+        free(fmt);
+      }
+      else
+      {
+        if (stream->readBytes((char *)rawBuf, chunkSize) != (int)chunkSize)
+        {
+          Serial.println("fmt read fail");
+          http.end();
+          return;
+        }
+        audioFormat = le16(rawBuf + 0);
+        numChannels = le16(rawBuf + 2);
+        sampleRate = le32(rawBuf + 4);
+        bitsPerSample = le16(rawBuf + 14);
+      }
+      Serial.printf("fmt: audioFormat=%u channels=%u sampleRate=%u bits=%u\n", audioFormat, numChannels, sampleRate, bitsPerSample);
+    }
+    else if (memcmp(hdr, "data", 4) == 0)
+    {
+      dataChunkSize = chunkSize;
+      Serial.printf("Found data chunk size=%u bytes\n", dataChunkSize);
+      break;
+    }
+    else
+    {
+      // skip other chunks
+      uint32_t toSkip = chunkSize;
+      while (toSkip > 0)
+      {
+        uint32_t r = (toSkip > RAW_BUF_SIZE) ? RAW_BUF_SIZE : toSkip;
+        int got = stream->readBytes((char *)rawBuf, r);
+        if (got <= 0)
+        {
+          Serial.println("skip read fail");
+          break;
+        }
+        toSkip -= got;
+      }
+    }
+  }
+
+  if (dataChunkSize == 0)
+  {
+    Serial.println("No data chunk");
+    http.end();
+    return;
+  }
+
+  // Decide output sample rate and output bit depth based on OUTPUT_MODE
+  uint32_t desiredOutRate;
+  uint8_t outBitDepth; // 8 or 4 (4 simulated as 16-level values stored in 8-bit bytes)
+  if (OUTPUT_MODE == MODE_22K_8)
+  {
+    desiredOutRate = 22050;
+    outBitDepth = 8;
+  }
+  else if (OUTPUT_MODE == MODE_22K_4)
+  {
+    desiredOutRate = 22050;
+    outBitDepth = 4;
+  }
+  else /* MODE_10K_4 */
+  {
+    desiredOutRate = 10000;
+    outBitDepth = 4;
+  }
+
+  // If the input sample rate is lower than desiredOutRate, use input rate (avoid upsampling)
+  uint32_t outSampleRate = sampleRate;
+  if (sampleRate >= desiredOutRate)
+    outSampleRate = desiredOutRate;
+  else
+  {
+    // if input sample rate smaller, keep input rate but still honor 4-bit/8-bit mapping
+    outSampleRate = sampleRate;
+  }
+  Serial.printf("Selected outSampleRate=%u Hz, outBitDepth=%u-bit(sim)\n", outSampleRate, outBitDepth);
+
+  // prepare playback
+  doneFeeding = false;
+  portENTER_CRITICAL(&timerMux);
+  circHead = circTail = 0;
+  portEXIT_CRITICAL(&timerMux);
+
+  // setup timer for output sample rate
+  setupTimer(outSampleRate);
+
+  // Resample/decimate accumulator (Bresenham-like):
+  // For each input sample we add outSampleRate to acc; if acc >= sampleRate, we emit a sample and subtract sampleRate.
+  uint32_t inRate = sampleRate;
+  uint32_t targetRate = outSampleRate;
+  uint32_t acc = 0;
+
+  // Prefill circ buffer with initial samples before enabling timer
+  uint32_t toRead = dataChunkSize;
+  uint32_t readTotal = 0;
+  bool firstPrefill = true;
+
+  Serial.printf("Starting streaming of %u bytes (inputRate=%u)\n", dataChunkSize, inRate);
+
+  while (readTotal < toRead)
+  {
+    int want = (int)min((uint32_t)RAW_BUF_SIZE, toRead - readTotal);
+    int got = stream->readBytes((char *)rawBuf, want);
+    if (got <= 0)
+    {
+      Serial.println("stream ended early");
+      break;
+    }
+    readTotal += got;
+
+    // Convert and push into circ buffer with decimation/resampling and bit depth mapping
+    if (bitsPerSample == 16)
+    {
+      int sampleCount = got / 2;
+      int idx = 0;
+      while (idx < sampleCount)
+      {
+        // read input sample (mono or stereo mix)
+        int16_t s;
+        if (numChannels == 1)
+        {
+          s = (int16_t)le16(&rawBuf[idx * 2]);
+          idx += 1;
+        }
+        else
+        {
+          if (idx + 1 >= sampleCount)
+            break;
+          int16_t l = (int16_t)le16(&rawBuf[(idx + 0) * 2]);
+          int16_t r = (int16_t)le16(&rawBuf[(idx + 1) * 2]);
+          s = (int16_t)(((int32_t)l + (int32_t)r) / 2);
+          idx += 2;
+        }
+
+        // Decimation decision
+        acc += targetRate;
+        if (acc >= inRate)
+        {
+          acc -= inRate;
+          // Wait for room
+          while (circFree() < 1)
+            delay(1);
+
+          uint8_t outSample;
+          if (outBitDepth == 8)
+          {
+            // map signed int16 [-32768..32767] -> unsigned 0..255
+            outSample = (uint8_t)(((uint16_t)(s + 32768)) >> 8);
+          }
+          else
+          {
+            // 4-bit simulated: map to 16 levels 0..15 then scale to 0..255
+            uint8_t level = (uint8_t)(((uint32_t)(s + 32768) * 16) / 65536); // 0..15
+            if (level > 15)
+              level = 15;
+            outSample = (uint8_t)(level * 17); // scale 0..255
+          }
+          circWriteByte(outSample);
+        }
+      }
+    }
+    else if (bitsPerSample == 8)
+    {
+      int sampleCount = got;
+      int idx = 0;
+      if (numChannels == 1)
+      {
+        while (idx < sampleCount)
+        {
+          uint8_t a = rawBuf[idx++];
+          acc += targetRate;
+          if (acc >= inRate)
+          {
+            acc -= inRate;
+            while (circFree() < 1)
+              delay(1);
+            uint8_t outSample;
+            if (outBitDepth == 8)
+            {
+              outSample = a; // unsigned 8-bit PCM: pass through
+            }
+            else
+            {
+              // input 8-bit unsigned 0..255 -> 4-bit level 0..15
+              uint8_t level = a >> 4;
+              outSample = (uint8_t)(level * 17);
+            }
+            circWriteByte(outSample);
+          }
+        }
+      }
+      else
+      {
+        while (idx + 1 < sampleCount)
+        {
+          uint8_t a = rawBuf[idx++];
+          uint8_t b = rawBuf[idx++];
+          uint16_t mix = ((uint16_t)a + (uint16_t)b) >> 1;
+          acc += targetRate;
+          if (acc >= inRate)
+          {
+            acc -= inRate;
+            while (circFree() < 1)
+              delay(1);
+            uint8_t outSample;
+            if (outBitDepth == 8)
+            {
+              outSample = (uint8_t)mix;
+            }
+            else
+            {
+              uint8_t level = (uint8_t)(mix >> 4);
+              outSample = (uint8_t)(level * 17);
+            }
+            circWriteByte(outSample);
+          }
+        }
+      }
+    }
+    else
+    {
+      Serial.println("Unsupported bitsPerSample in input");
+      break;
+    }
+
+    // After initial prefill, enable timer once we've buffered enough
+    if (firstPrefill)
+    {
+      if (circAvailable() >= PREFILL_SAMPLES)
+      {
+        firstPrefill = false;
+        Serial.printf("Prefill complete (%u samples). Starting timer.\n", (unsigned)circAvailable());
+        timerAlarmEnable(timer);
+      }
+    }
+
+    // occasional status print
+    static unsigned long lastPrint = 0;
+    if (millis() - lastPrint > 500)
+    {
+      lastPrint = millis();
+      uint32_t h = circHead, t = circTail;
+      uint32_t buffered = (h >= t) ? (h - t) : (CIRC_BUF_SIZE - (t - h));
+      Serial.printf("downloaded %u/%u bytes, circ buffered=%u\n", (unsigned)readTotal, (unsigned)toRead, (unsigned)buffered);
+    }
+  }
+
+  // finished feeding full data chunk
+  doneFeeding = true;
+  Serial.println("Finished feeding entire file — waiting for buffer to drain...");
+
+  // wait for ISR to drain buffer (with timeout)
+  unsigned long startWait = millis();
+  while (true)
+  {
+    portENTER_CRITICAL(&timerMux);
+    bool empty = (circTail == circHead);
+    portEXIT_CRITICAL(&timerMux);
+    if (empty)
+      break;
+    if (millis() - startWait > 20000)
+    {
+      Serial.println("Timeout waiting for buffer to drain");
+      break;
+    }
+    delay(20);
+  }
+
+  Serial.println("Playback complete for this file.");
+  // stop timer (already disabled by ISR when empty but ensure disabled)
+  if (timer)
+    timerAlarmDisable(timer);
+
+  http.end();
+
+  // small delay before looping back to download again
+  delay(200);
+}
