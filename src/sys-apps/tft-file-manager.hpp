@@ -8,6 +8,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "file-picker.hpp"
+#include "../io/read-string.hpp"
 
 namespace TFTFileManager
 {
@@ -593,6 +595,11 @@ load("/");
     // ---------- Main entry point / UI loop ----------
     void run()
     {
+        if (readString("Show FS or Upload files? (input: fs/file)", "fs") == "fs")
+        {
+            filePicker();
+            return;
+        }
         // create mutex if not already
         if (!stateMutex)
             stateMutex = xSemaphoreCreateMutex();
