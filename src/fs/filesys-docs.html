@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="de">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>ENC_FS Struktur (Frame‑Übersicht)</title>
+    <style>
+        body {
+            font-family: Arial;
+            margin: 16px
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-bottom: 14px
+        }
+
+        th,
+        td {
+            border: 1px solid #ccc;
+            padding: 6px;
+            font-size: 13px;
+            text-align: left
+        }
+
+        th {
+            background: #f0f0f0
+        }
+
+        code {
+            background: #f6f6f6;
+            padding: 2px 4px;
+            border-radius: 4px
+        }
+    </style>
+</head>
+
+<body>
+
+    <h2>Key & Crypto</h2>
+    <table>
+        <tr>
+            <th>Teil</th>
+            <th>Verfahren</th>
+            <th>Details</th>
+        </tr>
+        <tr>
+            <td>Key</td>
+            <td>SHA‑256</td>
+            <td>sha256(username:password) → 32B</td>
+        </tr>
+        <tr>
+            <td>Dateidaten</td>
+            <td>AES‑CTR</td>
+            <td>Stream‑Verschlüsselung</td>
+        </tr>
+        <tr>
+            <td>Nonce</td>
+            <td>deterministisch</td>
+            <td>SHA256(username:fullPath:version)[0..15]</td>
+        </tr>
+    </table>
+
+    <h2>Dateiname Mapping</h2>
+    <table>
+        <tr>
+            <th>Element</th>
+            <th>On‑Disk</th>
+            <th>Funktion</th>
+        </tr>
+        <tr>
+            <td>Dateiname</td>
+            <td><code>token</code></td>
+            <td>HMAC_SHA256(key, username:parentdir:name)</td>
+        </tr>
+        <tr>
+            <td>Klarname</td>
+            <td><code>.namemeta</code></td>
+            <td>verschlüsselt gespeichert (16bit len, * B name)</td>
+        </tr>
+        <tr>
+            <td>Version</td>
+            <td><code>.ivmeta</code></td>
+            <td>8‑Byte Version</td>
+        </tr>
+    </table>
+
+    <h2>.namemeta Inhalt</h2>
+    <table>
+        <tr>
+            <th>Offset</th>
+            <th>Inhalt</th>
+        </tr>
+        <tr>
+            <td>0‑1</td>
+            <td>Länge (uint16 BE)</td>
+        </tr>
+        <tr>
+            <td>2‑n</td>
+            <td>Dateiname (UTF‑8)</td>
+        </tr>
+        <tr>
+            <td>*</td>
+            <td>AES‑CTR verschlüsselt</td>
+        </tr>
+    </table>
+
+    <h2>Datei‑Verschlüsselung</h2>
+    <table>
+        <tr>
+            <th>Schritt</th>
+            <th>Ablauf</th>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>Version lesen → +1</td>
+        </tr>
+        <tr>
+            <td>2</td>
+            <td>Nonce aus Version ableiten</td>
+        </tr>
+        <tr>
+            <td>3</td>
+            <td>AES‑CTR verschlüsseln</td>
+        </tr>
+        <tr>
+            <td>4</td>
+            <td>Datei + .ivmeta schreiben</td>
+        </tr>
+    </table>
+
+    <h2>Disk Layout</h2>
+    <table>
+        <tr>
+            <th>Disk</th>
+            <th>User sieht</th>
+        </tr>
+        <tr>
+            <td>
+                <code>/sha256(bob)/283f3...</code><br>
+                <code>a8f3....ivmeta</code><br>
+                <code>a8f3....namemeta</code>
+            </td>
+            <td>
+                <code>/bob/docs/report.pdf</code>
+            </td>
+        </tr>
+    </table>
+
+    <h2>Sicherheitslogik</h2>
+    <table>
+        <tr>
+            <th>Mechanismus</th>
+            <th>Zweck</th>
+        </tr>
+        <tr>
+            <td>Version++</td>
+            <td>verhindert CTR‑Keystream reuse</td>
+        </tr>
+        <tr>
+            <td>HMAC Tokens</td>
+            <td>verbergen Dateinamen</td>
+        </tr>
+        <tr>
+            <td>Deterministische Nonce</td>
+            <td>reproduzierbare Entschlüsselung</td>
+        </tr>
+        <tr>
+            <td>KDF schwach</td>
+            <td>PBKDF2/Argon2 empfohlen</td>
+        </tr>
+    </table>
+
+</body>
+
+</html>
