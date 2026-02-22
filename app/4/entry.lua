@@ -1,18 +1,13 @@
--- Minimal Todo List (ESP32 Display OS)
--- tap checkbox = toggle
--- tap text = edit
--- tap X = delete
--- + Add button
--- renders only when needed
-local win = createWindow(0, 0, 240, 320)
+-- Minimal Todo List (180x180 optimized)
+local win = createWindow(0, 0, 180, 180)
 WIN_setName(win, "Todo")
 
 local KEY = "todo_v1"
 local tasks = {}
 local scroll = 0
-local itemH = 28
+local itemH = 22
 
--- load/save
+-- load / save
 local function load()
     local d = FS_get(KEY)
     if not d then return end
@@ -32,31 +27,38 @@ end
 
 local function draw()
     WIN_fillBg(win, 1, 0xFFFF)
-    WIN_fillRect(win, 1, 0, 0, 240, 40, 0x07E0)
-    WIN_writeText(win, 1, 8, 12, "Todo", 3, 0xFFFF)
 
-    WIN_fillRect(win, 1, 180, 6, 50, 28, 0xF800)
-    WIN_writeText(win, 1, 192, 12, "+Add", 2, 0xFFFF)
+    -- header
+    WIN_fillRect(win, 1, 0, 0, 180, 28, 0x07E0)
+    WIN_writeText(win, 1, 6, 8, "Todo", 2, 0xFFFF)
 
-    local y0 = 44
-    local visible = math.floor((320 - 80) / itemH)
+    -- add button
+    WIN_fillRect(win, 1, 130, 4, 46, 20, 0xF800)
+    WIN_writeText(win, 1, 138, 8, "+Add", 1, 0xFFFF)
+
+    local y0 = 32
+    local visible = math.floor((180 - 50) / itemH)
 
     for i = 1, visible do
         local idx = scroll + i
         if idx > #tasks then break end
+
         local y = y0 + (i - 1) * itemH
         local t = tasks[idx]
 
-        WIN_drawRect(win, 1, 10, y + 6, 16, 16, 0x0000)
-        if t.d then WIN_fillRect(win, 1, 12, y + 8, 12, 12, 0x07E0) end
+        -- checkbox
+        WIN_drawRect(win, 1, 6, y + 4, 12, 12, 0x0000)
+        if t.d then WIN_fillRect(win, 1, 8, y + 6, 8, 8, 0x07E0) end
 
-        WIN_writeText(win, 1, 34, y + 8, t.t, 2, 0x0000)
+        -- text
+        WIN_writeText(win, 1, 24, y + 5, t.t, 1, 0x0000)
 
-        WIN_drawLine(win, 1, 210, y + 6, 230, y + 22, 0xF800)
-        WIN_drawLine(win, 1, 230, y + 6, 210, y + 22, 0xF800)
+        -- delete X
+        WIN_drawLine(win, 1, 158, y + 4, 172, y + 18, 0xF800)
+        WIN_drawLine(win, 1, 172, y + 4, 158, y + 18, 0xF800)
     end
 
-    WIN_writeText(win, 1, 8, 300, #tasks .. " items", 2, 0x0000)
+    WIN_writeText(win, 1, 6, 162, #tasks .. " items", 1, 0x0000)
     WIN_finishFrame(win)
 end
 
@@ -77,19 +79,19 @@ local function edit(i)
 end
 
 local function touch(x, y)
-    if y < 40 and x > 180 then
+    if y < 28 and x > 128 then
         add()
         return
     end
 
-    local row = math.floor((y - 44) / itemH) + 1
+    local row = math.floor((y - 32) / itemH) + 1
     local i = scroll + row
     if not tasks[i] then return end
 
-    if x < 30 then
+    if x < 20 then
         tasks[i].d = not tasks[i].d
         save()
-    elseif x > 205 then
+    elseif x > 154 then
         table.remove(tasks, i)
         save()
     else
@@ -100,7 +102,7 @@ end
 load()
 
 while not WIN_closed(win) do
-    local p, s, x, y, _, _, _, nr = WIN_getLastEvent(win, 1)
+    local _, s, x, y, _, _, _, nr = WIN_getLastEvent(win, 1)
 
     if nr or s > 0 then
         if s > 0 then touch(x, y) end
