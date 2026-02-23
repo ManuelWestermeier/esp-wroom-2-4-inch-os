@@ -69,7 +69,7 @@ bool executeApplication(const std::vector<String> &args)
     }
 
     // Serial.println(runningTasks[0].name);-
-    if (runningTasks.size() != 0)
+    if (runningTasks.size() >= MAX_TASKS)
     {
         return false;
     }

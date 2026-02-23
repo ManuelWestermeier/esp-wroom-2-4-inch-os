@@ -1,5 +1,7 @@
 #pragma once
 
+#define MAX_TASKS 2
+
 #include <vector>
 #include <algorithm>
 #include <Arduino.h>

@@ -423,7 +423,7 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                         tft.setTextDatum(CC_DATUM);
                         tft.setTextSize(1);
                         tft.setTextColor(TEXT);
-                        tft.drawString("You have to colose the current app,", 160, 120 - 20);
+                        tft.drawString("You have to colose one current app,", 160, 120 - 20);
                         tft.drawString("bevore opening a new", 160, 120 + 0);
                         tft.drawString("(or internal app error)", 160, 120 + 20);
                         delay(200);
@@ -581,11 +581,9 @@ void Windows::drawMenu(Vec pos, Vec move, MouseState state)
                 tft.drawString("Update", updateRect.pos.x + updateRect.dimensions.x / 2, updateRect.pos.y + (updateRect.dimensions.y / 2));
                 tft.setTextDatum(CC_DATUM);
                 String clippedId = app.id;
-                if (clippedId.length() > 14)
-                {
-                    int start = (clippedId.length() - 14) / 2;
-                    clippedId = clippedId.substring(start, start + 14);
-                }
+
+                if (clippedId.length() > 10)
+                    clippedId = clippedId.substring(clippedId.length() - 10);
 
                 tft.drawString(clippedId,
                                updateRect.pos.x + updateRect.dimensions.x / 2,
