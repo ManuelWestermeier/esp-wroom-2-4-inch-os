@@ -7,6 +7,8 @@
 #include "sys/initialize.hpp"
 #include "sys/monitor.hpp"
 
+#include "apps/cleanup.hpp"
+
 using namespace Windows;
 
 using namespace ENC_FS;
@@ -21,7 +23,8 @@ void setup()
     Auth::login("c", "c");
 
     startWindowRender();
-
+    
+    // deleteAppsWithoutId();
     // testInstallApps();
     // Screen::SPI_Screen::startScreen();
 }
