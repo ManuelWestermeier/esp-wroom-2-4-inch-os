@@ -16,7 +16,7 @@ extern bool executeApplication(const std::vector<String> &args);
 struct AppRenderData
 {
     String name;
-    String id; // new: stores appId from appId/id.txt
+    String id;
     ENC_FS::Path path;
     uint16_t icon[20 * 20];
     bool hasIcon = false;
@@ -33,25 +33,12 @@ struct AppRenderData
         // load id from appId/id.txt (if present)
         id = "";
         auto idPath = path;
-        idPath.push_back("appId");
         idPath.push_back("id.txt");
         if (ENC_FS::exists(idPath))
         {
             id = ENC_FS::readFileString(idPath);
             id.replace("\n", "");
             id.trim();
-        }
-        else
-        {
-            // fallback: try id.txt at root of app folder
-            auto idPath2 = path;
-            idPath2.push_back("id.txt");
-            if (ENC_FS::exists(idPath2))
-            {
-                id = ENC_FS::readFileString(idPath2);
-                id.replace("\n", "");
-                id.trim();
-            }
         }
 
         auto iconPath = path;
