@@ -1,45 +1,36 @@
--- Simple Paint (black & white)
+-- Simple one-shot Paint: fill white once, then each press draws a 3x3 dot.
 print("Paint start")
-local win=createWindow(10,10,180,180)
+local win = createWindow(10,10,180,180)
 WIN_setName(win,"Paint")
+local function int(n) return math.floor(tonumber(n) or 0) end
 
-local canvasX,canvasY,canvasW,canvasH=0,0,180,180
-local color=0x0000
-local drawing=false
-local lastX,lastY
-
--- draw full canvas
-local function drawCanvas()
- WIN_fillRect(win,1,canvasX,canvasY,canvasW,canvasH,0xFFFF)
-end
-
-local function stamp(x,y)
- if x<canvasX or x>=canvasX+canvasW or y<canvasY or y>=canvasY+canvasH then return end
- WIN_fillRect(win,1,x-2,y-2,4,4,color)
-end
-
-local function line(x1,y1,x2,y2)
- local dx,dy=x2-x1,y2-y1
- local dist=math.sqrt(dx*dx+dy*dy)
- local n=math.ceil(dist/2)
- for i=0,n do local t=i/n; stamp(x1+dx*t,y1+dy*t) end
-end
-
-drawCanvas()
+-- initial white fill (only once)
+local _,_,w,h = WIN_getRect(win)
+WIN_fillRect(win, 1, 0, 0, int(w), int(h), 0xFFFF)
 WIN_finishFrame(win)
 
-while not WIN_closed(win) do
- local pressed,s,x,y,_,_,_,nr=WIN_getLastEvent(win,1)
- if nr or s>0 then
-  if s>=0 then
-   if x<10 and y<10 then drawCanvas(); WIN_finishFrame(win) -- clear
-   else
-    if s==0 then drawing=true; lastX,lastY=x,y; stamp(x,y); WIN_finishFrame(win)
-    elseif s==1 and drawing then line(lastX,lastY,x,y); lastX,lastY=x,y; WIN_finishFrame(win)
-    else drawing=false end
-   end
+-- draw a centered 3x3 at (x,y) with color (black or white)
+local function drawDot(x,y,col)
+  x = int(x); y = int(y)
+  local x0 = math.max(0, x-1)
+  local y0 = math.max(0, y-1)
+  -- clamp to window size
+  local w0 = math.min(3, int(w) - x0)
+  local h0 = math.min(3, int(h) - y0)
+  if w0>0 and h0>0 then
+    WIN_fillRect(win, 1, x0, y0, w0, h0, col)
+    WIN_finishFrame(win)
   end
- end
- delay(10)
 end
+
+-- Main loop: left half tap -> black dot; right half tap -> white dot (erase).
+while not WIN_closed(win) do
+  local pressed, state, x, y, mx, my, wc, nr = WIN_getLastEvent(win, 1)
+  if state == 0 then
+    local col = (x >= (w/2)) and 0xFFFF or 0x0000
+    drawDot(x, y, col)
+  end
+  delay(10)
+end
+
 print("Paint exit")
