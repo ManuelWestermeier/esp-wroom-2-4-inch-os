@@ -56,6 +56,120 @@ Use [this converter](https://manuelwestermeier.github.io/to-16-bit/audio) to con
 
 ## Lua API Reference
 
+```lua
+--========================================================
+-- Lua Runtime API
+--========================================================
+
+-- print(...)
+-- Print values to Serial console.
+-- Multiple arguments supported.
+print("hello", 123)
+
+
+-- exec(mode, source)
+-- Execute Lua code from different sources.
+--
+-- Modes:
+--   1 = raw string
+--   2 = shared library id (shared-libs/<id>)
+--   3 = file path relative to current script
+--   4 = GitHub raw path (user/repo/branch/file.lua)
+--
+-- Returns:
+--   "ok" on success
+--   error string on failure
+exec(1, "print('hi')")
+exec(2, "util.lua")
+exec(3, "sub/test.lua")
+exec(4, "user/repo/main/file.lua")
+
+
+-- setLED(state)
+-- Control onboard LED (GPIO2)
+-- 1 = ON, 0 = OFF
+setLED(1)
+
+
+-- RGB(r, g, b)
+-- Convert 8-bit RGB to 16-bit RGB565 color.
+local color = RGB(255, 0, 0)
+
+
+-- getTheme()
+-- Returns UI theme colors.
+-- Fields:
+--   bg, primary, text, placeholder,
+--   accent, accent2, accent3,
+--   accentText, pressed, danger
+local theme = getTheme()
+print(theme.bg)
+
+
+-- delay(ms)
+-- RTOS-safe delay (yields task)
+delay(500)
+
+
+-- millis()
+-- Milliseconds since boot
+local t = millis()
+
+
+--========================================================
+-- HTTP REQUESTS
+--========================================================
+
+-- httpReq(options)
+-- Perform HTTP request.
+--
+-- httpsReq(options)
+-- Same as httpReq but HTTPS (TLS, insecure).
+--
+-- Options table:
+-- {
+--   method = "GET",      -- optional: GET, POST, PUT, DELETE
+--   url = "...",         -- required
+--   body = "...",        -- optional
+--   headers = {          -- optional
+--       ["Header"] = "Value"
+--   }
+-- }
+--
+-- Returns table:
+-- {
+--   status = http_code,
+--   body   = response_text
+-- }
+
+local res = httpReq{
+    url = "http://example.com"
+}
+
+print(res.status)
+print(res.body)
+
+
+local res2 = httpsReq{
+    method = "POST",
+    url = "https://example.com/api",
+    body = '{"x":1}',
+    headers = {
+        ["Content-Type"] = "application/json"
+    }
+}
+
+
+--========================================================
+-- ADDITIONAL LIBRARIES
+--========================================================
+-- Window/UI functions
+-- Filesystem functions
+-- Network utilities
+-- (registered automatically)
+--========================================================
+```
+
 ### Window Management
 
 ```lua
