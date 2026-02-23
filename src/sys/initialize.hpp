@@ -23,9 +23,13 @@ void testInstallApps()
         ;
     Windows::canAccess = false; // Reset access flag for next operations
     // AppManager::install("mwsearchapp");
-    AppManager::install("https://mwsearchapp.onrender.com/2");
-    AppManager::install("https://mwsearchapp.onrender.com/3");
-    AppManager::install("https://mwsearchapp.onrender.com/4");
+    // AppManager::install("https://mwsearchapp.onrender.com/2");
+    // AppManager::install("https://mwsearchapp.onrender.com/3");
+    // AppManager::install("https://mwsearchapp.onrender.com/4");
+    AppManager::install("https://mwsearchapp.onrender.com/5");
+    AppManager::install("https://mwsearchapp.onrender.com/6");
+    AppManager::install("https://mwsearchapp.onrender.com/7");
+    
     Windows::canAccess = true; // Allow access again after installations
 }
 
