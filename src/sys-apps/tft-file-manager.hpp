@@ -595,8 +595,23 @@ load("/");
     // ---------- Main entry point / UI loop ----------
     void run()
     {
-        if (readString("Show FS or Upload files? (input: fs/file)", "fs") == "fs")
+        auto res = readString("Show FS or Upload files? (input: fs:del/show or upload) ", "fs:");
+        if (res.startsWith("fs"))
         {
+            if (res.endsWith("del"))
+            {
+                auto p = ENC_FS::str2Path(filePicker());
+                if (ENC_FS::getMetadata(p).isDirectory)
+                {
+                    ENC_FS::rmDir(p);
+                    return;
+                }
+                else
+                {
+                    ENC_FS::deleteFile(p);
+                    return;
+                }
+            }
             filePicker();
             return;
         }
