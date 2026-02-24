@@ -19,11 +19,14 @@ void setup()
 
     // UserWiFi::addPublicWifi("io", "hhhhhh90");
 
-    // Auth::init();
+#ifdef USE_LOGIN_SCREEN
+    Auth::init();
+#else
     Auth::login("c", "c");
+#endif
 
     startWindowRender();
-    
+
     // deleteAppsWithoutId();
     // testInstallApps();
     // Screen::SPI_Screen::startScreen();
